@@ -13,19 +13,11 @@ RUN if [ -n "${DEBIAN_MIRROR}" ]; then \
         echo 'Acquire::https::Verify-Host "false";' >> /etc/apt/apt.conf.d/99ssl-internal-mirror; \
         echo 'Acquire::AllowInsecureRepositories "true";' >> /etc/apt/apt.conf.d/99ssl-internal-mirror; \
         echo 'APT::Get::AllowUnauthenticated "true";' >> /etc/apt/apt.conf.d/99ssl-internal-mirror; \
-        if [ -f /etc/apt/sources.list ]; then \
-            sed -i -E "s|https?://deb.debian.org/debian-security/?|${DEBIAN_MIRROR}/|g" /etc/apt/sources.list; \
-            sed -i -E "s|https?://security.debian.org/debian-security/?|${DEBIAN_MIRROR}/|g" /etc/apt/sources.list; \
-            sed -i -E "s|https?://deb.debian.org/debian/?|${DEBIAN_MIRROR}/|g" /etc/apt/sources.list; \
-        fi; \
-        if [ -d /etc/apt/sources.list.d ]; then \
-            for f in /etc/apt/sources.list.d/*; do \
-                [ -e "$f" ] || continue; \
-                sed -i -E "s|https?://deb.debian.org/debian-security/?|${DEBIAN_MIRROR}/|g" "$f"; \
-                sed -i -E "s|https?://security.debian.org/debian-security/?|${DEBIAN_MIRROR}/|g" "$f"; \
-                sed -i -E "s|https?://deb.debian.org/debian/?|${DEBIAN_MIRROR}/|g" "$f"; \
-            done; \
-        fi; \
+        . /etc/os-release; \
+        CODENAME=${VERSION_CODENAME:-trixie}; \
+        rm -rf /etc/apt/sources.list.d/*; \
+        echo "deb [trusted=yes] ${DEBIAN_MIRROR} ${CODENAME} main" > /etc/apt/sources.list; \
+        echo "deb [trusted=yes] ${DEBIAN_MIRROR} ${CODENAME}-updates main" >> /etc/apt/sources.list; \
     fi
 
 # Configure PyPI mirror globally for all pip operations
