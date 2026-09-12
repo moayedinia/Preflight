@@ -98,6 +98,12 @@
         <span id="health-text">Online</span>
       </div>
 
+      <!-- Ollama Embeddings Indicator -->
+      <div id="ollama-badge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-300 font-mono" title="Ollama Embeddings Service">
+        <span id="ollama-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+        <span id="ollama-text">Ollama</span>
+      </div>
+
       <!-- API Key Setting -->
       <button onclick="promptApiKey()" id="api-key-btn" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition" title="Set or update enterprise API key">
         <i data-lucide="key" class="w-3.5 h-3.5 text-amber-400"></i>
@@ -675,6 +681,43 @@
         badge.classList.remove('hidden');
         dot.className = 'w-2 h-2 rounded-full bg-rose-500';
         text.innerText = 'Offline';
+      }
+
+      // Check Ollama Embeddings Status
+      try {
+        const oBadge = document.getElementById('ollama-badge');
+        const oDot = document.getElementById('ollama-dot');
+        const oText = document.getElementById('ollama-text');
+        if (oBadge) {
+          oBadge.classList.remove('hidden');
+          const res = await fetch(`${API_BASE}/api/v1/ollama/status`, { headers: getAuthHeaders() });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'connected') {
+              oDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+              oText.innerText = `Ollama: ${data.target_model} (${data.detected_dimension}d)`;
+              oBadge.title = `Connected to ${data.server_url}\nModel: ${data.target_model} (${data.detected_dimension}d)`;
+            } else if (data.status === 'not_configured') {
+              oDot.className = 'w-2 h-2 rounded-full bg-amber-400';
+              oText.innerText = 'Embeddings: Offline (Fallback)';
+              oBadge.title = 'OLLAMA_BASE_URL is not configured in .env';
+            } else {
+              oDot.className = 'w-2 h-2 rounded-full bg-rose-500';
+              oText.innerText = 'Ollama: Error';
+              oBadge.title = data.error_detail || 'Could not connect to Ollama server';
+            }
+          } else {
+            oDot.className = 'w-2 h-2 rounded-full bg-amber-500';
+            oText.innerText = 'Ollama: Auth / Unavailable';
+          }
+        }
+      } catch (e) {
+        const oDot = document.getElementById('ollama-dot');
+        const oText = document.getElementById('ollama-text');
+        if (oDot && oText) {
+          oDot.className = 'w-2 h-2 rounded-full bg-slate-500';
+          oText.innerText = 'Ollama: Unreachable';
+        }
       }
     }
 

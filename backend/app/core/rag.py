@@ -75,10 +75,11 @@ Please provide a detailed, well-structured explanation:
 """
 
     answer = ""
-    if client:
+    llm_model = os.getenv("LLM_MODEL") or ("gpt-4o-mini" if os.getenv("OPENAI_API_KEY") else None)
+    if client and llm_model:
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=llm_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -87,13 +88,13 @@ Please provide a detailed, well-structured explanation:
             )
             answer = response.choices[0].message.content
         except Exception as e:
-            answer = f"(LLM generation error: {e})\n\nContext summary:\n" + full_context[:1000]
+            answer = f"*(Notice: LLM response unavailable: {e})*\n\n### Retrieved Code Graph Context:\n\n{full_context}"
     else:
         answer = (
-            "OpenAI API key not set or unavailable. "
-            "Here is the retrieved GraphRAG context based on vector & structural graph traversal:\n\n"
-            f"Top Matches Found: {len(hits)}\n"
-            + "\n".join([f"- **{h.get('name')}** in `{h.get('file_path')}`" for h in hits])
+            "### Retrieved Code Graph Context (GraphRAG Traversal):\n\n"
+            f"**Top Matches Found:** {len(hits)}\n"
+            + "\n".join([f"- **`{h.get('name')}`** in `{h.get('file_path')}` (Score: {h.get('score', 0):.4f})" for h in hits])
+            + f"\n\n---\n\n{full_context[:1500]}..."
         )
 
     return {

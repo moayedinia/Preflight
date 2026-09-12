@@ -73,10 +73,11 @@ Please provide a formal 4-part architectural review:
 """
 
     ai_review_text = ""
-    if client:
+    llm_model = os.getenv("LLM_MODEL") or ("gpt-4o-mini" if os.getenv("OPENAI_API_KEY") else None)
+    if client and llm_model:
         try:
             resp = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=llm_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -85,16 +86,16 @@ Please provide a formal 4-part architectural review:
             )
             ai_review_text = resp.choices[0].message.content
         except Exception as e:
-            ai_review_text = f"LLM Review generation error: {e}\n\nAutomated Context:\n{context_summary}"
+            ai_review_text = f"*(Notice: LLM Review synthesis unavailable: {e})*\n\n{context_summary}"
     else:
         ai_review_text = (
-            f"### Automated Architectural Review (Offline Mode)\n\n"
+            f"### Automated Architectural Review (Graph Engine)\n\n"
             f"**Overall Risk Rating:** `{highest_risk}`\n\n"
             f"**Downstream Blast Radius:**\n"
             f"- Modified Symbols: {', '.join(touched_symbols) or 'General edits'}\n"
             f"- Affected Functions: {len(total_affected_functions)} ({', '.join(list(total_affected_functions)[:8])})\n"
             f"- Affected Files: {len(total_affected_files)} files require regression testing.\n\n"
-            f"*Configure OPENAI_API_KEY in .env for full natural language AI synthesis.*"
+            f"{context_summary}"
         )
 
     return {

@@ -54,12 +54,14 @@ app = FastAPI(
 )
 
 # Configure CORS securely from environment
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
 allowed_origins = [orig.strip() for orig in allowed_origins_env.split(",") if orig.strip()]
+if "*" in allowed_origins or not allowed_origins:
+    allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins if allowed_origins else ["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -137,6 +139,15 @@ def healthcheck():
     if not is_healthy:
         raise HTTPException(status_code=503, detail=payload)
     return payload
+
+@app.get("/api/v1/ollama/status")
+def check_ollama_status():
+    """
+    Diagnostic Endpoint: Verifies connectivity to the remote/internal Ollama server,
+    retrieves loaded model tags, and validates the Jina embeddings vector generation.
+    """
+    from app.core.embedder import verify_ollama_status
+    return verify_ollama_status()
 
 @app.get("/")
 def read_root():
