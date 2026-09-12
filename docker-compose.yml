@@ -8,8 +8,8 @@ services:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-Neo4jSecurePass2026!}
       - NEO4J_PLUGINS=["apoc"]
     ports:
-      - "${NEO4J_HTTP_PORT:-7474}:7474"
-      - "${NEO4J_BOLT_PORT:-7687}:7687"
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
     volumes:
       - neo4j_data:/data
     restart: unless-stopped
@@ -19,7 +19,7 @@ services:
     container_name: redis_broker
     command: redis-server --requirepass "${REDIS_PASSWORD:-RedisSecurePass2026!}"
     ports:
-      - "${REDIS_PORT:-127.0.0.1:6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     restart: unless-stopped
 
   api:
@@ -35,7 +35,7 @@ services:
       - ./backend:/app
       - ./repos:/app/repos:ro # Read-only mount for code repositories sandbox
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_INTERNAL_PORT:-8000}:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -102,12 +102,12 @@ services:
         PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
         PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_mcp
-    command: python -m app.mcp_server --transport sse --port 8001 --host 0.0.0.0
+    command: python -m app.mcp_server --transport sse --port 8002 --host 0.0.0.0
     volumes:
       - ./backend:/app
       - ./repos:/app/repos:ro
     ports:
-      - "${MCP_PORT:-8001}:8001"
+      - "${MCP_PORT:-8002}:8002"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -134,7 +134,7 @@ services:
         DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
     container_name: graphrag_dashboard
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${WEB_PORT:-8001}:80"
     volumes:
       - ./frontend:/usr/share/nginx/html
     depends_on:

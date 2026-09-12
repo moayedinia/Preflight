@@ -481,11 +481,11 @@
           <div class="flex items-center justify-between text-[11px] text-slate-400">
             <span>MCP SSE Transport URL:</span>
             <span id="mcp-ping-status" class="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Ready (Port 8001)
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Ready (Port 8002)
             </span>
           </div>
           <div class="flex items-center gap-2">
-            <code id="mcp-endpoint-display" class="flex-1 bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800 text-sky-300 font-mono text-xs select-all">http://localhost:8001/sse</code>
+            <code id="mcp-endpoint-display" class="flex-1 bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800 text-sky-300 font-mono text-xs select-all">http://localhost:8002/sse</code>
             <button onclick="copyMcpUrl()" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition" title="Copy SSE URL">
               <i data-lucide="copy" class="w-3.5 h-3.5"></i>
             </button>
@@ -731,7 +731,10 @@
 
   <!-- JavaScript Application Logic -->
   <script>
-    const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`;
+    // If loaded through Nginx reverse proxy (port 8001 / 80 / 443), use relative path, else fallback to 8000
+    const API_BASE = (window.location.port === '8001' || window.location.port === '8002' || !window.location.port || window.location.port === '80')
+      ? ''
+      : (window.location.hostname === 'localhost' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`);
     let cy = null;
     let currentSelectedNode = null;
 
@@ -796,7 +799,9 @@
 
     function getMcpServerUrl() {
       const host = window.location.hostname || 'localhost';
-      return `http://${host}:8001/sse`;
+      // When Web Dashboard is on port 8001, MCP is on port 8002
+      const mcpPort = window.location.port === '8002' ? '8001' : '8002';
+      return `http://${host}:${mcpPort}/sse`;
     }
 
     function initMcpView() {
