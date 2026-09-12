@@ -8,8 +8,10 @@ from app.core.graph import (
     driver,
     vector_search,
     expand_graph_context,
-    get_graph_stats
+    get_graph_stats,
+    ingest_parsed_data
 )
+from app.core.parser import parse_source_file
 from app.core.embedder import get_embedding
 from app.core.scanner import scan_and_ingest_directory
 from app.core.security import validate_safe_path, sanitize_name
@@ -219,6 +221,32 @@ def clone_and_index_git_repository(
         )
     except Exception as e:
         return f"Failed to clone and index repository: {str(e)}"
+
+@mcp.tool()
+def ingest_code_snippet(repo_name: str, file_path: str, code_content: str) -> str:
+    """
+    Directly ingests a single source code snippet or new file into the Code Knowledge Graph.
+    Enables AI agents to immediately index newly written or modified files without full repository rescanning.
+    
+    Args:
+        repo_name: Name of the repository (e.g. 'my-project').
+        file_path: Relative file path (e.g. 'services/auth.py').
+        code_content: Full source code text of the file.
+    """
+    try:
+        clean_repo = sanitize_name(repo_name)
+        code_bytes = code_content.encode("utf-8")
+        parsed_data = parse_source_file(file_path, code_bytes)
+        ingest_parsed_data(clean_repo, parsed_data)
+        return (
+            f"Successfully parsed and indexed '{file_path}' into repository '{clean_repo}':\n"
+            f"- Language Detected: {parsed_data.get('language', 'unknown')}\n"
+            f"- Classes Indexed: {len(parsed_data.get('classes', []))}\n"
+            f"- Functions Indexed: {len(parsed_data.get('functions', []))}\n"
+            f"- Imports Linked: {len(parsed_data.get('imports', []))}"
+        )
+    except Exception as e:
+        return f"Failed to ingest snippet: {str(e)}"
 
 @mcp.tool()
 def list_repositories() -> str:

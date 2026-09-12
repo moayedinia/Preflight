@@ -87,6 +87,9 @@
         <button id="nav-btn-review" onclick="switchMainView('review')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
           <i data-lucide="git-pull-request" class="w-3.5 h-3.5"></i> Diff Impact & PR Review
         </button>
+        <button id="nav-btn-mcp" onclick="switchMainView('mcp')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="cpu" class="w-3.5 h-3.5 text-sky-400"></i> MCP & Agent Connect
+        </button>
       </nav>
     </div>
 
@@ -455,6 +458,153 @@
         </div>
       </div>
     </div>
+
+    <!-- ================= VIEW 5: MCP AGENT CONNECT ================= -->
+    <div id="view-mcp" class="flex-1 flex flex-col w-full h-full bg-slate-950 overflow-y-auto custom-scrollbar p-6 space-y-6 hidden">
+      <!-- Header Banner -->
+      <div class="bg-gradient-to-r from-slate-900 via-sky-950/40 to-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-2">
+            <span class="p-2 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30">
+              <i data-lucide="cpu" class="w-5 h-5"></i>
+            </span>
+            <h2 class="text-base font-bold text-slate-100">Model Context Protocol (MCP) Agent Hub</h2>
+            <span class="text-[10px] bg-emerald-950 border border-emerald-600/50 text-emerald-400 px-2 py-0.5 rounded-full font-mono font-semibold">Active Server</span>
+          </div>
+          <p class="text-xs text-slate-400 max-w-2xl leading-relaxed">
+            Connect autonomous AI coding agents (Cursor, Claude Desktop, Windsurf, Roo-Code, LangChain) directly to your enterprise Knowledge Graph. Agents can autonomously ingest repositories, explore AST graphs, trace callers, and compute change blast radiuses without requiring manual admin intervention.
+          </p>
+        </div>
+
+        <!-- Live Endpoint Card -->
+        <div class="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 flex flex-col gap-2 min-w-[280px]">
+          <div class="flex items-center justify-between text-[11px] text-slate-400">
+            <span>MCP SSE Transport URL:</span>
+            <span id="mcp-ping-status" class="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Ready (Port 8001)
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <code id="mcp-endpoint-display" class="flex-1 bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800 text-sky-300 font-mono text-xs select-all">http://localhost:8001/sse</code>
+            <button onclick="copyMcpUrl()" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition" title="Copy SSE URL">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Connect Config Guides (Tabs) -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <i data-lucide="terminal" class="w-4 h-4 text-sky-400"></i> Client Configuration Generator
+            </h3>
+            <p class="text-[11px] text-slate-400">Select your agent / IDE client to copy the exact configuration block.</p>
+          </div>
+
+          <!-- Client Selector Tabs -->
+          <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-medium">
+            <button id="mcp-client-btn-cursor" onclick="switchMcpClientTab('cursor')" class="px-3 py-1 rounded-lg bg-sky-600 text-white font-semibold shadow-sm transition">Cursor IDE</button>
+            <button id="mcp-client-btn-claude" onclick="switchMcpClientTab('claude')" class="px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200 transition">Claude Desktop</button>
+            <button id="mcp-client-btn-windsurf" onclick="switchMcpClientTab('windsurf')" class="px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200 transition">Windsurf / VS Code</button>
+            <button id="mcp-client-btn-python" onclick="switchMcpClientTab('python')" class="px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200 transition">Python Agent</button>
+          </div>
+        </div>
+
+        <!-- Code Block Preview -->
+        <div class="relative">
+          <pre id="mcp-config-code" class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 overflow-x-auto custom-scrollbar leading-relaxed"></pre>
+          <button onclick="copyMcpConfigSnippet()" id="mcp-copy-btn" class="absolute top-3 right-3 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-600/20 transition">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i> <span id="mcp-copy-label">Copy Config</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Autonomous Agent Tools Catalog -->
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+            <i data-lucide="wrench" class="w-4 h-4 text-amber-400"></i> Autonomous Agent Tool Catalog (Self-Service)
+          </h3>
+          <span class="text-[11px] text-slate-500">11 Tools Available to Connected Agents</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+          <!-- Tool 1: Self Service Git Clone -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-sky-400">clone_and_index_git</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-sky-950 text-sky-400 border border-sky-800">Ingest</span>
+            </div>
+            <p class="text-slate-400 text-[11px]">Allows the agent to clone any public/private Git repository, parse its AST, generate Jina embeddings, and register it in the graph autonomously.</p>
+          </div>
+
+          <!-- Tool 2: Snippet Ingestion -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-sky-400">ingest_code_snippet</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-sky-950 text-sky-400 border border-sky-800">Ingest</span>
+            </div>
+            <p class="text-slate-400 text-[11px]">Indexes newly written or modified source files in real-time, keeping the knowledge graph up to date as the agent codes.</p>
+          </div>
+
+          <!-- Tool 3: Semantic Graph Search -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-emerald-400">search_code_graph</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800">Search</span>
+            </div>
+            <p class="text-slate-400 text-[11px]">Hybrid semantic search with Jina vector embeddings + Neo4j relational expansion (parent classes, callers, and callees).</p>
+          </div>
+
+          <!-- Tool 4: Function Details -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-emerald-400">get_function_details</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800">Inspect</span>
+            </div>
+            <p class="text-slate-400 text-[11px]">Retrieves complete code implementation, docstring, file path, lines, and call signatures for a target symbol.</p>
+          </div>
+
+          <!-- Tool 5: Find Callers -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-amber-400">find_callers</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-amber-950 text-amber-400 border border-amber-800">Traverse</span>
+            </div>
+            <p class="text-slate-400 text-[11px]">Traces all functions and files that call a given symbol across the entire enterprise codebase before refactoring.</p>
+          </div>
+
+          <!-- Tool 6: Blast Radius -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-rose-400">analyze_change_impact</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-rose-950 text-rose-400 border border-rose-800">Safety</span>
+            </div>
+            <p class="text-slate-400 text-[11px]">Calculates cumulative blast radius (1-3 hops away) and outputs the list of files requiring regression testing.</p>
+          </div>
+
+          <!-- Tool 7: Code Review -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-indigo-400">review_code_diff</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-indigo-950 text-indigo-400 border border-indigo-800">Review</span>
+            </div>
+            <p class="text-slate-400 text-[11px]">Takes a Git unified diff, maps touched symbols against the Knowledge Graph, and outputs architectural risk review.</p>
+          </div>
+
+          <!-- Tool 8: Code Smells -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-purple-400">detect_code_smells</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-purple-950 text-purple-400 border border-purple-800">Audit</span>
+            </div>
+            <p class="text-slate-400 text-[11px]">Audits the codebase for circular dependencies, bottleneck hub functions, and dead code candidates.</p>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- ==================== AUTOMATED INGEST MODAL ==================== -->
@@ -617,7 +767,7 @@
 
     // --- Main View Navigation ---
     function switchMainView(viewName) {
-      const views = ['graph', 'analytics', 'repos', 'review'];
+      const views = ['graph', 'analytics', 'repos', 'review', 'mcp'];
       views.forEach(v => {
         const el = document.getElementById(`view-${v}`);
         const btn = document.getElementById(`nav-btn-${v}`);
@@ -636,6 +786,119 @@
         loadCodeSmells();
       } else if (viewName === 'repos') {
         loadRepositoriesHub();
+      } else if (viewName === 'mcp') {
+        initMcpView();
+      }
+    }
+
+    // --- MCP Agent View Logic ---
+    let currentMcpTab = 'cursor';
+
+    function getMcpServerUrl() {
+      const host = window.location.hostname || 'localhost';
+      return `http://${host}:8001/sse`;
+    }
+
+    function initMcpView() {
+      const sseUrl = getMcpServerUrl();
+      const endpointEl = document.getElementById('mcp-endpoint-display');
+      if (endpointEl) endpointEl.innerText = sseUrl;
+      renderMcpConfigCode();
+    }
+
+    function switchMcpClientTab(tab) {
+      currentMcpTab = tab;
+      const tabs = ['cursor', 'claude', 'windsurf', 'python'];
+      tabs.forEach(t => {
+        const btn = document.getElementById(`mcp-client-btn-${t}`);
+        if (btn) {
+          if (t === tab) {
+            btn.className = 'px-3 py-1 rounded-lg bg-sky-600 text-white font-semibold shadow-sm transition';
+          } else {
+            btn.className = 'px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200 transition';
+          }
+        }
+      });
+      renderMcpConfigCode();
+    }
+
+    function renderMcpConfigCode() {
+      const sseUrl = getMcpServerUrl();
+      const codeEl = document.getElementById('mcp-config-code');
+      if (!codeEl) return;
+
+      if (currentMcpTab === 'cursor') {
+        codeEl.innerText = `// Put this in your project's .cursor/mcp.json or Cursor Global Settings -> MCP:
+{
+  "mcpServers": {
+    "codegraph-brain": {
+      "url": "${sseUrl}"
+    }
+  }
+}`;
+      } else if (currentMcpTab === 'claude') {
+        codeEl.innerText = `// Put this in claude_desktop_config.json:
+// (%APPDATA%\\Claude\\claude_desktop_config.json on Windows, ~/Library/Application Support/Claude/ on Mac)
+{
+  "mcpServers": {
+    "codegraph-brain": {
+      "url": "${sseUrl}"
+    }
+  }
+}`;
+      } else if (currentMcpTab === 'windsurf') {
+        codeEl.innerText = `// Put this in Windsurf / VS Code Roo-Code MCP configuration:
+{
+  "mcpServers": {
+    "codegraph-brain": {
+      "url": "${sseUrl}"
+    }
+  }
+}`;
+      } else if (currentMcpTab === 'python') {
+        codeEl.innerText = `# Autonomous Python Agent example (FastMCP / LangChain / Antigravity):
+import asyncio
+from mcp import ClientSession
+from mcp.client.sse import sse_client
+
+async def run():
+    async with sse_client("${sseUrl}") as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            
+            # 1. Autonomous Ingestion: Agent clones and indexes a repo
+            await session.call_tool("clone_and_index_git_repository", {
+                "git_url": "https://github.com/fastapi/fastapi.git"
+            })
+            
+            # 2. Semantic Search with Relational Call Graph
+            res = await session.call_tool("search_code_graph", {
+                "query": "How is routing handled?",
+                "top_k": 3
+            })
+            print(res.content[0].text)
+
+asyncio.run(run())`;
+      }
+    }
+
+    function copyMcpUrl() {
+      const url = getMcpServerUrl();
+      navigator.clipboard.writeText(url).then(() => {
+        alert('MCP SSE URL copied to clipboard: ' + url);
+      });
+    }
+
+    function copyMcpConfigSnippet() {
+      const codeEl = document.getElementById('mcp-config-code');
+      const copyLabel = document.getElementById('mcp-copy-label');
+      if (codeEl) {
+        navigator.clipboard.writeText(codeEl.innerText).then(() => {
+          if (copyLabel) {
+            copyLabel.innerText = 'Copied!';
+            setTimeout(() => { copyLabel.innerText = 'Copy Config'; }, 2000);
+          }
+        });
       }
     }
 
