@@ -36,6 +36,8 @@ services:
       - ./repos:/app/repos:ro # Read-only mount for code repositories sandbox
     ports:
       - "127.0.0.1:8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
@@ -47,6 +49,9 @@ services:
       - ALLOWED_REPO_DIR=/app/repos
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jina-embeddings-v2-base-code}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
     depends_on:
@@ -66,6 +71,8 @@ services:
     volumes:
       - ./backend:/app
       - ./repos:/app/repos:ro # Read-only sandbox mount
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
@@ -74,6 +81,9 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-RedisSecurePass2026!}@redis:6379/0
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jina-embeddings-v2-base-code}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
     depends_on:
@@ -96,12 +106,17 @@ services:
       - ./repos:/app/repos:ro
     ports:
       - "127.0.0.1:8001:8001" # MCP SSE bound locally
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-Neo4jSecurePass2026!}
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jina-embeddings-v2-base-code}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
     depends_on:

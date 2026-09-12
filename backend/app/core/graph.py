@@ -1,6 +1,6 @@
 import os
 from neo4j import GraphDatabase
-from app.core.embedder import get_embedding
+from app.core.embedder import get_embedding, EMBEDDING_DIM
 
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
@@ -19,13 +19,22 @@ def init_graph_schema():
 
         # Vector Index for Functions
         try:
-            session.run("""
+            # Check if vector index exists with matching dimension; recreate if dimension changed
+            check_rec = session.run("SHOW INDEXES YIELD name, options WHERE name = 'function_embeddings'").single()
+            if check_rec:
+                cfg = check_rec.get("options", {}).get("indexConfig", {})
+                current_dim = cfg.get("vector.dimensions")
+                if current_dim and current_dim != EMBEDDING_DIM:
+                    print(f"Adapting vector index dimension: {current_dim} -> {EMBEDDING_DIM}")
+                    session.run("DROP INDEX function_embeddings IF EXISTS")
+
+            session.run(f"""
             CREATE VECTOR INDEX function_embeddings IF NOT EXISTS
             FOR (fn:Function) ON (fn.embedding)
-            OPTIONS {indexConfig: {
-                `vector.dimensions`: 1536,
+            OPTIONS {{indexConfig: {{
+                `vector.dimensions`: {EMBEDDING_DIM},
                 `vector.similarity_function`: 'cosine'
-            }}
+            }}}}
             """)
         except Exception as e:
             print(f"Notice regarding vector index: {e}")
