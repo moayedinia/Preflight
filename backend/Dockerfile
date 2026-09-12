@@ -2,7 +2,7 @@ ARG DOCKER_REGISTRY=""
 FROM ${DOCKER_REGISTRY}python:3.11-slim
 
 ARG DEBIAN_MIRROR="https://linux.repo.ime.co.ir/repository/debian"
-ARG PYPI_MIRROR="https://pypi.repo.ime.co.ir/repository/pypi-group/simple"
+ARG PYPI_MIRROR="https://pypi.repo.ime.co.ir/repository/pypi-group/simple/"
 ARG PYPI_HOST="pypi.repo.ime.co.ir"
 
 # Configure Debian APT mirror for internal/corporate network
@@ -23,6 +23,8 @@ RUN if [ -n "${DEBIAN_MIRROR}" ]; then \
 # Configure PyPI mirror globally for all pip operations
 ENV PIP_INDEX_URL=${PYPI_MIRROR}
 ENV PIP_TRUSTED_HOST=${PYPI_HOST}
+ENV PIP_DEFAULT_TIMEOUT=180
+ENV PIP_RETRIES=5
 
 # Install necessary build tools and security dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -38,10 +40,12 @@ RUN groupadd -g 1001 appgroup && \
 
 # Configure pip config file for system-wide package installations
 RUN pip config set global.index-url "${PYPI_MIRROR}" && \
-    pip config set global.trusted-host "${PYPI_HOST}"
+    pip config set global.trusted-host "${PYPI_HOST}" && \
+    pip config set global.timeout "180" && \
+    pip config set global.retries "5"
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --index-url "${PYPI_MIRROR}" --trusted-host "${PYPI_HOST}" -r requirements.txt
+RUN pip install --no-cache-dir --default-timeout=180 --retries=5 --index-url "${PYPI_MIRROR}" --trusted-host "${PYPI_HOST}" -r requirements.txt
 
 # Create sandboxed repos directory and set ownership
 RUN mkdir -p /app/repos && chown -R appuser:appgroup /app

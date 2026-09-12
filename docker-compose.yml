@@ -28,7 +28,7 @@ services:
       args:
         DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
-        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
         PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -54,8 +54,10 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jina-embeddings-v2-base-code}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - LLM_MODEL=${LLM_MODEL:-}
-      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
+      - PIP_DEFAULT_TIMEOUT=180
+      - PIP_RETRIES=5
     depends_on:
       - neo4j
       - redis
@@ -67,7 +69,7 @@ services:
       args:
         DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
-        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
         PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_worker
     command: celery -A app.core.celery.celery_app worker --loglevel=info
@@ -88,8 +90,10 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jina-embeddings-v2-base-code}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - LLM_MODEL=${LLM_MODEL:-}
-      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
+      - PIP_DEFAULT_TIMEOUT=180
+      - PIP_RETRIES=5
     depends_on:
       - neo4j
       - redis
@@ -102,7 +106,7 @@ services:
       args:
         DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
-        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
         PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_mcp
     command: python -m app.mcp_server --transport sse --port 8002 --host 0.0.0.0
@@ -123,8 +127,10 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jina-embeddings-v2-base-code}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - LLM_MODEL=${LLM_MODEL:-}
-      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
+      - PIP_DEFAULT_TIMEOUT=180
+      - PIP_RETRIES=5
     depends_on:
       - neo4j
       - redis
