@@ -1,14 +1,19 @@
 import os
 import shutil
 import tempfile
+try:
+    import redis
+except ImportError:
+    redis = None
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Depends, Security, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, Security, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from app.core.parser import parse_source_file
 from app.core.graph import (
+    driver,
     ingest_parsed_data,
     init_graph_schema,
     get_graph_stats,
@@ -21,7 +26,7 @@ from app.tasks.ingestion import (
     async_clone_and_index,
     async_extract_and_index
 )
-from app.core.celery import celery_app
+from app.core.celery import celery_app, CELERY_BROKER_URL
 from app.core.security import (
     verify_api_key,
     validate_safe_path,
@@ -29,11 +34,23 @@ from app.core.security import (
     ALLOWED_REPO_DIR
 )
 from app.core.cloner import clone_git_repo, extract_safe_zip
+from app.core.analytics import (
+    detect_circular_dependencies,
+    detect_high_risk_hubs,
+    detect_dead_code_candidates,
+    calculate_blast_radius
+)
+from app.core.repo_manager import (
+    list_all_repositories,
+    get_repository_summary,
+    delete_repository
+)
+from app.core.reviewer import generate_architectural_code_review
 
 app = FastAPI(
     title="Enterprise Code Knowledge Graph & GraphRAG API",
-    description="Automated Git cloning, ZIP extraction, AST ingestion, vector embeddings, and GraphRAG retrieval.",
-    version="1.2.0"
+    description="Automated Git cloning, ZIP extraction, AST ingestion, vector embeddings, GraphRAG retrieval, Code Smells analysis, and PR Review.",
+    version="2.0.0"
 )
 
 # Configure CORS securely from environment
@@ -78,11 +95,55 @@ class QueryRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
     top_k: Optional[int] = Field(5, ge=1, le=25)
 
+class DiffReviewRequest(BaseModel):
+    diff_text: str = Field(..., min_length=5, max_length=500_000, description="Unified Git diff content")
+    repo_name: Optional[str] = Field(None, max_length=100)
+
+@app.get("/healthz")
+def healthcheck():
+    """
+    Production Healthcheck: Verifies connectivity to Neo4j graph database and Redis message broker.
+    Returns 200 if all core dependencies are responsive, otherwise 503 Service Unavailable.
+    """
+    neo4j_status = "unknown"
+    redis_status = "unknown"
+    is_healthy = True
+
+    try:
+        driver.verify_connectivity()
+        neo4j_status = "healthy"
+    except Exception as e:
+        neo4j_status = f"unhealthy: {str(e)}"
+        is_healthy = False
+
+    if redis:
+        try:
+            r = redis.from_url(CELERY_BROKER_URL, socket_timeout=2)
+            r.ping()
+            redis_status = "healthy"
+        except Exception as e:
+            redis_status = f"unhealthy: {str(e)}"
+            is_healthy = False
+    else:
+        redis_status = "unhealthy: redis module not installed"
+        is_healthy = False
+
+    payload = {
+        "status": "healthy" if is_healthy else "degraded",
+        "neo4j": neo4j_status,
+        "redis": redis_status,
+        "version": "2.0.0"
+    }
+    if not is_healthy:
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
+
 @app.get("/")
 def read_root():
     return {
         "status": "online",
         "service": "Enterprise Code GraphRAG API (Automated Ingestion)",
+        "version": "2.0.0",
         "security": "API Key authentication active" if os.getenv("API_KEY") else "Dev Mode (Unauthenticated)"
     }
 
@@ -254,3 +315,99 @@ def graph_elements(repo_name: Optional[str] = None, limit: Optional[int] = 120):
         return get_graph_elements(repo_name=clean_repo, limit=clean_limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# 8. Multi-Repository Management
+@app.get("/api/v1/repos", dependencies=[Depends(verify_api_key)])
+def list_repositories():
+    """Returns all indexed repositories with file counts, classes, functions, and languages."""
+    try:
+        return list_all_repositories()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/repos/{repo_name}", dependencies=[Depends(verify_api_key)])
+def get_repository(repo_name: str):
+    """Returns summary statistics and languages for a specific repository."""
+    return get_repository_summary(repo_name)
+
+@app.delete("/api/v1/repos/{repo_name}", dependencies=[Depends(verify_api_key)])
+def remove_repository(repo_name: str):
+    """Deletes repository, cascade deletes graph relationships and disk files."""
+    return delete_repository(repo_name)
+
+# 9. Architectural Code Smells & Blast Radius Analytics
+@app.get("/api/v1/analytics/code-smells", dependencies=[Depends(verify_api_key)])
+def analyze_code_smells(repo_name: Optional[str] = None):
+    """
+    Analyzes architectural anti-patterns:
+    - Circular function call chains
+    - High-risk hub functions (God functions)
+    - Dead code candidates (0 incoming calls)
+    """
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    try:
+        return {
+            "repo_name": clean_repo or "ALL",
+            "circular_dependencies": detect_circular_dependencies(clean_repo),
+            "high_risk_hubs": detect_high_risk_hubs(clean_repo),
+            "dead_code_candidates": detect_dead_code_candidates(clean_repo)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/analytics/impact/{function_name}", dependencies=[Depends(verify_api_key)])
+def analyze_impact(function_name: str, repo_name: Optional[str] = None):
+    """Calculates downstream blast radius of modifying a given function."""
+    clean_fn = sanitize_name(function_name)
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    try:
+        return calculate_blast_radius(clean_fn, clean_repo)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 10. Automated Architectural PR / Git Diff Review
+@app.post("/api/v1/review/diff", dependencies=[Depends(verify_api_key)])
+def review_git_diff(payload: DiffReviewRequest):
+    """
+    Architectural Review Engine: Analyzes a Git diff against the Knowledge Graph,
+    identifying modified symbols, downstream blast radius, and generating an AI review.
+    """
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    try:
+        return generate_architectural_code_review(payload.diff_text, repo_name=clean_repo)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Review failed: {str(e)}")
+
+# 11. GitHub CI/CD Webhook Trigger
+@app.post("/api/v1/webhooks/github")
+async def github_webhook(request: Request):
+    """
+    Automated Webhook: Triggers background clone and ingestion when code is pushed to GitHub.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    repo_info = body.get("repository", {})
+    clone_url = repo_info.get("clone_url")
+    raw_repo_name = repo_info.get("name")
+    ref = body.get("ref", "")
+    branch = ref.replace("refs/heads/", "") if ref.startswith("refs/heads/") else None
+
+    if not clone_url or not raw_repo_name:
+        return {"status": "ignored", "message": "Not a push event or missing repository info."}
+
+    clean_repo = sanitize_name(raw_repo_name)
+    task = async_clone_and_index.delay(
+        git_url=clone_url,
+        repo_name=clean_repo,
+        branch=branch
+    )
+
+    return {
+        "status": "accepted",
+        "task_id": task.id,
+        "message": f"Webhook accepted for repository '{clean_repo}'. Automated indexing queued."
+    }
+

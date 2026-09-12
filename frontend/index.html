@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enterprise Code Knowledge Graph & GraphRAG Dashboard</title>
+  <title>CodeGraph Brain Enterprise - Architecture & GraphRAG Platform</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Cytoscape.js for interactive graph visualization -->
@@ -36,170 +36,422 @@
       top: 0;
       z-index: 1;
     }
-    pre code {
-      font-family: 'Fira Code', monospace;
+    pre code, code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #090d16;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #334155;
     }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans overflow-hidden">
 
-  <!-- Top Navbar -->
-  <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center justify-between z-20">
-    <div class="flex items-center space-x-3">
-      <div class="bg-sky-500/20 text-sky-400 p-2 rounded-lg">
-        <i data-lucide="network" class="w-6 h-6"></i>
+  <!-- Top Enterprise Navbar -->
+  <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 px-6 py-2.5 flex items-center justify-between z-30">
+    <div class="flex items-center space-x-6">
+      <div class="flex items-center space-x-3">
+        <div class="bg-sky-500/20 text-sky-400 p-2 rounded-xl border border-sky-500/30 shadow-inner">
+          <i data-lucide="network" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-base font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-sky-400 to-indigo-300">CodeGraph Brain</span>
+            <span class="text-[10px] bg-sky-950 border border-sky-600/50 text-sky-400 px-2 py-0.5 rounded-full font-mono font-semibold">v2.0 Enterprise</span>
+          </div>
+          <p class="text-[11px] text-slate-400">Universal AST Knowledge Graph & Architectural Intelligence</p>
+        </div>
       </div>
-      <div>
-        <h1 class="text-lg font-bold tracking-wide flex items-center gap-2">
-          CodeGraph Brain
-          <span class="text-xs bg-sky-950 border border-sky-600/40 text-sky-400 px-2 py-0.5 rounded-full font-mono">Enterprise v1.0</span>
-        </h1>
-        <p class="text-xs text-slate-400">AST Knowledge Graph & Vector Hybrid Retrieval (GraphRAG)</p>
-      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex items-center space-x-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800 text-xs font-medium">
+        <button id="nav-btn-graph" onclick="switchMainView('graph')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 bg-sky-600 text-white font-semibold shadow-sm transition">
+          <i data-lucide="share-2" class="w-3.5 h-3.5"></i> Graph & RAG
+        </button>
+        <button id="nav-btn-analytics" onclick="switchMainView('analytics')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="activity" class="w-3.5 h-3.5"></i> Architecture Health
+        </button>
+        <button id="nav-btn-repos" onclick="switchMainView('repos')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="folder-git-2" class="w-3.5 h-3.5"></i> Repositories
+        </button>
+        <button id="nav-btn-review" onclick="switchMainView('review')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="git-pull-request" class="w-3.5 h-3.5"></i> Diff Impact & PR Review
+        </button>
+      </nav>
     </div>
 
-    <!-- Quick Stats Bar -->
-    <div class="flex items-center space-x-6 text-xs text-slate-300">
-      <div class="flex items-center gap-1.5">
-        <span class="text-slate-500">Repositories:</span>
-        <span id="stat-repos" class="font-bold text-slate-100">0</span>
-      </div>
-      <div class="flex items-center gap-1.5">
-        <span class="text-slate-500">Files:</span>
-        <span id="stat-files" class="font-bold text-sky-400">0</span>
-      </div>
-      <div class="flex items-center gap-1.5">
-        <span class="text-slate-500">Classes:</span>
-        <span id="stat-classes" class="font-bold text-amber-400">0</span>
-      </div>
-      <div class="flex items-center gap-1.5">
-        <span class="text-slate-500">Functions:</span>
-        <span id="stat-functions" class="font-bold text-emerald-400">0</span>
-      </div>
-      <div class="flex items-center gap-1.5">
-        <span class="text-slate-500">Relations:</span>
-        <span id="stat-rels" class="font-bold text-indigo-400">0</span>
-      </div>
-    </div>
-
-    <!-- Ingest & Controls -->
+    <!-- Right Controls: System Health, API Key, Ingest Button -->
     <div class="flex items-center space-x-3">
-      <button onclick="promptApiKey()" id="api-key-btn" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5" title="Configure API Key">
-        <i data-lucide="key" class="w-3.5 h-3.5 text-amber-400"></i> <span id="api-key-label">API Key</span>
+      <!-- Health Indicator -->
+      <div id="health-badge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-300 font-mono" title="Neo4j & Redis Health">
+        <span id="health-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="health-text">Online</span>
+      </div>
+
+      <!-- API Key Setting -->
+      <button onclick="promptApiKey()" id="api-key-btn" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition" title="Set or update enterprise API key">
+        <i data-lucide="key" class="w-3.5 h-3.5 text-amber-400"></i>
+        <span id="api-key-label">API Key</span>
       </button>
-      <button onclick="refreshData()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5">
-        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
-      </button>
-      <button onclick="openIngestModal()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 shadow-lg shadow-sky-600/20">
-        <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Ingest Code
+
+      <!-- Ingest Code Modal Button -->
+      <button onclick="openIngestModal()" class="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-sky-600/25 transition">
+        <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Ingest Project
       </button>
     </div>
   </header>
 
-  <!-- Main View Container -->
-  <div class="flex-1 flex relative overflow-hidden">
-    
-    <!-- Center: Interactive Cytoscape Graph Canvas -->
-    <div class="flex-1 relative bg-slate-950">
-      <div id="cy"></div>
-
-      <!-- Graph Floating Legend & Tools -->
-      <div class="absolute bottom-5 left-5 z-10 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl p-3 shadow-xl flex flex-col gap-2 text-xs">
-        <div class="font-semibold text-slate-300 pb-1 border-b border-slate-800 flex items-center justify-between">
-          <span>Graph Legend</span>
-          <span id="node-count-badge" class="text-[10px] text-slate-400">0 nodes</span>
-        </div>
-        <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-slate-400">
-          <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span> Repository</div>
-          <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span> File</div>
-          <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Class</div>
-          <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Function</div>
-          <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Module</div>
-        </div>
+  <!-- Metric Statistics Subbar -->
+  <section class="bg-slate-900 border-b border-slate-800/80 px-6 py-2 flex items-center justify-between text-xs text-slate-300 z-20">
+    <div class="flex items-center space-x-6 overflow-x-auto custom-scrollbar py-0.5">
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">Repositories:</span>
+        <span id="stat-repos" class="font-bold text-slate-100 font-mono">0</span>
       </div>
-
-      <!-- Graph View Controls -->
-      <div class="absolute top-4 left-4 z-10 flex gap-2">
-        <button onclick="fitGraph()" class="bg-slate-900/80 hover:bg-slate-800 text-slate-200 p-2 rounded-lg border border-slate-800 shadow" title="Fit to Screen">
-          <i data-lucide="maximize" class="w-4 h-4"></i>
-        </button>
-        <button onclick="resetLayout()" class="bg-slate-900/80 hover:bg-slate-800 text-slate-200 p-2 rounded-lg border border-slate-800 shadow" title="Reset Layout">
-          <i data-lucide="layout-grid" class="w-4 h-4"></i>
-        </button>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">Files:</span>
+        <span id="stat-files" class="font-bold text-sky-400 font-mono">0</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">Classes:</span>
+        <span id="stat-classes" class="font-bold text-amber-400 font-mono">0</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">Functions:</span>
+        <span id="stat-functions" class="font-bold text-emerald-400 font-mono">0</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">Graph Relations:</span>
+        <span id="stat-rels" class="font-bold text-indigo-400 font-mono">0</span>
       </div>
     </div>
 
-    <!-- Right Sidebar: GraphRAG & Node Inspector -->
-    <aside class="w-96 bg-slate-900 border-l border-slate-800 flex flex-col z-10 shadow-2xl">
-      <!-- Tabs -->
-      <div class="flex border-b border-slate-800 text-xs font-semibold">
-        <button id="tab-rag-btn" onclick="switchTab('rag')" class="flex-1 py-3 text-center border-b-2 border-sky-500 text-sky-400 flex items-center justify-center gap-1.5">
-          <i data-lucide="sparkles" class="w-4 h-4"></i> GraphRAG Search
-        </button>
-        <button id="tab-inspector-btn" onclick="switchTab('inspector')" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5">
-          <i data-lucide="inspect" class="w-4 h-4"></i> Node Inspector
+    <!-- Active Repo Filter Dropdown -->
+    <div class="flex items-center space-x-2">
+      <span class="text-slate-500 text-[11px]">Scope:</span>
+      <select id="repo-filter-select" onchange="onRepoFilterChange()" class="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:border-sky-500">
+        <option value="">All Repositories</option>
+      </select>
+      <button onclick="refreshData()" class="p-1 text-slate-400 hover:text-slate-200" title="Refresh data">
+        <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+  </section>
+
+  <!-- ==================== MAIN VIEW CONTAINER ==================== -->
+  <main class="flex-1 relative overflow-hidden flex">
+
+    <!-- ================= VIEW 1: GRAPH & GRAPHRAG ================= -->
+    <div id="view-graph" class="flex-1 flex w-full h-full relative">
+      <!-- Cytoscape Canvas Area -->
+      <div class="flex-1 relative bg-slate-950">
+        <div id="cy"></div>
+
+        <!-- Floating Controls (Top Left) -->
+        <div class="absolute top-4 left-4 z-10 flex gap-2">
+          <button onclick="fitGraph()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2 rounded-xl border border-slate-800 shadow-xl transition" title="Fit to screen">
+            <i data-lucide="maximize-2" class="w-4 h-4"></i>
+          </button>
+          <button onclick="resetLayout()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2 rounded-xl border border-slate-800 shadow-xl transition" title="Recalculate layout">
+            <i data-lucide="layout-grid" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- Graph Legend (Bottom Left) -->
+        <div class="absolute bottom-4 left-4 z-10 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl p-3 shadow-2xl flex flex-col gap-2 text-xs">
+          <div class="font-semibold text-slate-300 pb-1 border-b border-slate-800 flex items-center justify-between gap-4">
+            <span class="flex items-center gap-1.5"><i data-lucide="info" class="w-3.5 h-3.5 text-sky-400"></i> Entity Legend</span>
+            <span id="node-count-badge" class="text-[10px] text-slate-400 font-mono">0 nodes</span>
+          </div>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 text-[11px]">
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span> Repository</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span> File</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Class</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Function</div>
+            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Module / Import</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel: GraphRAG Query & Node Inspector -->
+      <aside class="w-96 bg-slate-900/95 backdrop-blur border-l border-slate-800 flex flex-col z-20 shadow-2xl">
+        <div class="flex border-b border-slate-800 text-xs font-semibold">
+          <button id="sidebar-tab-rag-btn" onclick="switchSidebarTab('rag')" class="flex-1 py-3 text-center border-b-2 border-sky-500 text-sky-400 flex items-center justify-center gap-1.5">
+            <i data-lucide="sparkles" class="w-4 h-4"></i> GraphRAG Search
+          </button>
+          <button id="sidebar-tab-inspector-btn" onclick="switchSidebarTab('inspector')" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5">
+            <i data-lucide="inspect" class="w-4 h-4"></i> Node Inspector
+          </button>
+        </div>
+
+        <!-- Tab 1: GraphRAG Query -->
+        <div id="sidebar-tab-rag" class="flex-1 flex flex-col p-4 overflow-y-auto custom-scrollbar space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1.5">Natural Language Code Query</label>
+            <textarea id="rag-query-input" rows="3" placeholder="e.g., How does authentication work? Which functions parse AST?" 
+              class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none custom-scrollbar"></textarea>
+            <button onclick="submitQuery()" class="mt-2 w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md shadow-sky-600/20 transition">
+              <i data-lucide="search" class="w-3.5 h-3.5"></i> Retrieve & Synthesize
+            </button>
+          </div>
+
+          <!-- Query Results -->
+          <div id="rag-results-area" class="space-y-3 hidden">
+            <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5">
+              <h4 class="text-xs font-bold text-sky-400 flex items-center gap-1.5 mb-2">
+                <i data-lucide="bot" class="w-3.5 h-3.5"></i> GraphRAG AI Answer
+              </h4>
+              <div id="rag-answer-text" class="text-xs text-slate-300 leading-relaxed whitespace-pre-line"></div>
+            </div>
+
+            <div>
+              <h4 class="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                <i data-lucide="layers" class="w-3 h-3"></i> Retrieved Structural Nodes
+              </h4>
+              <div id="rag-cited-nodes" class="space-y-2"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Node Inspector -->
+        <div id="sidebar-tab-inspector" class="flex-1 p-4 overflow-y-auto custom-scrollbar hidden space-y-4">
+          <div id="inspector-placeholder" class="text-center py-16 text-slate-500 text-xs">
+            <i data-lucide="mouse-pointer-click" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+            Click on any node in the knowledge graph to inspect its AST properties, relationships, and source code.
+          </div>
+
+          <div id="inspector-details" class="hidden space-y-3 text-xs">
+            <div class="bg-slate-950 border border-slate-800 p-3.5 rounded-xl">
+              <div class="flex items-center justify-between">
+                <span id="insp-type" class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-400 border border-sky-800">FUNCTION</span>
+                <span id="insp-lang" class="text-[10px] text-slate-500 uppercase font-mono"></span>
+              </div>
+              <h3 id="insp-name" class="text-sm font-bold text-slate-100 mt-2 font-mono">functionName</h3>
+              <p id="insp-file" class="text-[11px] text-slate-400 mt-1 break-all">path/to/file.py</p>
+            </div>
+
+            <div id="insp-doc-section" class="bg-slate-950 border border-slate-800 p-3 rounded-xl hidden">
+              <span class="text-[10px] text-slate-500 uppercase font-semibold">Documentation</span>
+              <p id="insp-doc" class="text-slate-300 mt-1 italic text-[11px]"></p>
+            </div>
+
+            <div id="insp-code-section" class="bg-slate-950 border border-slate-800 p-3 rounded-xl hidden">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] text-slate-500 uppercase font-semibold">Source Implementation</span>
+                <button onclick="copyInspectorCode()" class="text-[10px] text-sky-400 hover:text-sky-300 flex items-center gap-1">
+                  <i data-lucide="copy" class="w-3 h-3"></i> Copy
+                </button>
+              </div>
+              <pre class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 overflow-x-auto text-[11px] text-emerald-400 max-h-52 custom-scrollbar"><code id="insp-code"></code></pre>
+            </div>
+
+            <div class="pt-2">
+              <button id="insp-blast-btn" onclick="analyzeSelectedNodeBlast()" class="w-full py-2 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition">
+                <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-indigo-400"></i> Calculate Blast Radius
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ================= VIEW 2: ARCHITECTURE HEALTH & CODE SMELLS ================= -->
+    <div id="view-analytics" class="hidden flex-1 overflow-y-auto custom-scrollbar p-6 bg-slate-950 space-y-6">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div>
+          <h2 class="text-lg font-extrabold text-slate-100 flex items-center gap-2">
+            <i data-lucide="activity" class="w-5 h-5 text-sky-400"></i> Architecture Health & Anti-Patterns
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Automated detection of circular dependencies, god functions, and dead code candidates.</p>
+        </div>
+        <button onclick="loadCodeSmells()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Run Audit
         </button>
       </div>
 
-      <!-- Tab Content: GraphRAG Query -->
-      <div id="tab-rag" class="flex-1 flex flex-col p-4 overflow-y-auto space-y-4">
+      <!-- Health Overview Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span>Circular Dependencies</span>
+            <i data-lucide="repeat" class="w-4 h-4 text-rose-400"></i>
+          </div>
+          <div id="smell-count-cycles" class="text-2xl font-bold text-slate-100 mt-2 font-mono">0</div>
+          <p class="text-[11px] text-slate-500 mt-1">Direct or indirect recursive call loops</p>
+        </div>
+
+        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span>High-Risk Hubs (God Functions)</span>
+            <i data-lucide="cpu" class="w-4 h-4 text-amber-400"></i>
+          </div>
+          <div id="smell-count-hubs" class="text-2xl font-bold text-slate-100 mt-2 font-mono">0</div>
+          <p class="text-[11px] text-slate-500 mt-1">Functions with high caller / callee fanout</p>
+        </div>
+
+        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span>Dead Code Candidates</span>
+            <i data-lucide="archive-restore" class="w-4 h-4 text-indigo-400"></i>
+          </div>
+          <div id="smell-count-dead" class="text-2xl font-bold text-slate-100 mt-2 font-mono">0</div>
+          <p class="text-[11px] text-slate-500 mt-1">Non-entrypoint symbols with 0 incoming callers</p>
+        </div>
+      </div>
+
+      <!-- Detailed Code Smell Sections -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- Panel 1: Circular Dependencies -->
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex flex-col">
+          <h3 class="text-xs font-bold text-rose-400 flex items-center gap-1.5 mb-3">
+            <i data-lucide="alert-triangle" class="w-4 h-4"></i> Detected Circular Call Chains
+          </h3>
+          <div id="list-cycles" class="flex-1 space-y-2 overflow-y-auto max-h-80 custom-scrollbar text-xs">
+            <div class="text-slate-500 text-center py-8">Auditing graph for circular dependencies...</div>
+          </div>
+        </div>
+
+        <!-- Panel 2: High-Risk Hubs -->
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex flex-col">
+          <h3 class="text-xs font-bold text-amber-400 flex items-center gap-1.5 mb-3">
+            <i data-lucide="zap" class="w-4 h-4"></i> Critical Hubs & Bottlenecks
+          </h3>
+          <div id="list-hubs" class="flex-1 space-y-2 overflow-y-auto max-h-80 custom-scrollbar text-xs">
+            <div class="text-slate-500 text-center py-8">Loading hub functions...</div>
+          </div>
+        </div>
+
+        <!-- Panel 3: Dead Code Candidates (Full Width) -->
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex flex-col lg:col-span-2">
+          <h3 class="text-xs font-bold text-indigo-400 flex items-center gap-1.5 mb-3">
+            <i data-lucide="ghost" class="w-4 h-4"></i> Dead Code Candidates (0 Callers Detected)
+          </h3>
+          <div id="list-dead" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-xs overflow-y-auto max-h-60 custom-scrollbar">
+            <div class="text-slate-500 text-center py-6 col-span-3">Scanning for dead code candidates...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VIEW 3: REPOSITORY HUB ================= -->
+    <div id="view-repos" class="hidden flex-1 overflow-y-auto custom-scrollbar p-6 bg-slate-950 space-y-6">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Ask about the Codebase</label>
-          <div class="relative">
-            <textarea id="rag-query-input" rows="3" placeholder="e.g., How does user authentication work? Which functions call the parser?" 
-              class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none"></textarea>
-            <button onclick="submitQuery()" class="mt-2 w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-medium flex items-center justify-center gap-1.5">
-              <i data-lucide="search" class="w-3.5 h-3.5"></i> Query Knowledge Graph
+          <h2 class="text-lg font-extrabold text-slate-100 flex items-center gap-2">
+            <i data-lucide="folder-git-2" class="w-5 h-5 text-sky-400"></i> Multi-Repository Management
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Manage indexed repositories, inspect multi-language distribution, and cascade prune projects.</p>
+        </div>
+        <button onclick="openIngestModal()" class="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-600/20 transition">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Repository
+        </button>
+      </div>
+
+      <!-- Repositories Grid -->
+      <div id="repos-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+        <div class="col-span-3 text-center py-16 text-slate-500">
+          <i data-lucide="folder-open" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+          Loading indexed repositories...
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VIEW 4: DIFF REVIEW & BLAST RADIUS ================= -->
+    <div id="view-review" class="hidden flex-1 overflow-y-auto custom-scrollbar p-6 bg-slate-950 space-y-6">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div>
+          <h2 class="text-lg font-extrabold text-slate-100 flex items-center gap-2">
+            <i data-lucide="git-pull-request" class="w-5 h-5 text-sky-400"></i> Automated PR Diff & Blast Radius Review
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Analyze git diffs against the Knowledge Graph to trace downstream breaking changes and generate AI review.</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Input Section -->
+        <div class="lg:col-span-5 space-y-4">
+          <!-- Mode A: Single Function Blast Radius -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <h3 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <i data-lucide="crosshair" class="w-3.5 h-3.5 text-sky-400"></i> Single Function Blast Radius
+            </h3>
+            <div class="flex gap-2">
+              <input id="impact-fn-input" type="text" placeholder="e.g. verify_pwd, parse_source_file" 
+                class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
+              <button onclick="submitImpactSearch()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition">
+                <i data-lucide="search" class="w-3 h-3"></i> Calculate
+              </button>
+            </div>
+          </div>
+
+          <!-- Mode B: Git Unified Diff Input -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <i data-lucide="file-diff" class="w-3.5 h-3.5 text-indigo-400"></i> Unified Git Diff / PR Input
+              </h3>
+              <button onclick="fillSampleDiff()" class="text-[11px] text-sky-400 hover:text-sky-300">Insert Sample</button>
+            </div>
+            <textarea id="diff-input" rows="12" placeholder="Paste git diff here (e.g. git diff HEAD~1)...\n\n@@ -10,3 +10,4 @@\n- def parse_code(source):\n+ def parse_code(source, strict=False):"
+              class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-slate-200 focus:outline-none focus:border-sky-500 resize-none custom-scrollbar"></textarea>
+            <button onclick="submitDiffReview()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/20 transition">
+              <i data-lucide="play" class="w-3.5 h-3.5"></i> Run Architectural PR Review
             </button>
           </div>
         </div>
 
-        <!-- Query Results -->
-        <div id="rag-results-area" class="space-y-3 hidden">
-          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5">
-            <h4 class="text-xs font-bold text-sky-400 flex items-center gap-1.5 mb-2">
-              <i data-lucide="bot" class="w-3.5 h-3.5"></i> AI Graph Synthesis
-            </h4>
-            <div id="rag-answer-text" class="text-xs text-slate-300 leading-relaxed whitespace-pre-line"></div>
+        <!-- Output Review Section -->
+        <div class="lg:col-span-7 space-y-4">
+          <div id="diff-review-results" class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4 hidden">
+            <!-- Review Header Status -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-400">Architectural Risk:</span>
+                <span id="review-risk-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-emerald-950 border border-emerald-700 text-emerald-400">LOW</span>
+              </div>
+              <div class="flex items-center gap-3 text-xs text-slate-400 font-mono">
+                <span>Affected Callers: <strong id="review-callers-count" class="text-slate-100">0</strong></span>
+                <span>Affected Files: <strong id="review-files-count" class="text-slate-100">0</strong></span>
+              </div>
+            </div>
+
+            <!-- Affected Files List -->
+            <div id="review-files-box" class="bg-slate-950 border border-slate-800 p-3 rounded-xl text-xs space-y-1.5">
+              <span class="text-[10px] uppercase font-bold text-slate-500">Downstream Impacted Files</span>
+              <div id="review-files-list" class="text-[11px] text-slate-300 font-mono space-y-1"></div>
+            </div>
+
+            <!-- AI Assessment -->
+            <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl text-xs space-y-2">
+              <span class="text-[10px] uppercase font-bold text-sky-400 flex items-center gap-1">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> Principal Architect Review & QA Plan
+              </span>
+              <div id="review-ai-content" class="text-slate-200 leading-relaxed whitespace-pre-line text-xs"></div>
+            </div>
           </div>
 
-          <!-- Grounded Nodes / Citations -->
-          <div>
-            <h4 class="text-xs font-semibold text-slate-400 mb-2">Retrieved Graph Nodes</h4>
-            <div id="rag-cited-nodes" class="space-y-2"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab Content: Node Inspector -->
-      <div id="tab-inspector" class="flex-1 p-4 overflow-y-auto hidden space-y-4">
-        <div id="inspector-placeholder" class="text-center py-12 text-slate-500 text-xs">
-          <i data-lucide="mouse-pointer-click" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-          Click on any node in the graph to inspect its AST properties, source code, and relations.
-        </div>
-
-        <div id="inspector-details" class="hidden space-y-3 text-xs">
-          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-            <span id="insp-type" class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-400 border border-sky-800">FUNCTION</span>
-            <h3 id="insp-name" class="text-sm font-bold text-slate-100 mt-2">functionName</h3>
-            <p id="insp-file" class="text-[11px] text-slate-400 mt-0.5 break-all">path/to/file.py</p>
-          </div>
-
-          <div id="insp-doc-section" class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-            <span class="text-[10px] text-slate-500 uppercase font-semibold">Docstring</span>
-            <p id="insp-doc" class="text-slate-300 mt-1 italic text-[11px]"></p>
-          </div>
-
-          <div id="insp-code-section" class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-            <span class="text-[10px] text-slate-500 uppercase font-semibold">Source Code</span>
-            <pre class="mt-1 bg-slate-900 p-2 rounded border border-slate-800 overflow-x-auto text-[11px] text-emerald-400 max-h-48"><code id="insp-code"></code></pre>
+          <!-- Empty placeholder state -->
+          <div id="diff-review-placeholder" class="bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl p-16 text-center text-xs text-slate-500">
+            <i data-lucide="git-pull-request" class="w-10 h-10 mx-auto mb-3 opacity-40"></i>
+            Enter a function name or paste a Git diff to visualize cascading structural impact and receive an AI-powered architectural review.
           </div>
         </div>
       </div>
-    </aside>
-  </div>
+    </div>
+  </main>
 
-  <!-- Automated Ingest Code Modal -->
+  <!-- ==================== AUTOMATED INGEST MODAL ==================== -->
   <div id="ingest-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
     <div class="bg-slate-900 border border-slate-800 w-full max-w-xl rounded-2xl p-6 shadow-2xl space-y-4">
       <div class="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -228,8 +480,8 @@
       <div id="modal-tab-git" class="space-y-3 text-xs">
         <div>
           <label class="block text-slate-400 mb-1">Git Repository URL (GitHub, GitLab, Bitbucket)</label>
-          <input id="git-url" type="text" placeholder="https://github.com/encode/uvicorn.git" 
-            class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+          <input id="git-url" type="text" placeholder="https://github.com/org/repo.git" 
+            class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -248,7 +500,7 @@
           <input id="git-token" type="password" placeholder="ghp_xxxxxxxxxxxx (GitHub / GitLab Personal Token)" 
             class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
         </div>
-        <button onclick="submitGitClone()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-sky-600/20">
+        <button onclick="submitGitClone()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-sky-600/20 transition">
           <i data-lucide="git-pull-request" class="w-4 h-4"></i> Clone, Parse & Build Graph Automatically
         </button>
       </div>
@@ -265,7 +517,7 @@
           <input id="zip-repo-name" type="text" placeholder="Auto-inferred from filename" 
             class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
         </div>
-        <button onclick="submitZipUpload()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-sky-600/20">
+        <button onclick="submitZipUpload()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-sky-600/20 transition">
           <i data-lucide="upload" class="w-4 h-4"></i> Upload, Extract & Index Archive
         </button>
       </div>
@@ -279,18 +531,17 @@
           </div>
           <div>
             <label class="block text-slate-400 mb-1">File Path</label>
-            <input id="modal-file-path" type="text" value="services/auth_service.py" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+            <input id="modal-file-path" type="text" value="services/auth_service.py" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
           </div>
         </div>
         <div>
-          <label class="block text-slate-400 mb-1">Python Source Code</label>
+          <label class="block text-slate-400 mb-1">Source Code</label>
           <textarea id="modal-code" rows="6" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 font-mono text-[11px] text-slate-200 focus:outline-none focus:border-sky-500 resize-none">class AuthService:
-    """Enterprise user authentication service."""
+    """Enterprise authentication service."""
     def __init__(self, token_provider):
         self.token_provider = token_provider
 
     def login(self, username, password):
-        """Authenticates user and signs token."""
         user = self.find_user(username)
         if user and self.verify_pwd(password, user.pwd_hash):
             return self.token_provider.generate_jwt(user.id)
@@ -300,33 +551,134 @@
         return None
 </textarea>
         </div>
-        <button onclick="submitIngestCode()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5">
+        <button onclick="submitIngestCode()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition">
           <i data-lucide="check" class="w-3.5 h-3.5"></i> Parse Snippet into Graph
         </button>
       </div>
 
-      <!-- Live Task Progress Box -->
-      <div id="modal-task-status" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-2">
+      <!-- Live Background Task Progress Box -->
+      <div id="modal-task-status" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs space-y-2">
         <div class="flex items-center justify-between">
           <span class="font-semibold text-slate-300 flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span> Ingestion Progress:
           </span>
           <span id="task-state-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-400 border border-sky-800">PROCESSING</span>
         </div>
-        <p id="task-progress-message" class="text-slate-400 text-[11px]">Executing automated pipeline...</p>
+        <p id="task-progress-message" class="text-slate-400 text-[11px]">Executing automated background worker...</p>
       </div>
 
       <div class="flex justify-end pt-1">
-        <button onclick="closeIngestModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs">Close</button>
+        <button onclick="closeIngestModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition">Close</button>
       </div>
     </div>
   </div>
 
+  <!-- JavaScript Application Logic -->
   <script>
     const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`;
     let cy = null;
+    let currentSelectedNode = null;
 
-    // Initialize Cytoscape
+    // --- Authentication & Headers ---
+    function getApiKey() {
+      return localStorage.getItem('codegraph_api_key') || '';
+    }
+
+    function promptApiKey() {
+      const current = getApiKey();
+      const entered = prompt('Enter your CodeGraph API Key (X-API-Key):', current);
+      if (entered !== null) {
+        localStorage.setItem('codegraph_api_key', entered.trim());
+        updateApiKeyBadge();
+        refreshData();
+      }
+    }
+
+    function updateApiKeyBadge() {
+      const key = getApiKey();
+      const label = document.getElementById('api-key-label');
+      if (label) {
+        label.innerText = key ? 'Key: Active' : 'No Key';
+      }
+    }
+
+    function getAuthHeaders() {
+      const headers = { 'Content-Type': 'application/json' };
+      const key = getApiKey();
+      if (key) headers['X-API-Key'] = key;
+      return headers;
+    }
+
+    // --- Main View Navigation ---
+    function switchMainView(viewName) {
+      const views = ['graph', 'analytics', 'repos', 'review'];
+      views.forEach(v => {
+        const el = document.getElementById(`view-${v}`);
+        const btn = document.getElementById(`nav-btn-${v}`);
+        if (v === viewName) {
+          el.classList.remove('hidden');
+          btn.className = 'px-3.5 py-1.5 rounded-lg flex items-center gap-2 bg-sky-600 text-white font-semibold shadow-sm transition';
+        } else {
+          el.classList.add('hidden');
+          btn.className = 'px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition';
+        }
+      });
+
+      if (viewName === 'graph' && cy) {
+        setTimeout(() => { cy.resize(); cy.fit(); }, 50);
+      } else if (viewName === 'analytics') {
+        loadCodeSmells();
+      } else if (viewName === 'repos') {
+        loadRepositoriesHub();
+      }
+    }
+
+    function switchSidebarTab(tab) {
+      const ragEl = document.getElementById('sidebar-tab-rag');
+      const inspEl = document.getElementById('sidebar-tab-inspector');
+      const ragBtn = document.getElementById('sidebar-tab-rag-btn');
+      const inspBtn = document.getElementById('sidebar-tab-inspector-btn');
+
+      if (tab === 'rag') {
+        ragEl.classList.remove('hidden');
+        inspEl.classList.add('hidden');
+        ragBtn.className = 'flex-1 py-3 text-center border-b-2 border-sky-500 text-sky-400 flex items-center justify-center gap-1.5';
+        inspBtn.className = 'flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5';
+      } else {
+        ragEl.classList.add('hidden');
+        inspEl.classList.remove('hidden');
+        inspBtn.className = 'flex-1 py-3 text-center border-b-2 border-sky-500 text-sky-400 flex items-center justify-center gap-1.5';
+        ragBtn.className = 'flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5';
+      }
+    }
+
+    // --- Health Check ---
+    async function checkHealth() {
+      try {
+        const res = await fetch(`${API_BASE}/healthz`);
+        const badge = document.getElementById('health-badge');
+        const dot = document.getElementById('health-dot');
+        const text = document.getElementById('health-text');
+        badge.classList.remove('hidden');
+
+        if (res.ok) {
+          dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+          text.innerText = 'Online';
+        } else {
+          dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+          text.innerText = 'Degraded';
+        }
+      } catch (e) {
+        const badge = document.getElementById('health-badge');
+        const dot = document.getElementById('health-dot');
+        const text = document.getElementById('health-text');
+        badge.classList.remove('hidden');
+        dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+        text.innerText = 'Offline';
+      }
+    }
+
+    // --- Cytoscape Knowledge Graph Setup ---
     function initCytoscape() {
       cy = cytoscape({
         container: document.getElementById('cy'),
@@ -344,26 +696,11 @@
               'height': 24
             }
           },
-          {
-            selector: 'node[type = "Repository"]',
-            style: { 'background-color': '#a855f7', 'width': 36, 'height': 36 }
-          },
-          {
-            selector: 'node[type = "File"]',
-            style: { 'background-color': '#0284c7', 'width': 28, 'height': 28 }
-          },
-          {
-            selector: 'node[type = "Class"]',
-            style: { 'background-color': '#f59e0b', 'width': 26, 'height': 26 }
-          },
-          {
-            selector: 'node[type = "Function"]',
-            style: { 'background-color': '#10b981', 'width': 22, 'height': 22 }
-          },
-          {
-            selector: 'node[type = "Module"]',
-            style: { 'background-color': '#f43f5e', 'width': 20, 'height': 20 }
-          },
+          { selector: 'node[type = "Repository"]', style: { 'background-color': '#a855f7', 'width': 36, 'height': 36 } },
+          { selector: 'node[type = "File"]', style: { 'background-color': '#0284c7', 'width': 28, 'height': 28 } },
+          { selector: 'node[type = "Class"]', style: { 'background-color': '#f59e0b', 'width': 26, 'height': 26 } },
+          { selector: 'node[type = "Function"]', style: { 'background-color': '#10b981', 'width': 22, 'height': 22 } },
+          { selector: 'node[type = "Module"]', style: { 'background-color': '#f43f5e', 'width': 20, 'height': 20 } },
           {
             selector: 'edge',
             style: {
@@ -387,11 +724,7 @@
             }
           }
         ],
-        layout: {
-          name: 'cose',
-          animate: true,
-          padding: 50
-        }
+        layout: { name: 'cose', animate: true, padding: 50 }
       });
 
       cy.on('tap', 'node', function(evt) {
@@ -399,49 +732,20 @@
       });
     }
 
+    function fitGraph() { if (cy) cy.fit(); }
+    function resetLayout() { if (cy) cy.layout({ name: 'cose', animate: true }).run(); }
+
     async function refreshData() {
+      await checkHealth();
       await loadStats();
+      await loadRepoFilter();
       await loadGraph();
-    }
-
-    function getApiKey() {
-      return localStorage.getItem('codegraph_api_key') || '';
-    }
-
-    function promptApiKey() {
-      const current = getApiKey();
-      const entered = prompt('Enter your CodeGraph API Key (X-API-Key):', current);
-      if (entered !== null) {
-        localStorage.setItem('codegraph_api_key', entered.trim());
-        updateApiKeyBadge();
-        refreshData();
-      }
-    }
-
-    function updateApiKeyBadge() {
-      const key = getApiKey();
-      const label = document.getElementById('api-key-label');
-      if (label) {
-        label.innerText = key ? 'Key: Set' : 'No Key';
-      }
-    }
-
-    function getAuthHeaders() {
-      const headers = { 'Content-Type': 'application/json' };
-      const key = getApiKey();
-      if (key) {
-        headers['X-API-Key'] = key;
-      }
-      return headers;
     }
 
     async function loadStats() {
       try {
         const res = await fetch(`${API_BASE}/api/v1/graph/stats`, { headers: getAuthHeaders() });
-        if (res.status === 401) {
-          console.warn('Authentication required.');
-          return;
-        }
+        if (!res.ok) return;
         const data = await res.json();
         document.getElementById('stat-repos').innerText = data.repositories || 0;
         document.getElementById('stat-files').innerText = data.files || 0;
@@ -449,32 +753,59 @@
         document.getElementById('stat-functions').innerText = data.functions || 0;
         document.getElementById('stat-rels').innerText = data.relationships || 0;
       } catch (err) {
-        console.warn('Could not load stats:', err);
+        console.warn('Stats load error:', err);
+      }
+    }
+
+    async function loadRepoFilter() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/repos`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const repos = await res.json();
+        const select = document.getElementById('repo-filter-select');
+        const current = select.value;
+        select.innerHTML = '<option value="">All Repositories</option>' + 
+          repos.map(r => `<option value="${r.name}" ${r.name === current ? 'selected' : ''}>${r.name}</option>`).join('');
+      } catch (e) {
+        console.warn('Repos load error:', e);
+      }
+    }
+
+    function onRepoFilterChange() {
+      loadGraph();
+      if (!document.getElementById('view-analytics').classList.contains('hidden')) {
+        loadCodeSmells();
       }
     }
 
     async function loadGraph() {
+      const selectedRepo = document.getElementById('repo-filter-select').value;
+      let url = `${API_BASE}/api/v1/graph/elements?limit=140`;
+      if (selectedRepo) url += `&repo_name=${encodeURIComponent(selectedRepo)}`;
+
       try {
-        const res = await fetch(`${API_BASE}/api/v1/graph/elements?limit=100`, { headers: getAuthHeaders() });
-        if (res.status === 401) return;
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (!res.ok) return;
         const data = await res.json();
         cy.elements().remove();
         
         if (data.nodes && data.nodes.length > 0) {
           cy.add(data.nodes);
           cy.add(data.edges);
-          cy.layout({ name: 'cose', animate: false, padding: 50 }).run();
+          cy.layout({ name: 'cose', animate: false, padding: 40 }).run();
           document.getElementById('node-count-badge').innerText = `${data.nodes.length} nodes`;
         } else {
           document.getElementById('node-count-badge').innerText = '0 nodes';
         }
       } catch (err) {
-        console.warn('Could not load graph elements:', err);
+        console.warn('Graph load error:', err);
       }
     }
 
+    // --- Node Inspection & Details ---
     function inspectNode(data) {
-      switchTab('inspector');
+      currentSelectedNode = data;
+      switchSidebarTab('inspector');
       document.getElementById('inspector-placeholder').classList.add('hidden');
       document.getElementById('inspector-details').classList.remove('hidden');
 
@@ -482,8 +813,8 @@
       document.getElementById('insp-name').innerText = data.label || 'Unknown';
       
       const props = data.properties || {};
-      const langTag = props.language && props.language !== 'unknown' ? ` • ${props.language.toUpperCase()}` : '';
-      document.getElementById('insp-file').innerText = (props.file_path || props.path || 'Repository Node') + langTag;
+      document.getElementById('insp-lang').innerText = props.language && props.language !== 'unknown' ? props.language : '';
+      document.getElementById('insp-file').innerText = props.file_path || props.path || 'Repository Scope';
       
       const docSection = document.getElementById('insp-doc-section');
       if (props.docstring) {
@@ -502,26 +833,41 @@
       }
     }
 
+    function copyInspectorCode() {
+      const code = document.getElementById('insp-code').innerText;
+      navigator.clipboard.writeText(code);
+      alert('Source code copied to clipboard!');
+    }
+
+    function analyzeSelectedNodeBlast() {
+      if (!currentSelectedNode || !currentSelectedNode.label) return;
+      switchMainView('review');
+      document.getElementById('impact-fn-input').value = currentSelectedNode.label;
+      submitImpactSearch();
+    }
+
+    // --- GraphRAG Query ---
     async function submitQuery() {
       const query = document.getElementById('rag-query-input').value.trim();
       if (!query) return;
 
+      const selectedRepo = document.getElementById('repo-filter-select').value || null;
       const resultsArea = document.getElementById('rag-results-area');
       const answerText = document.getElementById('rag-answer-text');
       const citedNodes = document.getElementById('rag-cited-nodes');
 
       resultsArea.classList.remove('hidden');
-      answerText.innerHTML = '<span class="text-slate-500 animate-pulse">Analyzing Knowledge Graph & synthesizing with LLM...</span>';
+      answerText.innerHTML = '<span class="text-slate-500 animate-pulse">Querying Knowledge Graph vectors and synthesizing response with LLM...</span>';
       citedNodes.innerHTML = '';
 
       try {
         const res = await fetch(`${API_BASE}/api/v1/query`, {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ query: query, top_k: 4 })
+          body: JSON.stringify({ query: query, repo_name: selectedRepo, top_k: 5 })
         });
         if (res.status === 401) {
-          answerText.innerText = 'Unauthorized: Please set your API Key using the button in the top navbar.';
+          answerText.innerText = 'Unauthorized: Please set your API Key in the top navbar.';
           return;
         }
         const data = await res.json();
@@ -529,55 +875,305 @@
 
         if (data.retrieved_nodes && data.retrieved_nodes.length > 0) {
           citedNodes.innerHTML = data.retrieved_nodes.map(n => `
-            <div class="p-2 bg-slate-950 border border-slate-800 rounded-lg text-xs">
+            <div class="p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs space-y-1">
               <div class="flex items-center justify-between">
-                <span class="font-bold text-emerald-400">${n.name}</span>
-                <span class="text-[10px] text-slate-500">Score: ${n.score ? n.score.toFixed(3) : '1.0'}</span>
+                <span class="font-bold text-emerald-400 font-mono">${n.name}</span>
+                <span class="text-[10px] text-slate-500 font-mono">Similarity: ${n.score ? n.score.toFixed(3) : '1.0'}</span>
               </div>
-              <div class="text-[10px] text-slate-400">${n.file_path} (L${n.start_line || 1}-L${n.end_line || 1})</div>
+              <div class="text-[10px] text-slate-400 break-all font-mono">${n.file_path || ''} (L${n.start_line || 1}-L${n.end_line || 1})</div>
             </div>
           `).join('');
         }
       } catch (err) {
-        answerText.innerText = `Error querying GraphRAG: ${err.message}`;
+        answerText.innerText = `Query error: ${err.message}`;
       }
     }
 
-    async function submitIngestCode() {
-      const repo = document.getElementById('modal-repo-name').value;
-      const file = document.getElementById('modal-file-path').value;
-      const code = document.getElementById('modal-code').value;
+    // --- Architecture Health & Code Smells ---
+    async function loadCodeSmells() {
+      const selectedRepo = document.getElementById('repo-filter-select').value;
+      let url = `${API_BASE}/api/v1/analytics/code-smells`;
+      if (selectedRepo) url += `?repo_name=${encodeURIComponent(selectedRepo)}`;
+
+      const cyclesList = document.getElementById('list-cycles');
+      const hubsList = document.getElementById('list-hubs');
+      const deadList = document.getElementById('list-dead');
 
       try {
-        const res = await fetch(`${API_BASE}/api/v1/analyze/code`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ repo_name: repo, file_path: file, code_content: code })
-        });
-        if (res.status === 401) {
-          alert('Unauthorized: API Key is missing or invalid.');
-          return;
-        }
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (!res.ok) return;
         const data = await res.json();
-        closeIngestModal();
-        await refreshData();
+
+        const cycles = data.circular_dependencies || [];
+        const hubs = data.high_risk_hubs || [];
+        const dead = data.dead_code_candidates || [];
+
+        document.getElementById('smell-count-cycles').innerText = cycles.length;
+        document.getElementById('smell-count-hubs').innerText = hubs.length;
+        document.getElementById('smell-count-dead').innerText = dead.length;
+
+        // Render Cycles
+        if (cycles.length === 0) {
+          cyclesList.innerHTML = '<div class="text-emerald-400 text-center py-8 font-medium">✓ No circular dependency chains detected! Clean architecture.</div>';
+        } else {
+          cyclesList.innerHTML = cycles.map(c => `
+            <div class="p-3 bg-slate-950 border border-rose-900/40 rounded-xl space-y-1">
+              <div class="flex items-center justify-between text-[11px]">
+                <span class="font-bold text-rose-400 font-mono">Cycle length: ${c.length} hops</span>
+              </div>
+              <div class="text-[11px] text-slate-200 font-mono break-all">${c.cycle.join(' → ')}</div>
+            </div>
+          `).join('');
+        }
+
+        // Render Hubs
+        if (hubs.length === 0) {
+          hubsList.innerHTML = '<div class="text-emerald-400 text-center py-8 font-medium">✓ No high-risk bottleneck god functions detected.</div>';
+        } else {
+          hubsList.innerHTML = hubs.map(h => `
+            <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-amber-400 font-mono">${h.name}</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 font-mono">Risk: ${h.risk_score}</span>
+                </div>
+                <div class="text-[10px] text-slate-500 break-all font-mono mt-0.5">${h.file_path}</div>
+              </div>
+              <div class="text-right text-[11px] text-slate-400 font-mono space-y-0.5">
+                <div>In: <strong class="text-sky-400">${h.in_degree}</strong></div>
+                <div>Out: <strong class="text-emerald-400">${h.out_degree}</strong></div>
+              </div>
+            </div>
+          `).join('');
+        }
+
+        // Render Dead Code
+        if (dead.length === 0) {
+          deadList.innerHTML = '<div class="text-emerald-400 text-center py-6 col-span-3 font-medium">✓ No obvious dead code candidates found.</div>';
+        } else {
+          deadList.innerHTML = dead.map(d => `
+            <div class="p-2.5 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+              <div class="font-bold text-indigo-300 font-mono truncate">${d.name}</div>
+              <div class="text-[10px] text-slate-500 break-all font-mono">${d.file_path}:${d.line || 1}</div>
+            </div>
+          `).join('');
+        }
+
       } catch (err) {
-        alert('Ingestion error: ' + err.message);
+        console.warn('Code smells load error:', err);
       }
     }
 
-    function switchTab(tab) {
-      if (tab === 'rag') {
-        document.getElementById('tab-rag').classList.remove('hidden');
-        document.getElementById('tab-inspector').classList.add('hidden');
-        document.getElementById('tab-rag-btn').className = 'flex-1 py-3 text-center border-b-2 border-sky-500 text-sky-400 flex items-center justify-center gap-1.5';
-        document.getElementById('tab-inspector-btn').className = 'flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5';
-      } else {
-        document.getElementById('tab-rag').classList.add('hidden');
-        document.getElementById('tab-inspector').classList.remove('hidden');
-        document.getElementById('tab-inspector-btn').className = 'flex-1 py-3 text-center border-b-2 border-sky-500 text-sky-400 flex items-center justify-center gap-1.5';
-        document.getElementById('tab-rag-btn').className = 'flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5';
+    // --- Multi-Repository Hub ---
+    async function loadRepositoriesHub() {
+      const grid = document.getElementById('repos-grid');
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/repos`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const repos = await res.json();
+
+        if (repos.length === 0) {
+          grid.innerHTML = `
+            <div class="col-span-3 text-center py-16 text-slate-500 space-y-3">
+              <i data-lucide="folder-plus" class="w-10 h-10 mx-auto opacity-30"></i>
+              <p>No repositories indexed yet.</p>
+              <button onclick="openIngestModal()" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-semibold">
+                Ingest Your First Project
+              </button>
+            </div>
+          `;
+          lucide.createIcons();
+          return;
+        }
+
+        grid.innerHTML = repos.map(r => {
+          const langs = (r.languages || []).map(l => `<span class="px-1.5 py-0.5 bg-slate-800 border border-slate-700 text-slate-300 text-[10px] rounded uppercase font-mono">${l}</span>`).join(' ') || '<span class="text-slate-500 text-[10px]">Universal</span>';
+          return `
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-lg hover:border-slate-700 transition">
+              <div>
+                <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <h3 class="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                    <i data-lucide="folder-code" class="w-4 h-4 text-purple-400"></i> ${r.name}
+                  </h3>
+                  <button onclick="deleteRepo('${r.name}')" class="text-slate-500 hover:text-rose-400 transition" title="Delete repository">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                  </button>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center py-3">
+                  <div class="bg-slate-950 p-2 rounded-xl">
+                    <span class="text-[10px] text-slate-500">Files</span>
+                    <div class="text-base font-bold text-sky-400 font-mono">${r.file_count}</div>
+                  </div>
+                  <div class="bg-slate-950 p-2 rounded-xl">
+                    <span class="text-[10px] text-slate-500">Classes</span>
+                    <div class="text-base font-bold text-amber-400 font-mono">${r.class_count}</div>
+                  </div>
+                  <div class="bg-slate-950 p-2 rounded-xl">
+                    <span class="text-[10px] text-slate-500">Functions</span>
+                    <div class="text-base font-bold text-emerald-400 font-mono">${r.func_count}</div>
+                  </div>
+                </div>
+                <div class="pt-1 flex flex-wrap gap-1">
+                  ${langs}
+                </div>
+              </div>
+
+              <div class="pt-4 flex gap-2">
+                <button onclick="focusRepoInGraph('${r.name}')" class="flex-1 py-1.5 bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1">
+                  <i data-lucide="share-2" class="w-3 h-3"></i> Graph
+                </button>
+                <button onclick="focusRepoSmells('${r.name}')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1">
+                  <i data-lucide="activity" class="w-3 h-3"></i> Smells
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+        lucide.createIcons();
+      } catch (err) {
+        console.warn('Repos hub error:', err);
       }
+    }
+
+    async function deleteRepo(repoName) {
+      if (!confirm(`Are you sure you want to completely delete repository '${repoName}' from the graph and disk?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/repos/${encodeURIComponent(repoName)}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders()
+        });
+        if (res.ok) {
+          await refreshData();
+          loadRepositoriesHub();
+        }
+      } catch (e) {
+        alert('Delete error: ' + e.message);
+      }
+    }
+
+    function focusRepoInGraph(repoName) {
+      document.getElementById('repo-filter-select').value = repoName;
+      switchMainView('graph');
+      loadGraph();
+    }
+
+    function focusRepoSmells(repoName) {
+      document.getElementById('repo-filter-select').value = repoName;
+      switchMainView('analytics');
+      loadCodeSmells();
+    }
+
+    // --- Diff PR Review & Blast Radius Analyzer ---
+    function fillSampleDiff() {
+      document.getElementById('diff-input').value = `diff --git a/services/auth_service.py b/services/auth_service.py
+--- a/services/auth_service.py
++++ b/services/auth_service.py
+@@ -10,3 +10,4 @@
+-    def login(self, username, password):
++    def login(self, username, password, mfa_token=None):
++        # Added MFA validation requirement`;
+    }
+
+    async function submitImpactSearch() {
+      const fnName = document.getElementById('impact-fn-input').value.trim();
+      if (!fnName) return;
+
+      const resultsBox = document.getElementById('diff-review-results');
+      const placeholder = document.getElementById('diff-review-placeholder');
+      resultsBox.classList.remove('hidden');
+      placeholder.classList.add('hidden');
+
+      const selectedRepo = document.getElementById('repo-filter-select').value || '';
+      let url = `${API_BASE}/api/v1/analytics/impact/${encodeURIComponent(fnName)}`;
+      if (selectedRepo) url += `?repo_name=${encodeURIComponent(selectedRepo)}`;
+
+      try {
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        const data = await res.json();
+
+        updateReviewRiskBadge(data.risk_level);
+        document.getElementById('review-callers-count').innerText = data.total_affected_count;
+        document.getElementById('review-files-count').innerText = (data.affected_files || []).length;
+
+        const filesList = document.getElementById('review-files-list');
+        if (data.affected_files && data.affected_files.length > 0) {
+          filesList.innerHTML = data.affected_files.map(f => `<div>• ${f}</div>`).join('');
+        } else {
+          filesList.innerHTML = '<span class="text-slate-500">No external files affected. Local change.</span>';
+        }
+
+        const funcs = (data.affected_functions || []).join(', ') || 'None';
+        document.getElementById('review-ai-content').innerText = 
+          `### Blast Radius Impact Analysis for \`${data.target_name}\`\n\n` +
+          `- **Risk Classification:** ${data.risk_level}\n` +
+          `- **Direct & Cascading Callers:** ${data.total_affected_count} function(s)\n` +
+          `- **Downstream Callees/Callers Impacted:** ${funcs}\n\n` +
+          `**QA Regression Recommendation:** Run automated test suites against the ${data.affected_files.length} downstream files identified above prior to merging.`;
+
+      } catch (err) {
+        alert('Impact search error: ' + err.message);
+      }
+    }
+
+    async function submitDiffReview() {
+      const diffText = document.getElementById('diff-input').value.trim();
+      if (!diffText) return;
+
+      const resultsBox = document.getElementById('diff-review-results');
+      const placeholder = document.getElementById('diff-review-placeholder');
+      resultsBox.classList.remove('hidden');
+      placeholder.classList.add('hidden');
+
+      document.getElementById('review-ai-content').innerHTML = '<span class="text-slate-500 animate-pulse">Running AST structural review & LLM architectural assessment...</span>';
+
+      const selectedRepo = document.getElementById('repo-filter-select').value || null;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/review/diff`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ diff_text: diffText, repo_name: selectedRepo })
+        });
+        const data = await res.json();
+
+        updateReviewRiskBadge(data.risk_rating);
+        document.getElementById('review-callers-count').innerText = data.affected_functions_count || 0;
+        document.getElementById('review-files-count').innerText = data.affected_files_count || 0;
+
+        const filesList = document.getElementById('review-files-list');
+        if (data.affected_files && data.affected_files.length > 0) {
+          filesList.innerHTML = data.affected_files.map(f => `<div>• ${f}</div>`).join('');
+        } else {
+          filesList.innerHTML = '<span class="text-slate-500">No downstream files affected.</span>';
+        }
+
+        document.getElementById('review-ai-content').innerText = data.ai_review || 'Review generated.';
+      } catch (err) {
+        document.getElementById('review-ai-content').innerText = 'Review error: ' + err.message;
+      }
+    }
+
+    function updateReviewRiskBadge(risk) {
+      const badge = document.getElementById('review-risk-badge');
+      badge.innerText = risk || 'LOW';
+      if (risk === 'CRITICAL') {
+        badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-rose-950 border border-rose-700 text-rose-400';
+      } else if (risk === 'HIGH') {
+        badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-amber-950 border border-amber-700 text-amber-400';
+      } else if (risk === 'MEDIUM') {
+        badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-sky-950 border border-sky-700 text-sky-400';
+      } else {
+        badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-emerald-950 border border-emerald-700 text-emerald-400';
+      }
+    }
+
+    // --- Ingestion Handlers ---
+    function openIngestModal() {
+      document.getElementById('modal-task-status').classList.add('hidden');
+      document.getElementById('ingest-modal').classList.remove('hidden');
+    }
+    function closeIngestModal() {
+      document.getElementById('ingest-modal').classList.add('hidden');
     }
 
     function switchModalTab(tab) {
@@ -590,13 +1186,42 @@
       document.getElementById('modal-tab-snippet-btn').className = tab === 'snippet' ? 'pb-2 border-b-2 border-sky-500 text-sky-400 flex items-center gap-1.5' : 'pb-2 border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-1.5';
     }
 
+    function showTaskStatus(message, badgeText) {
+      const statusBox = document.getElementById('modal-task-status');
+      statusBox.classList.remove('hidden');
+      document.getElementById('task-progress-message').innerText = message;
+      document.getElementById('task-state-badge').innerText = badgeText;
+    }
+
+    async function pollTaskProgress(taskId) {
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/v1/tasks/${taskId}`, { headers: getAuthHeaders() });
+          const task = await res.json();
+          
+          if (task.status === 'PROGRESS') {
+            showTaskStatus(task.progress || 'Processing codebase in background...', 'PROGRESS');
+          } else if (task.status === 'SUCCESS') {
+            clearInterval(interval);
+            const r = task.result || {};
+            showTaskStatus(`Success! Indexed ${r.parsed_files || 0} files, ${r.classes_indexed || 0} classes, ${r.functions_indexed || 0} functions.`, 'SUCCESS');
+            await refreshData();
+          } else if (task.status === 'FAILURE') {
+            clearInterval(interval);
+            showTaskStatus('Pipeline failed: ' + JSON.stringify(task.result || 'Check server logs.'), 'FAILURE');
+          }
+        } catch (e) {
+          console.warn('Task polling error:', e);
+        }
+      }, 1500);
+    }
+
     async function submitGitClone() {
       const gitUrl = document.getElementById('git-url').value.trim();
       if (!gitUrl) {
         alert('Please enter a valid Git URL.');
         return;
       }
-
       const repoName = document.getElementById('git-repo-name').value.trim() || null;
       const branch = document.getElementById('git-branch').value.trim() || null;
       const token = document.getElementById('git-token').value.trim() || null;
@@ -631,7 +1256,6 @@
         alert('Please select a .zip archive file.');
         return;
       }
-
       const file = fileInput.files[0];
       const repoName = document.getElementById('zip-repo-name').value.trim();
 
@@ -668,49 +1292,36 @@
       }
     }
 
-    function showTaskStatus(message, badgeText) {
-      const statusBox = document.getElementById('modal-task-status');
-      statusBox.classList.remove('hidden');
-      document.getElementById('task-progress-message').innerText = message;
-      document.getElementById('task-state-badge').innerText = badgeText;
-    }
+    async function submitIngestCode() {
+      const repo = document.getElementById('modal-repo-name').value;
+      const file = document.getElementById('modal-file-path').value;
+      const code = document.getElementById('modal-code').value;
 
-    async function pollTaskProgress(taskId) {
-      const interval = setInterval(async () => {
-        try {
-          const res = await fetch(`${API_BASE}/api/v1/tasks/${taskId}`, { headers: getAuthHeaders() });
-          const task = await res.json();
-          
-          if (task.status === 'PROGRESS') {
-            showTaskStatus(task.progress || 'Processing codebase in background...', 'PROGRESS');
-          } else if (task.status === 'SUCCESS') {
-            clearInterval(interval);
-            const r = task.result || {};
-            showTaskStatus(`Success! Indexed ${r.parsed_files || 0} files, ${r.classes_indexed || 0} classes, ${r.functions_indexed || 0} functions.`, 'SUCCESS');
-            await refreshData();
-          } else if (task.status === 'FAILURE') {
-            clearInterval(interval);
-            showTaskStatus('Pipeline failed: ' + JSON.stringify(task.result || 'Check server logs.'), 'FAILURE');
-          }
-        } catch (e) {
-          console.warn('Task polling error:', e);
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/analyze/code`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ repo_name: repo, file_path: file, code_content: code })
+        });
+        if (res.status === 401) {
+          alert('Unauthorized: API Key is missing or invalid.');
+          return;
         }
-      }, 1500);
+        closeIngestModal();
+        await refreshData();
+      } catch (err) {
+        alert('Ingestion error: ' + err.message);
+      }
     }
 
-    function openIngestModal() { 
-      document.getElementById('modal-task-status').classList.add('hidden');
-      document.getElementById('ingest-modal').classList.remove('hidden'); 
-    }
-    function closeIngestModal() { document.getElementById('ingest-modal').classList.add('hidden'); }
-    function fitGraph() { if (cy) cy.fit(); }
-    function resetLayout() { if (cy) cy.layout({ name: 'cose', animate: true }).run(); }
-
+    // --- On DOM Ready ---
     window.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
       initCytoscape();
       updateApiKeyBadge();
       refreshData();
+      // Periodically refresh health
+      setInterval(checkHealth, 15000);
     });
   </script>
 </body>

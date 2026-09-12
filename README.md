@@ -1,24 +1,25 @@
 <div align="center">
 
-# 🧠 CodeGraph Brain
-### Enterprise Code Knowledge Graph, GraphRAG & Model Context Protocol (MCP) Platform
+# 🧠 CodeGraph Brain Enterprise
+### Universal Code Knowledge Graph, Polyglot GraphRAG & AI Architectural Review Platform
 
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.103-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-2.0.0-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Neo4j](https://img.shields.io/badge/Neo4j-5.11-008CC1?style=for-the-badge&logo=neo4j&logoColor=white)](https://neo4j.com)
 [![Redis](https://img.shields.io/badge/Redis-Alpine-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
 [![MCP](https://img.shields.io/badge/MCP-Protocol-8A2BE2?style=for-the-badge&logo=anthropic&logoColor=white)](https://modelcontextprotocol.io/)
 
 <p align="center">
-  <b>تبدیل کدهای سازمانی به گراف دانش ساختاری، بازیابی هیبریدی برداری (GraphRAG) و اتصال مستقیم به ایجنت‌های هوش مصنوعی</b>
+  <b>تبدیل کدهای سازمانی چندزبانه به گراف دانش، بازیابی هیبریدی برداری (GraphRAG)، کشف Code Smells، بازبینی معماری PR و اتصال مستقیم به ایجنت‌های هوش مصنوعی از طریق پروتکل MCP</b>
 </p>
 
-[ویژگی‌ها](#-ویژگی‌های-برجسته) •
+[ویژگی‌ها](#-ویژگی‌های-محصول-کامل) •
 [معماری](#-معماری-سیستم) •
-[راه‌اندازی سریع](#-راه‌اندازی-سریع-با-docker) •
-[داشبورد ادمین](#-داشبورد-گرافیکی-ادمین) •
-[اتصال MCP به ایجنت‌ها](#-اتصال-ایجنت‌های-ai-به-mcp) •
+[راه‌اندازی با داکر](#-راه‌اندازی-سریع-با-docker) •
+[داشبورد سازمانی](#-داشبورد-سازمانی-۴-بخشی) •
+[ابزارهای MCP](#-ابزارهای-جامع-mcp-برای-ایجنت‌های-ai) •
+[وب‌هوک گیت‌هاب](#-وب‌هوک-خودکار-github-cicd) •
 [امنیت](#-تدابیر-امنیتی-enterprise-security) •
 [راهنمای جامع](#-مستندات-بیشتر)
 
@@ -26,32 +27,54 @@
 
 ---
 
-## 📖 معرفی پروژه
+## 📖 معرفی محصول
 
-در سازمان‌های بزرگ، پروژه‌ها از صدها فایل، هزاران خط کد و روابط پیچیده بین سرویس‌ها تشکیل شده‌اند. مدل‌های زبانی معمولی به دلیل محدودیت پنجره کانتکست (Context Window) و عدم درک ساختار کدهای تودرتو، دچار توهم (Hallucination) می‌شوند.
+در سازمان‌ها و شرکت‌های نرم‌افزاری، پروژه‌ها متشکل از میلیون‌ها خط کد در زبان‌های مختلف (Python, TypeScript, Go, Java, Rust, C++, C#) و روابط بسیار درهم‌تنیده هستند. مدل‌های زبانی متداول (LLMها) به دلیل عدم اشراف بر کل سورس‌کد و کانتکست ساختاری، هنگام ریفکتورینگ و توسعه ویژگی‌ها دچار خطاهای مهلک معماری و رگرسیون می‌شوند.
 
-**CodeGraph Brain** این چالش را با ترکیب **درخت نحو انتزاعی (AST)**، **پایگاه داده گرافی (Neo4j)** و **جستجوی برداری (Vector Embeddings)** حل کرده است:
-1. سورس‌کدها اسکن شده و کلاس‌ها، متدها، فایل‌ها، ایمپورت‌ها و صدا زدن‌ها (`CALLS`) به شکل نود و یال در گراف ذخیره می‌شوند.
-2. برای متن و داک‌استرینگ هر تابع وکتور ساخته می‌شود.
-3. در زمان پرسش، موتور **GraphRAG** نزدیک‌ترین کدها را پیدا کرده و با پیمایش ۲ مرحله‌ای گراف (Call Graph)، زمینه کامل را برای LLM آماده می‌کند.
-4. تمام این دانش از طریق پروتکل استاندارد **MCP** در اختیار دستیارهای هوش مصنوعی مانند **Claude Desktop**، **Cursor** و **Antigravity** قرار می‌گیرد.
+**CodeGraph Brain Enterprise** پلتفرمی کامل و همه‌جانبه است که کد سازمان شما را از طریق **درخت نحو انتزاعی (Tree-sitter AST)** به یک **گراف دانش رابطه‌ای و برداری (Neo4j)** تبدیل می‌کند. این سامانه فراتر از یک MVP بوده و ویژگی‌های درجه‌یک سازمانی زیر را ارائه می‌دهد:
+- **پشتیبانی جامع چندزبانه (Polyglot Engine):** پارس عمیق زبان‌های مدرن و پشتیبانی از کلیه زبان‌های برنامه‌نویسی با موتور Universal Fallback.
+- **موتور تحلیل معماری و بوی کد (Code Smells):** تشخیص چرخه‌های وابستگی دوری (Circular Dependencies)، توابع خدا (God Functions) و کدهای مرده (Dead Code).
+- **محاسبه شعاع تخریب (Cascading Blast Radius):** تخمین دقیق توابع و فایل‌های تحت تاثیر قبل از ایجاد تغییرات.
+- **بازبینی خودکار معماری پول ریکوئست (Automated PR Diff Review):** تحلیل دیف‌های گیت با ترکیب گراف دانش و هوش مصنوعی.
+- **پایپ‌لاین خودکار با وب‌هوک CI/CD و صف توزیع‌شده Celery.**
+- **سرور جامع FastMCP با ۱۰ ابزار کاربردی برای ایجنت‌های هوش مصنوعی (Claude Desktop, Cursor, Antigravity).**
 
 ---
 
-## 🌟 ویژگی‌های برجسته
+## 🌟 ویژگی‌های محصول کامل
 
-- ⚡ **پارس دقیق کدهای منبع (Tree-sitter):** استخراج عمیق ساختار کد بدون نیاز به اجرای آن (کلاس‌ها، توابع، داک‌استرینگ‌ها، خطوط شروع و پایان).
-- 🧬 **موتور بازیابی ترکیبی (Hybrid GraphRAG):** تلفیق شباهت کسینوسی برداری (Cosine Similarity) با کوئری‌های گرافی Cypher جهت ارائه کانتکست بدون خطا به LLM.
-- 🚀 **پایپ‌لاین ورود داده ۱۰۰٪ خودکار (Automated Ingestion):**
-  - **کلون خودکار از گیت:** تنها با وارد کردن آدرس مخزن در گیت‌هاب/گیت‌لب (همراه با پشتیبانی از Access Token برای ریپازیتوری‌های محرمانه).
-  - **آپلود مستقیم ZIP:** آپلود فایل فشرده پروژه با موتور اکسترکت امن ضد آسیب‌پذیری Zip Slip.
-  - **پردازش توزیع‌شده:** اجرای وظایف سنگین در صف پس‌زمینه **Celery + Redis** با نمایش لایو درصد پیشرفت.
-- 🎨 **داشبورد بصری تعاملی (Cytoscape.js):**
-  - کاوش بصری در کل گراف کدهای سازمان با تفکیک رنگی نودها (ریپو، فایل، کلاس، تابع، ماژول).
-  - ابزار **Node Inspector** جهت بازرسی سریع متن کد و مستندات با یک کلیک.
-  - محیط چت اختصاصی **GraphRAG Search** برای سوال پرسیدن از پروژه‌ها.
-- 🤖 **سرور کامل پروتکل کانتکست مدل (FastMCP Server):** ارائه ۵ ابزار کاربردی (`find_callers`, `search_code_graph`, `get_function_details`, `get_codebase_stats`, `clone_and_index_git_repository`) با دو حالت ترنسپورت `stdio` و `SSE`.
-- 🔒 **ایمن‌سازی کامل سازمانی (Hardened):** احراز هویت با API Key، ساندباکس ایزوله، رمزگذاری ردیس و دیتابیس، محدودیت دوز ورودی‌ها و اجرای غیر روت.
+### ۱. پشتیبانی از تمام زبان‌های برنامه‌نویسی (Universal Polyglot)
+- **پارس عمیق ساختاری با Tree-sitter:**
+  - Python (`.py`)
+  - JavaScript & TypeScript (`.js`, `.jsx`, `.ts`, `.tsx`)
+  - Go (`.go`)
+  - Java (`.java`)
+  - C & C++ (`.c`, `.cc`, `.cpp`, `.h`, `.hpp`)
+  - C# (`.cs`)
+  - Rust (`.rs`)
+- **موتور Universal Polyglot Fallback:**
+  - شناسایی خودکار کلاس‌ها، توابع، ماژول‌ها و روابط در زبان‌های Ruby, PHP, Kotlin, Swift, Scala, Shell Script, SQL و ... بدون ایجاد وقفه در اسکن.
+
+### ۲. تحلیل سلامت معماری و کشف بوی کد (Architecture Health)
+- 🔄 **چرخه‌های صدا زدن دوری (Circular Call Chains):** کشف حلقه‌های `fnA -> fnB -> fnC -> fnA` که موجب نشت حافظه و باگ‌های تو در تو می‌شوند.
+- ⚡ **توابع پرخطر و گلوگاه‌ها (God Functions):** توابعی با فرخوانی‌های ورودی (Inbound) یا خروجی (Outbound) نامتعارف که ریسک بالایی در ریفکتورینگ دارند.
+- 👻 **شناسایی کدهای مرده (Dead Code Candidates):** شناسایی توابعی با ۰ صدا زننده در سراسر مخزن کد.
+
+### ۳. تحلیل شعاع تخریب و بازبینی دیف گیت (Blast Radius & PR Review)
+- ارزیابی خودکار Git Diff در مقایسه با گراف دانش.
+- مشخص کردن لیست تمام توابع و فایل‌های تحت تاثیر تا ۳ سطح عمق.
+- تخصیص رتبه ریسک (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) به تغییرات.
+- نگارش گزارش بررسی معماری توسط LLM به همراه چک‌لیست تست رگرسیون برای تیم QA.
+
+### ۴. مدیریت چند ریپازیتوری (Multi-Repository Hub)
+- مدیریت همزمان ده‌ها مخزن مجزا در یک پایگاه داده گراف دانش واحد.
+- نمایش تفکیک زبان‌ها، تعداد فایل‌ها، کلاس‌ها، توابع و امکان حذف ایمن آبشاری (Cascade Detach Delete).
+
+### ۵. پایپ‌لاین کاملاً خودکار و وب‌هوک گیت‌هاب (CI/CD Webhook)
+- کلون خودکار ریپازیتوری‌های پابلیک یا پرایوت (با پشتیبانی از Personal Access Token).
+- اکسترکت امن آرشیوهای ZIP با محافظت اختصاصی ضد Zip Slip.
+- اندپوینت دریافت وب‌هوک گیت‌هاب (`POST /api/v1/webhooks/github`) جهت ایندکس خودکار پس از هر Push در مخازن.
+- پردازش ناهمگام توزیع‌شده با صف **Celery + Redis** و پایش سلامت با اندپوینت سازمانی `/healthz`.
 
 ---
 
@@ -59,121 +82,100 @@
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["۱. خط لوله ورود خودکار داده"]
-        GitRepo["مخزن گیت (Git URL)"] --> Cloner["Git Cloner / ZIP Extractor"]
+    subgraph Ingestion ["۱. درگاه‌های ورود خودکار کدهای سازمانی"]
+        GitRepo["مخزن گیت (Git URL / Token)"] --> Cloner["Git Cloner / Safe ZIP Extractor"]
         ZipUpload["آپلود آرشیو ZIP"] --> Cloner
-        Cloner --> Sandbox["/app/repos (Sandbox ایزوله)"]
+        GitHubWebhook["GitHub Push Webhook"] --> Cloner
+        Cloner --> Sandbox["/app/repos (Sandbox امن و ایزوله)"]
     end
 
-    subgraph Processing ["۲. موتور پارس و وکتورسازی"]
-        Sandbox --> Parser["Tree-sitter AST Parser"]
-        Parser --> Entities["استخراج نودها (Class, Function, File)"]
-        Parser --> Relations["استخراج روابط (CONTAINS, CALLS, IMPORTS)"]
-        Parser --> Embedder["OpenAI / Local Code Embeddings"]
+    subgraph Processing ["۲. موتور پردازش چندزبانه"]
+        Sandbox --> Parser["Tree-sitter AST & Polyglot Engine"]
+        Parser --> AST["استخراج نودها و روابط (Class, Function, File, Module)"]
+        AST --> Embedder["OpenAI / Local Deterministic Embedder"]
+        AST --> Analytics["موتور تحلیل چرخه‌ها و گلوگاه‌ها"]
     end
 
-    subgraph Storage ["۳. پایگاه داده دوگانه (Dual Store)"]
-        Entities --> Neo4j[("Neo4j Graph Database")]
-        Relations --> Neo4j
+    subgraph Storage ["۳. ذخیره‌سازی داده‌های گراف و بردار (Neo4j)"]
+        AST --> Neo4j[("Neo4j Graph Database")]
         Embedder --> VectorIndex[("Neo4j Vector Index (1536-dim)")]
+        Analytics --> Neo4j
     end
 
-    subgraph Retrieval ["۴. موتور بازیابی GraphRAG"]
-        UserQuery["پرسش کاربر / ایجنت"] --> QueryEmbed["Query Embedding"]
-        QueryEmbed --> VectorIndex
-        VectorIndex --> TopHits["Top-K Relevant Functions"]
-        TopHits --> GraphExpand["۲-Hop Graph Neighborhood Expansion"]
-        Neo4j --> GraphExpand
-        GraphExpand --> ContextEnriched["کانتکست ساختاری + سورس‌کد"]
-        ContextEnriched --> LLM["LLM Synthesis (GPT-4o / Gemini)"]
+    subgraph Intelligence ["۴. هوش تحلیلی و بازبینی کدهای پول ریکوئست"]
+        Neo4j --> GraphRAG["GraphRAG Engine (Vector + 2-Hop Cypher Traversal)"]
+        Neo4j --> BlastRadius["Cascading Blast Radius Calculator"]
+        BlastRadius --> Reviewer["Architectural PR / Diff Reviewer (LLM)"]
     end
 
-    subgraph Interfaces ["۵. درگاه‌های دسترسی"]
-        LLM --> WebUI["داشبورد تحت وب (Port 3000)"]
-        LLM --> RestAPI["REST API / Swagger (Port 8000)"]
-        Neo4j --> MCPServer["MCP Server (Port 8001 / stdio)"]
-        MCPServer --> AIAgents["ایجنت‌های هوش مصنوعی (Claude / Cursor)"]
+    subgraph Interfaces ["۵. درگاه‌های دسترسی پلتفرم"]
+        GraphRAG --> WebUI["داشبورد تحت وب ۴ بخشی (Port 3000)"]
+        Reviewer --> WebUI
+        GraphRAG --> RestAPI["FastAPI Production API (Port 8000)"]
+        Reviewer --> RestAPI
+        Neo4j --> MCPServer["FastMCP Server (Port 8001 / stdio)"]
+        MCPServer --> AIAgents["ایجنت‌های AI (Claude Desktop, Cursor, Antigravity)"]
     end
 ```
 
 ---
 
-## 🚀 راه‌اندازی سریع با Docker
+## 🖥 داشبورد سازمانی ۴ بخشی
 
-تنها با چند دستور سامانه به همراه پایگاه داده، صف تسک‌ها، ورکر، API و داشبورد بالا می‌آید.
+داشبورد مدیریتی بر روی پورت `3000` در دسترس بوده و دارای ۴ نمای اصلی است:
+1. 🌐 **نمای گراف و چت هوشمند (Knowledge Graph & GraphRAG):** بوم تعاملی Cytoscape با رنگ‌بندی دقیق نودها، فیلتر روی هر مخزن، بازرسی نود (کد و مستندات)، و پرسش و پاسخ معنایی متصل به LLM.
+2. 📊 **نمای سلامت معماری (Architecture Health):** نمایش چرخه‌های فراخوانی، توابع حجیم و کدهای مرده به صورت کارت‌ها و جدول‌های قابل تعامل.
+3. 📁 **هاب مخازن (Repositories Hub):** مدیریت لیست تمام پروژه‌های ایندکس‌شده با آمار خطوط و زبان‌ها و حذف آبشاری.
+4. 🔍 **تحلیل شعاع تخریب و بررسی دیف (Diff Impact & PR Review):** امکان وارد کردن نام هر تابع جهت مشاهده نودهای وابسته یا پیست کردن Git Diff جهت تولید خودکار تحلیل معماری.
 
-### ۱. تنظیم فایل متغیرها (`.env`)
-فایل قالب را کپی کرده و رمزها و کلید API مد نظرتان را تنظیم کنید:
+---
+
+## 🛠 راه‌اندازی سریع با Docker
+
+تنظیمات پلتفرم در قالب ۶ کانتینر در `docker-compose.yml` پیکربندی شده است.
 
 ```bash
+# ۱. کلون پروژه
+git clone https://github.com/mohamadreza1368/code_brian.git
+cd code_brian
+
+# ۲. ایجاد فایل تنظیمات محیطی
 cp .env.example .env
+
+# ۳. تنظیم کلیدها در فایل .env
+# API_KEY=your-secure-enterprise-api-key
+# OPENAI_API_KEY=sk-...
+
+# ۴. اجرای کامل استک سازمانی
+docker compose up -d --build
 ```
 
-محتوای نمونه در `.env`:
-```env
-# کلید احراز هویت برای API و داشبورد
-API_KEY=MyEnterpriseKey2026!
-ALLOW_UNAUTHENTICATED=false
-
-# اطلاعات اتصال دیتابیس‌ها
-NEO4J_PASSWORD=StrongNeo4jPassword2026!
-REDIS_PASSWORD=StrongRedisPassword2026!
-
-# کلید هوش مصنوعی (اختیاری جهت فعال‌سازی پاسخ‌های تحلیلی LLM)
-OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxx
-```
-
-### ۲. اجرای کانتینرها
-```bash
-docker-compose up --build
-```
+### وضعیت سرویس‌ها:
+- **داشبورد مدیریتی:** `http://localhost:3000`
+- **مستندات اینتراکتیو API (Swagger):** `http://localhost:8000/docs`
+- **پایش سلامت سیستم:** `http://localhost:8000/healthz`
+- **سرور پروتکل کانتکست مدل (MCP SSE):** `http://localhost:8001/sse`
+- **محیط مدیریت دیتابیس Neo4j Browser:** `http://localhost:7474`
 
 ---
 
-## 🌐 درگاه‌های دسترسی و پورت‌ها
+## 🤖 ابزارهای جامع MCP برای ایجنت‌های AI
 
-| سرویس | پورت | آدرس | توضیحات |
-| :--- | :---: | :--- | :--- |
-| **Admin Dashboard** | `3000` | [http://localhost:3000](http://localhost:3000) | پنل گرافیکی تحت وب با Cytoscape.js |
-| **REST API (Swagger)** | `8000` | [http://localhost:8000/docs](http://localhost:8000/docs) | داکیومنت تعاملی و تست اندپوینت‌ها |
-| **MCP Server (SSE)** | `8001` | [http://localhost:8001/sse](http://localhost:8001/sse) | پروتکل کانتکست مدل برای اتصال ریموت |
-| **Neo4j Browser** | `7474` | [http://localhost:7474](http://localhost:7474) | کنسول کوئری‌نویسی مستقیم با زبان Cypher |
-| **Bolt Protocol** | `7687` | `bolt://localhost:7687` | درایور اختصاصی پایگاه داده گراف |
-| **Redis Broker** | `6379` | `localhost:6379` | صف وظایف پردازش پس‌زمینه کارهای سنگین |
+پلتفرم دارای سرور کامل پروتکل کانتکست مدل (`app.mcp_server`) است که ابزارهای زیر را به ایجنت‌های هوش مصنوعی ارائه می‌دهد:
 
----
+| نام ابزار MCP | توضیحات کاربردی برای ایجنت |
+|---|---|
+| `search_code_graph` | جستجوی معنایی هیبریدی در گراف برای یافتن توابع و کلاس‌ها به همراه کانتکست فراخوانی |
+| `get_function_details` | بازیابی متن سورس کد کامل، داک‌استرینگ، و صدا زنندگان یک تابع مشخص |
+| `find_callers` | رهگیری تمام توابع و فایل‌هایی که یک تابع خاص را در سراسر سازمان فراخوانی می‌کنند |
+| `calculate_blast_radius` | محاسبه شعاع تخریب و وابستگی‌های آبشاری قبل از ریفکتورینگ |
+| `detect_code_smells` | گزارش خودکار چرخه‌های وابستگی، توابع خدا و کدهای مرده در یک پروژه |
+| `review_code_diff` | بررسی معماری تغییرات Git Diff و مشخص کردن ریسک شکست و راهنمای تست |
+| `list_repositories` | ارائه لیست پروژه‌های ایندکس‌شده، تعداد فایل‌ها و زبان‌های به کار رفته |
+| `index_local_repository` | ایندکس یک پوشه محلی داخل ساندباکس امن |
+| `clone_and_index_git_repository` | کلون کردن و ایندکس آنی یک آدرس گیت مستقیماً توسط دستورات ایجنت |
 
-## 🖥 داشبورد گرافیکی ادمین
-
-داشبورد ادمین تحت Nginx و با فریم‌ورک سبک و مدرن طراحی شده است:
-- **نوار آمار لحظه‌ای:** نمایش تعداد ریپازیتوری‌ها، فایل‌ها، کلاس‌ها، توابع و کل پیوندهای شناسایی‌شده در گراف.
-- **راهنمای رنگ‌بندی نودها:**
-  - 🟣 **بنفش:** ریپازیتوری ریشه (`Repository`)
-  - 🔵 **آبی:** فایل‌های کد (`File`)
-  - 🟡 **زرد:** کلاس‌ها (`Class`)
-  - 🟢 **سبز:** توابع و متدها (`Function`)
-  - 🔴 **صورتی:** ماژول‌ها و وابستگی‌های خارجی (`Module`)
-- **بازرس نودها (Node Inspector):** با کلیک روی هر المان در بوم، سورس‌کد کامل آن بخش، داک‌استرینگ، و شماره خطوط در فایل ظاهر می‌شود.
-- **چت GraphRAG:** پرسیدن سوالات تحلیلی در خصوص کدهای سازمان و مشاهده مستندات مرجع.
-
----
-
-## 🤖 اتصال ایجنت‌های AI به MCP
-
-این سامانه به عنوان یک سرور **Model Context Protocol** عمل می‌کند. دستیارهای هوش مصنوعی می‌توانند مستقیماً ساختار کد شما را واکشی کنند.
-
-### ابزارهای در دسترس ایجنت:
-| نام ابزار | پارامترها | عملکرد |
-| :--- | :--- | :--- |
-| `search_code_graph` | `query`, `repo_name`, `top_k` | جستجوی معنایی و ارائه سورس کد با وابستگی‌های فراخوانی |
-| `get_function_details` | `function_name`, `repo_name` | استخراج دقیق پیاده‌سازی، کلاس والد، کالرها و کالی‌های تابع |
-| `find_callers` | `function_name`, `repo_name` | **آنالیز اثر (Impact Analysis):** پیدا کردن تمام توابعی که این متد را صدا زده‌اند |
-| `clone_and_index_git_repository` | `git_url`, `repo_name`, `branch` | فرمان به سیستم برای کلون و ایندکس یک ریپازیتوری جدید از گیت |
-| `get_codebase_stats` | - | گزارش وضعیت و آمار کلان گراف کدهای سازمان |
-
-### تنظیمات برای Claude Desktop یا Cursor:
-فایل کانفیگ MCP ایجنت خود را باز کرده و تنظیمات زیر را وارد کنید (فایل نمونه در [`mcp_client_config.json`](mcp_client_config.json) موجود است):
-
+### نمونه کانفیگ برای Claude Desktop یا Cursor:
 ```json
 {
   "mcpServers": {
@@ -194,65 +196,39 @@ docker-compose up --build
 }
 ```
 
-> **اتصال با پروتکل SSE:** همچنین می‌توانید از آدرس مستقیم `http://localhost:8001/sse` برای اتصال ایجنت‌های ریموت استفاده کنید.
+---
+
+## 🔔 وب‌هوک خودکار GitHub CI/CD
+
+برای به‌روزرسانی آنی گراف دانش با هر کامیت در گیت‌هاب:
+1. در صفحه مخزن در گیت‌هاب به مسیر **Settings > Webhooks > Add webhook** بروید.
+2. آدرس Payload URL را به شکل زیر تنظیم کنید:
+   ```
+   https://your-domain.com/api/v1/webhooks/github
+   ```
+3. گزینه `Content type` را روی `application/json` بگذارید.
+4. رویداد **Just the push event** را انتخاب نمایید.
+سامانه به محض دریافت رویداد، تغییرات را کلون کرده و گراف دانش را به صورت خودکار بازسازی و به‌روز می‌کند.
 
 ---
 
 ## 🔒 تدابیر امنیتی (Enterprise Security)
 
-پروژه به طور کامل تحت ممیزی امنیتی قرار گرفته و برای استقرار در شبکه‌های حساس سازمانی مقاوم‌سازی (Harden) شده است:
-
-1. **احراز هویت سرتاسری (API Key Auth):** تمام اندپوینت‌ها از طریق هدر `X-API-Key` محافظت می‌شوند.
-2. **قرنطینه مسیرها (Anti-Path Traversal):** اسکن دایرکتوری‌ها صرفاً محدود به پوشه ساندباکس `/app/repos` بوده و دسترسی به فایل‌های سیستمی میزبان مسدود است.
-3. **محافظت در برابر Zip Slip:** اکسترکت آرشیوهای آپلودشده با اعتبارسنجی کانونی مسیر انجام می‌شود.
-4. **کنترل حجم و نرخ داده (Anti-DoS):** آپلود کدهای متنی تا ۱ مگابایت محدود شده و پارامترهای جستجو اعتبارسنجی می‌شوند.
-5. **رمزنگاری ردیس:** فعال‌سازی فلگ اجباری `--requirepass` روی صف ردیس جهت جلوگیری از مسموم‌سازی تسک‌های Celery.
-6. **ایزوله‌سازی پورت‌ها:** پورت‌های حساس تنها روی اینترفیس لوکال `127.0.0.1` بایند شده‌اند.
-7. **اجرا با دسترسی غیر روت:** کانتینرهای بک‌اند تحت کاربر امن `appuser` اجرا می‌شوند.
-
----
-
-## 📁 ساختار پوشه‌های پروژه
-
-```
-code-graph-brain/
-├── backend/
-│   ├── app/
-│   │   ├── core/
-│   │   │   ├── cloner.py        # موتور کلون گیت و اکسترکت امن ZIP
-│   │   │   ├── embedder.py      # تولید وکتورهای معنایی (OpenAI / Local)
-│   │   │   ├── graph.py         # درایور Neo4j، روابط و ایندکس برداری
-│   │   │   ├── parser.py        # تحلیلگر AST با Tree-sitter
-│   │   │   ├── rag.py           # موتور جستجوی هیبریدی GraphRAG
-│   │   │   ├── scanner.py       # اسکنر بازگشتی پروژه‌های بزرگ
-│   │   │   ├── security.py      # احراز هویت API Key و ساندباکس امنیتی
-│   │   │   └── celery.py        # پیکربندی صف پیام Celery
-│   │   ├── tasks/
-│   │   │   └── ingestion.py     # تسک‌های غیرهمزمان کلون و ایندکس
-│   │   ├── main.py              # سرور اصلی و اندپوینت‌های FastAPI
-│   │   └── mcp_server.py        # سرور FastMCP برای ایجنت‌های هوش مصنوعی
-│   ├── Dockerfile               # داکر ایمیج امن پایتون با کاربر appuser
-│   └── requirements.txt         # وابستگی‌های بک‌اند
-├── frontend/
-│   ├── index.html               # رابط کاربری ادمین با Cytoscape.js و Tailwind
-│   ├── nginx.conf               # کانفیگ وب‌سرور Nginx
-│   └── Dockerfile               # ایمیج فوق‌سبک داشبورد
-├── repos/                       # دایرکتوری ساندباکس پروژه‌ها
-├── docker-compose.yml           # ارکستراسیون ۶ کانتینر اصلی
-├── .env.example                 # نمونه پیکربندی متغیرهای امنیتی
-├── mcp_client_config.json       # نمونه کانفیگ برای Claude و Cursor
-├── USER_GUIDE.md                # کتابچه راهنمای جامع فارسی
-└── README.md                    # مستندات معرفی و شروع سریع پروژه
-```
+- **احراز هویت سرتاسری:** فعال بودن بررسی `X-API-Key` بر روی تمامی اندپوینت‌های مدیریت، تحلیل و کوئری.
+- **ساندباکس ایزوله و ضد Path Traversal:** دسترسی فایل‌ها در مسیر `/app/repos` محصور بوده و امکان خروج با مسیرهای نسبی وجود ندارد.
+- **اکسترکت امن ضد Zip Slip:** جلوگیری از بازنویسی فایل‌های سیستمی میزبان در فایل‌های آرشیو مخرب.
+- **امن‌سازی شبکه داکر:** بایند شدن پورت دیتابیس و ردیس تنها بر روی اینترفیس لوکال `127.0.0.1`.
+- **رمزنگاری ردیس:** استفاده از رمز عبور اجباری در Celery برای جلوگیری از اجرای تسک‌های غیرمجاز.
+- **Non-Root Execution:** اجرای فرآیندهای کانتینر بک‌اند تحت کاربر امن سیستم `appuser`.
 
 ---
 
 ## 📚 مستندات بیشتر
 
-برای آموزش مرحله به مرحله، نمونه کوئری‌های زبان Cypher در دیتابیس و راهنمای سناریوهای بازبینی کد (Code Review)، فایل **[USER_GUIDE.md](USER_GUIDE.md)** را مطالعه فرمایید.
+برای مطالعه راهنمای جامع گام‌به‌گام کار با سیستم، سناریوهای بازبینی کد و نمونه کوئری‌های Cypher، فایل **[USER_GUIDE.md](USER_GUIDE.md)** را مطالعه کنید.
 
 ---
 
 <div align="center">
-  <sub>طراحی و توسعه یافته با ❤️ برای درک و هوشمندسازی کدهای سازمانی</sub>
+  <sub>CodeGraph Brain Enterprise © 2026 — طراحی و توسعه یافته برای هوشمندسازی و امنیت معماری نرم‌افزارهای سازمانی</sub>
 </div>
