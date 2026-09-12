@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "codegraph-brain-docker": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "graphrag_api",
+        "python",
+        "-m",
+        "app.mcp_server",
+        "--transport",
+        "stdio"
+      ]
+    },
+    "codegraph-brain-sse": {
+      "url": "http://localhost:8001/sse"
+    }
+  }
+}

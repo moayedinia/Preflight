@@ -1,0 +1,112 @@
+import os
+import re
+import shutil
+import zipfile
+import subprocess
+from pathlib import Path
+from typing import Optional
+from fastapi import HTTPException
+from urllib.parse import urlparse, urlunparse
+
+from app.core.security import ALLOWED_REPO_DIR, sanitize_name
+
+def sanitize_git_url(url: str, token: Optional[str] = None) -> str:
+    """
+    Validates and formats Git URL. Optionally injects auth token for private repos.
+    """
+    url = url.strip()
+    if not (url.startswith("https://") or url.startswith("http://") or url.startswith("git@")):
+        raise HTTPException(status_code=400, detail="Invalid Git URL. Must start with https://, http://, or git@")
+
+    # Prevent command injection in arguments
+    if any(char in url for char in [";", "&", "|", "`", "$", "\n", "\r", " "]):
+        raise HTTPException(status_code=400, detail="Disallowed characters in Git URL.")
+
+    if token and url.startswith("https://"):
+        parsed = urlparse(url)
+        # Inject token into URL e.g. https://oauth2:TOKEN@github.com/...
+        netloc = f"oauth2:{token}@{parsed.hostname}"
+        if parsed.port:
+            netloc += f":{parsed.port}"
+        url = urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+    return url
+
+def infer_repo_name_from_url(url: str) -> str:
+    """Extracts default repository name from Git URL."""
+    clean_url = url.split("?")[0].rstrip("/")
+    if clean_url.endswith(".git"):
+        clean_url = clean_url[:-4]
+    name = clean_url.split("/")[-1].split(":")[-1]
+    return sanitize_name(name) if name else "ClonedRepo"
+
+def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Optional[str] = None, token: Optional[str] = None) -> Path:
+    """
+    Clones a remote Git repository into the sandboxed repos directory.
+    Uses subprocess with direct argument list (no shell injection).
+    """
+    safe_url = sanitize_git_url(git_url, token=token)
+    if not repo_name:
+        repo_name = infer_repo_name_from_url(git_url)
+    clean_name = sanitize_name(repo_name)
+
+    target_dir = ALLOWED_REPO_DIR / clean_name
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    # If repo already exists, remove it for a clean fresh clone
+    if target_dir.exists():
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+    cmd = ["git", "clone", "--depth", "1"]
+    if branch:
+        clean_branch = re.sub(r"[^a-zA-Z0-9_\-\./]", "", branch)
+        cmd.extend(["--branch", clean_branch])
+    
+    cmd.extend([safe_url, str(target_dir)])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=180, # 3 minutes max
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr.replace(token, "***") if token else e.stderr
+        raise HTTPException(status_code=500, detail=f"Git clone failed: {err_msg}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git clone timed out after 3 minutes.")
+
+    return target_dir
+
+def extract_safe_zip(zip_path: Path, repo_name: str) -> Path:
+    """
+    Safely extracts a ZIP archive into the sandboxed repository folder,
+    protecting against Zip Slip directory traversal vulnerabilities.
+    """
+    clean_name = sanitize_name(repo_name)
+    target_dir = ALLOWED_REPO_DIR / clean_name
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir, ignore_errors=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    target_resolved = target_dir.resolve()
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for member in zf.infolist():
+            # Zip Slip check: ensure extracted path does not escape sandbox
+            extracted_path = (target_dir / member.filename).resolve()
+            try:
+                if not extracted_path.is_relative_to(target_resolved):
+                    raise HTTPException(status_code=400, detail="Malicious ZIP detected (Zip Slip vulnerability).")
+            except AttributeError:
+                if not str(extracted_path).startswith(str(target_resolved)):
+                    raise HTTPException(status_code=400, detail="Malicious ZIP detected.")
+
+        zf.extractall(target_dir)
+
+    return target_dir

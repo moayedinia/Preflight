@@ -1,0 +1,8 @@
+{
+  "name": "graphrag_dashboard",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "echo 'Frontend is running!' && tail -f /dev/null"
+  },
+  "dependencies": {}
+}
