@@ -1,8 +1,32 @@
 ARG DOCKER_REGISTRY=""
 FROM ${DOCKER_REGISTRY}python:3.11-slim
 
+ARG DEBIAN_MIRROR="https://linux.repo.ime.co.ir/repository/debian"
 ARG PYPI_MIRROR="https://pypi.repo.ime.co.ir/repository/pypi-group/simple"
 ARG PYPI_HOST="pypi.repo.ime.co.ir"
+
+# Configure Debian APT mirror for internal/corporate network
+RUN if [ -n "${DEBIAN_MIRROR}" ]; then \
+        echo "Configuring internal Debian APT mirror: ${DEBIAN_MIRROR}"; \
+        mkdir -p /etc/apt/apt.conf.d; \
+        echo 'Acquire::https::Verify-Peer "false";' > /etc/apt/apt.conf.d/99ssl-internal-mirror; \
+        echo 'Acquire::https::Verify-Host "false";' >> /etc/apt/apt.conf.d/99ssl-internal-mirror; \
+        echo 'Acquire::AllowInsecureRepositories "true";' >> /etc/apt/apt.conf.d/99ssl-internal-mirror; \
+        echo 'APT::Get::AllowUnauthenticated "true";' >> /etc/apt/apt.conf.d/99ssl-internal-mirror; \
+        if [ -f /etc/apt/sources.list ]; then \
+            sed -i -E "s|https?://deb.debian.org/debian/?|${DEBIAN_MIRROR}/|g" /etc/apt/sources.list; \
+            sed -i -E "s|https?://deb.debian.org/debian-security/?|${DEBIAN_MIRROR}/|g" /etc/apt/sources.list; \
+            sed -i -E "s|https?://security.debian.org/debian-security/?|${DEBIAN_MIRROR}/|g" /etc/apt/sources.list; \
+        fi; \
+        if [ -d /etc/apt/sources.list.d ]; then \
+            for f in /etc/apt/sources.list.d/*; do \
+                [ -e "$f" ] || continue; \
+                sed -i -E "s|https?://deb.debian.org/debian/?|${DEBIAN_MIRROR}/|g" "$f"; \
+                sed -i -E "s|https?://deb.debian.org/debian-security/?|${DEBIAN_MIRROR}/|g" "$f"; \
+                sed -i -E "s|https?://security.debian.org/debian-security/?|${DEBIAN_MIRROR}/|g" "$f"; \
+            done; \
+        fi; \
+    fi
 
 # Configure PyPI mirror globally for all pip operations
 ENV PIP_INDEX_URL=${PYPI_MIRROR}

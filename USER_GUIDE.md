@@ -60,6 +60,9 @@ docker compose up -d --build
 DOCKER_REGISTRY=dockerhub.ime.co.ir/
 PYPI_MIRROR=https://pypi.repo.ime.co.ir/repository/pypi-group/simple
 PYPI_HOST=pypi.repo.ime.co.ir
+DEBIAN_MIRROR=https://linux.repo.ime.co.ir/repository/debian
+WEB_PORT=8001
+MCP_PORT=8002
 ```
 همچنین می‌توانید در تنظیمات Docker Desktop (بخش **Docker Engine**) یا فایل `/etc/docker/daemon.json` میرور داکر را تعریف نمایید:
 ```json

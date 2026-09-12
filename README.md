@@ -152,15 +152,17 @@ docker compose up -d --build
 
 > [!TIP]
 > **پشتیبانی از میرورهای داخلی سازمانی (IME Mirrors):**
-> برای محیط‌های سازمانی بدون دسترسی مستقیم به اینترنت بین‌الملل، مقادیر `DOCKER_REGISTRY` و `PYPI_MIRROR` در فایل `.env` برای استفاده از `https://dockerhub.ime.co.ir` و `https://pypi.repo.ime.co.ir/repository/pypi-group/simple` پشتیبانی می‌شوند.
+> برای محیط‌های سازمانی بدون دسترسی مستقیم به اینترنت بین‌الملل، میرورهای زیر در فایل `.env` و هنگام بیلد داکر به صورت خودکار اعمال می‌شوند:
+> - رجیستری داکر: `DOCKER_REGISTRY=dockerhub.ime.co.ir/`
+> - میرور پایتون: `PYPI_MIRROR=https://pypi.repo.ime.co.ir/repository/pypi-group/simple`
+> - میرور سیستم‌عامل دبیان (apt-get): `DEBIAN_MIRROR=https://linux.repo.ime.co.ir/repository/debian`
 
 
-### وضعیت سرویس‌ها:
-- **داشبورد مدیریتی:** `http://localhost:3000`
-- **مستندات اینتراکتیو API (Swagger):** `http://localhost:8000/docs`
-- **پایش سلامت سیستم:** `http://localhost:8000/healthz`
-- **سرور پروتکل کانتکست مدل (MCP SSE):** `http://localhost:8001/sse`
-- **محیط مدیریت دیتابیس Neo4j Browser:** `http://localhost:7474`
+### وضعیت سرویس‌ها (دو پورت استاندارد شبکه):
+- **داشبورد وب و مدیریت پروژه:** `http://<SERVER_IP>:8001`
+- **مستندات اینتراکتیو API (Swagger):** `http://<SERVER_IP>:8001/docs`
+- **پایش سلامت سیستم:** `http://<SERVER_IP>:8001/healthz`
+- **سرور پروتکل کانتکست مدل (MCP SSE برای ایجنت‌ها):** `http://<SERVER_IP>:8002/sse`
 
 ---
 
