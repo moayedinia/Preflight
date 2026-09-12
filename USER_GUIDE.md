@@ -54,6 +54,21 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+#### تنظیم میرورهای شبکه داخلی (IME Corporate Mirrors):
+اگر در شبکه سازمانی هستید که اینترنت مستقیم ندارد، فایل `.env` را به شکل زیر تنظیم نمایید:
+```env
+DOCKER_REGISTRY=dockerhub.ime.co.ir/
+PYPI_MIRROR=https://pypi.repo.ime.co.ir/repository/pypi-group/simple
+PYPI_HOST=pypi.repo.ime.co.ir
+```
+همچنین می‌توانید در تنظیمات Docker Desktop (بخش **Docker Engine**) یا فایل `/etc/docker/daemon.json` میرور داکر را تعریف نمایید:
+```json
+{
+  "registry-mirrors": ["https://dockerhub.ime.co.ir"],
+  "insecure-registries": ["dockerhub.ime.co.ir"]
+}
+```
+
 ### وضعیت سرویس‌های فعال:
 - **داشبورد گرافیکی وب:** [http://localhost:3000](http://localhost:3000)
 - **مستندات تعاملی Swagger API:** [http://localhost:8000/docs](http://localhost:8000/docs)

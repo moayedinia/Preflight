@@ -150,6 +150,11 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+> [!TIP]
+> **پشتیبانی از میرورهای داخلی سازمانی (IME Mirrors):**
+> برای محیط‌های سازمانی بدون دسترسی مستقیم به اینترنت بین‌الملل، مقادیر `DOCKER_REGISTRY` و `PYPI_MIRROR` در فایل `.env` برای استفاده از `https://dockerhub.ime.co.ir` و `https://pypi.repo.ime.co.ir/repository/pypi-group/simple` پشتیبانی می‌شوند.
+
+
 ### وضعیت سرویس‌ها:
 - **داشبورد مدیریتی:** `http://localhost:3000`
 - **مستندات اینتراکتیو API (Swagger):** `http://localhost:8000/docs`

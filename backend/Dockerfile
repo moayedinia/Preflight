@@ -1,4 +1,12 @@
-FROM python:3.11-slim
+ARG DOCKER_REGISTRY=""
+FROM ${DOCKER_REGISTRY}python:3.11-slim
+
+ARG PYPI_MIRROR="https://pypi.repo.ime.co.ir/repository/pypi-group/simple"
+ARG PYPI_HOST="pypi.repo.ime.co.ir"
+
+# Configure PyPI mirror globally for all pip operations
+ENV PIP_INDEX_URL=${PYPI_MIRROR}
+ENV PIP_TRUSTED_HOST=${PYPI_HOST}
 
 # Install necessary build tools and security dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,8 +20,12 @@ WORKDIR /app
 RUN groupadd -g 1001 appgroup && \
     useradd -u 1001 -g appgroup -s /bin/bash -m appuser
 
+# Configure pip config file for system-wide package installations
+RUN pip config set global.index-url "${PYPI_MIRROR}" && \
+    pip config set global.trusted-host "${PYPI_HOST}"
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --index-url "${PYPI_MIRROR}" --trusted-host "${PYPI_HOST}" -r requirements.txt
 
 # Create sandboxed repos directory and set ownership
 RUN mkdir -p /app/repos && chown -R appuser:appgroup /app

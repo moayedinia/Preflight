@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   neo4j:
-    image: neo4j:5.11
+    image: ${DOCKER_REGISTRY:-}neo4j:5.11
     container_name: neo4j_graph
     environment:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-Neo4jSecurePass2026!}
@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:alpine
+    image: ${DOCKER_REGISTRY:-}redis:alpine
     container_name: redis_broker
     command: redis-server --requirepass "${REDIS_PASSWORD:-RedisSecurePass2026!}"
     ports:
@@ -25,6 +25,10 @@ services:
   api:
     build:
       context: ./backend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+        PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
@@ -43,6 +47,8 @@ services:
       - ALLOWED_REPO_DIR=/app/repos
       - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+      - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
     depends_on:
       - neo4j
       - redis
@@ -51,6 +57,10 @@ services:
   celery_worker:
     build:
       context: ./backend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+        PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_worker
     command: celery -A app.core.celery.celery_app worker --loglevel=info
     volumes:
@@ -64,6 +74,8 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-RedisSecurePass2026!}@redis:6379/0
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+      - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
     depends_on:
       - neo4j
       - redis
@@ -73,6 +85,10 @@ services:
   mcp_server:
     build:
       context: ./backend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+        PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_mcp
     command: python -m app.mcp_server --transport sse --port 8001 --host 0.0.0.0
     volumes:
@@ -86,6 +102,8 @@ services:
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-Neo4jSecurePass2026!}
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple}
+      - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
     depends_on:
       - neo4j
     restart: unless-stopped
@@ -93,6 +111,8 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
     container_name: graphrag_dashboard
     ports:
       - "127.0.0.1:3000:3000"
