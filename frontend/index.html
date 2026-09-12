@@ -482,7 +482,8 @@
       document.getElementById('insp-name').innerText = data.label || 'Unknown';
       
       const props = data.properties || {};
-      document.getElementById('insp-file').innerText = props.file_path || props.path || 'Repository Node';
+      const langTag = props.language && props.language !== 'unknown' ? ` • ${props.language.toUpperCase()}` : '';
+      document.getElementById('insp-file').innerText = (props.file_path || props.path || 'Repository Node') + langTag;
       
       const docSection = document.getElementById('insp-doc-section');
       if (props.docstring) {

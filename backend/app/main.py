@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
 
-from app.core.parser import parse_python_file
+from app.core.parser import parse_source_file
 from app.core.graph import (
     ingest_parsed_data,
     init_graph_schema,
@@ -172,13 +172,14 @@ def analyze_code_snippet(payload: CodeUpload):
 
     try:
         code_bytes = payload.code_content.encode("utf-8")
-        parsed_data = parse_python_file(payload.file_path, code_bytes)
+        parsed_data = parse_source_file(payload.file_path, code_bytes)
         ingest_parsed_data(clean_repo, parsed_data)
 
         return {
             "status": "success",
             "repo_name": clean_repo,
             "file_path": payload.file_path,
+            "language": parsed_data.get("language", "unknown"),
             "summary": {
                 "classes": len(parsed_data["classes"]),
                 "functions": len(parsed_data["functions"]),

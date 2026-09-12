@@ -1,16 +1,20 @@
 import os
 from pathlib import Path
-from app.core.parser import parse_python_file
+from app.core.parser import parse_source_file, get_supported_extensions
 from app.core.graph import ingest_parsed_data
 
 IGNORE_DIRS = {
     ".git", "__pycache__", "venv", ".venv", "env", "node_modules",
-    ".idea", ".vscode", "dist", "build", "egg-info"
+    ".idea", ".vscode", "dist", "build", "egg-info", "target", "vendor",
+    "bin", "obj", ".gradle", ".mvn"
 }
+
+SUPPORTED_EXTENSIONS = get_supported_extensions()
 
 def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
     """
-    Crawls a local repository directory, parses all supported source files,
+    Crawls a local repository directory, parses all supported source code files
+    (Python, JS/TS, Go, Java, C/C++, C#, Rust, PHP, Ruby, Kotlin, Swift, Shell, etc.)
     and indexes them into the Neo4j Code Knowledge Graph.
     """
     path = Path(repo_path)
@@ -24,6 +28,7 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
     parsed_files = 0
     total_classes = 0
     total_functions = 0
+    languages_found = set()
     errors = []
 
     for root, dirs, files in os.walk(path):
@@ -31,7 +36,8 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
         dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith(".")]
 
         for file in files:
-            if file.endswith(".py"):
+            ext = Path(file).suffix.lower()
+            if ext in SUPPORTED_EXTENSIONS:
                 total_files += 1
                 full_path = Path(root) / file
                 rel_path = full_path.relative_to(path).as_posix()
@@ -40,7 +46,10 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
                     with open(full_path, "rb") as f:
                         code_bytes = f.read()
 
-                    parsed = parse_python_file(rel_path, code_bytes)
+                    parsed = parse_source_file(rel_path, code_bytes)
+                    lang = parsed.get("language", "unknown")
+                    languages_found.add(lang)
+
                     ingest_parsed_data(repo_name, parsed)
 
                     parsed_files += 1
@@ -52,6 +61,7 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
     return {
         "repo_name": repo_name,
         "repo_path": str(path),
+        "languages": list(languages_found),
         "total_files_scanned": total_files,
         "parsed_files": parsed_files,
         "classes_indexed": total_classes,

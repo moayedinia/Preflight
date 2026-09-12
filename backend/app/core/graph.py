@@ -34,18 +34,21 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
     """
     Ingests parsed entities, extracts embeddings for functions and classes,
     and links structural relationships (CONTAINS, HAS_METHOD, CALLS, IMPORTS).
+    Preserves programming language on all nodes.
     """
     file_path = parsed_data["file"]
     file_id = f"{repo_name}:{file_path}"
+    lang = parsed_data.get("language", "unknown")
 
     with driver.session() as session:
         # 1. Repo and File nodes
         session.run("""
             MERGE (r:Repository {name: $repo_name})
             MERGE (f:File {id: $file_id})
-            ON CREATE SET f.path = $file_path, f.repo = $repo_name
+            ON CREATE SET f.path = $file_path, f.repo = $repo_name, f.language = $lang
+            ON MATCH SET f.language = $lang
             MERGE (r)-[:CONTAINS]->(f)
-        """, repo_name=repo_name, file_id=file_id, file_path=file_path)
+        """, repo_name=repo_name, file_id=file_id, file_path=file_path, lang=lang)
 
         # 2. Imports
         for imp in parsed_data.get("imports", []):
@@ -67,6 +70,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                 SET c.name = $cls_name,
                     c.file_path = $file_path,
                     c.repo = $repo_name,
+                    c.language = $lang,
                     c.start_line = $start_line,
                     c.end_line = $end_line,
                     c.docstring = $docstring,
@@ -74,7 +78,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     c.embedding = $embedding
                 MERGE (f)-[:CONTAINS]->(c)
             """, file_id=file_id, cls_id=cls_id, cls_name=cls_name,
-               file_path=file_path, repo_name=repo_name,
+               file_path=file_path, repo_name=repo_name, lang=lang,
                start_line=cls["start_line"], end_line=cls["end_line"],
                docstring=cls.get("docstring", ""), code=cls.get("code", "")[:4000],
                embedding=cls_embedding)
@@ -91,6 +95,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     SET fn.name = $m_name,
                         fn.file_path = $file_path,
                         fn.repo = $repo_name,
+                        fn.language = $lang,
                         fn.start_line = $start_line,
                         fn.end_line = $end_line,
                         fn.docstring = $docstring,
@@ -98,7 +103,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                         fn.embedding = $embedding
                     MERGE (c)-[:HAS_METHOD]->(fn)
                 """, cls_id=cls_id, m_id=m_id, m_name=m_name,
-                   file_path=file_path, repo_name=repo_name,
+                   file_path=file_path, repo_name=repo_name, lang=lang,
                    start_line=method["start_line"], end_line=method["end_line"],
                    docstring=method.get("docstring", ""), code=method.get("code", "")[:4000],
                    embedding=m_embedding)
@@ -123,6 +128,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                 SET fn.name = $func_name,
                     fn.file_path = $file_path,
                     fn.repo = $repo_name,
+                    fn.language = $lang,
                     fn.start_line = $start_line,
                     fn.end_line = $end_line,
                     fn.docstring = $docstring,
@@ -130,7 +136,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     fn.embedding = $embedding
                 MERGE (f)-[:CONTAINS]->(fn)
             """, file_id=file_id, func_id=func_id, func_name=func_name,
-               file_path=file_path, repo_name=repo_name,
+               file_path=file_path, repo_name=repo_name, lang=lang,
                start_line=func["start_line"], end_line=func["end_line"],
                docstring=func.get("docstring", ""), code=func.get("code", "")[:4000],
                embedding=func_embedding)
