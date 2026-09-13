@@ -1,4 +1,4 @@
-ARG DOCKER_REGISTRY=""
+ARG DOCKER_REGISTRY="dockerhub.ime.co.ir/"
 FROM ${DOCKER_REGISTRY}python:3.11-slim
 
 ARG DEBIAN_MIRROR="https://linux.repo.ime.co.ir/repository/debian"

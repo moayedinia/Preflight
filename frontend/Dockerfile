@@ -1,4 +1,4 @@
-ARG DOCKER_REGISTRY=""
+ARG DOCKER_REGISTRY="dockerhub.ime.co.ir/"
 FROM ${DOCKER_REGISTRY}nginx:alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf

@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   neo4j:
-    image: ${DOCKER_REGISTRY:-}neo4j:5.11
+    image: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}neo4j:5.11
     container_name: neo4j_graph
     environment:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-Neo4jSecurePass2026!}
@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: ${DOCKER_REGISTRY:-}redis:alpine
+    image: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}redis:alpine
     container_name: redis_broker
     command: redis-server --requirepass "${REDIS_PASSWORD:-RedisSecurePass2026!}"
     ports:
@@ -26,7 +26,7 @@ services:
     build:
       context: ./backend
       args:
-        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
         PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
         PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
@@ -67,7 +67,7 @@ services:
     build:
       context: ./backend
       args:
-        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
         PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
         PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
@@ -104,7 +104,7 @@ services:
     build:
       context: ./backend
       args:
-        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
         PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
         PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
@@ -140,7 +140,7 @@ services:
     build:
       context: ./frontend
       args:
-        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}
     container_name: graphrag_dashboard
     ports:
       - "${WEB_PORT:-8001}:80"
