@@ -58,7 +58,7 @@ docker compose up -d --build
 اگر در شبکه سازمانی هستید که اینترنت مستقیم ندارد، فایل `.env` را به شکل زیر تنظیم نمایید:
 ```env
 DOCKER_REGISTRY=dockerhub.ime.co.ir/
-PYPI_MIRROR=https://pypi.repo.ime.co.ir/repository/pypi-group/simple
+PYPI_MIRROR=https://pypi.repo.ime.co.ir/repository/pypi-group/simple/
 PYPI_HOST=pypi.repo.ime.co.ir
 DEBIAN_MIRROR=https://linux.repo.ime.co.ir/repository/debian
 WEB_PORT=8001
@@ -72,18 +72,18 @@ MCP_PORT=8002
 }
 ```
 
-### وضعیت سرویس‌های فعال:
-- **داشبورد گرافیکی وب:** [http://localhost:3000](http://localhost:3000)
-- **مستندات تعاملی Swagger API:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- **پایش سلامت سرور (Healthcheck):** [http://localhost:8000/healthz](http://localhost:8000/healthz)
-- **سرور پروتکل MCP (حالت SSE):** [http://localhost:8001/sse](http://localhost:8001/sse)
-- **پنل مدیریت دیتابیس Neo4j Browser:** [http://localhost:7474](http://localhost:7474)
+### وضعیت سرویس‌های فعال (دو پورت استاندارد شبکه):
+- **داشبورد گرافیکی وب و مدیریت مخازن:** [http://localhost:8001](http://localhost:8001)
+- **مستندات تعاملی Swagger API:** [http://localhost:8001/docs](http://localhost:8001/docs)
+- **پایش سلامت سرور (Healthcheck):** [http://localhost:8001/healthz](http://localhost:8001/healthz)
+- **سرور پروتکل MCP (حالت SSE برای ایجنت‌ها):** [http://localhost:8002/sse](http://localhost:8002/sse)
+- **پنل مدیریت دیتابیس Neo4j Browser:** [http://localhost:7474](http://localhost:7474) (داخلی سرور)
 
 ---
 
 ## ۳. آموزش بخش‌های چهارگانه داشبورد مدیریتی
 
-داشبورد سازمانی سامانه در آدرس `http://localhost:3000` قرار دارد و شامل ۴ بخش اختصاصی است:
+داشبورد سازمانی سامانه در آدرس `http://localhost:8001` قرار دارد و شامل ۴ بخش اختصاصی است:
 
 ### ۱. نمای گراف و چت معنایی (Graph & RAG):
 - **بوم تعاملی Cytoscape:** بزرگ‌نمایی و چرخش کل ساختار کد پروژه‌ها.
@@ -147,7 +147,7 @@ MCP_PORT=8002
 1. به تنظیمات مخزن در GitHub رفته و به بخش **Settings > Webhooks > Add webhook** بروید.
 2. آدرس Payload URL را تنظیم کنید:
    ```
-   https://<your-server-ip-or-domain>:8000/api/v1/webhooks/github
+   https://<your-server-ip-or-domain>:8001/api/v1/webhooks/github
    ```
 3. فرمت را روی `application/json` قرار دهید.
 4. با هر Push، گیت‌هاب یک پکت به این اندپوینت ارسال می‌کند و ورکر Celery کدهای جدید را کلون و ایندکس می‌نماید.
@@ -156,11 +156,13 @@ MCP_PORT=8002
 
 ## ۸. آموزش اتصال ایجنت‌های هوش مصنوعی با پروتکل MCP
 
+سرور اختصاصی MCP سامانه روی پورت **8002** (در حالت SSE) و همچنین از طریق stdio فعال است.
+
 ### ابزارهای فعال در FastMCP:
 1. `search_code_graph`: جستجوی معنایی و ساختاری در کدبیس.
 2. `get_function_details`: دریافت متن کامل سورس‌کد، مکان و داک‌استرینگ تابع.
 3. `find_callers`: یافتن تمام صدازنندگان یک تابع.
-4. `analyze_change_impact`: محاسبه شعاع تخریب قبل از ریفکتور.
+4. `calculate_blast_radius`: محاسبه شعاع تخریب قبل از ریفکتور.
 5. `detect_code_smells`: گزارش خودکار چرخه‌ها و توابع خدا.
 6. `review_code_diff`: بررسی ساختاری یک Git Diff توسط ایجنت.
 7. `list_repositories`: گزارش وضعیت و زبان مخازن موجود.
@@ -168,7 +170,19 @@ MCP_PORT=8002
 9. `index_local_repository`: اسکن یک پوشه محلی امن.
 10. `clone_and_index_git_repository`: کلون و ایندکس مستقیم آدرس گیت.
 
-### کانفیگ Claude Desktop (`claude_desktop_config.json`):
+### الف) اتصال ریموت با پروتکل SSE (پیشنهادی برای Cursor / Claude / Windsurf / Antigravity):
+در تنظیمات MCP ایجنت خود، آدرس سرور را وارد کنید:
+```json
+{
+  "mcpServers": {
+    "codegraph-brain": {
+      "url": "http://<SERVER_IP>:8002/sse"
+    }
+  }
+}
+```
+
+### ب) اتصال مستقیم لوکال (Docker stdio):
 ```json
 {
   "mcpServers": {
@@ -177,7 +191,7 @@ MCP_PORT=8002
       "args": [
         "exec",
         "-i",
-        "graphrag_api",
+        "graphrag_mcp",
         "python",
         "-m",
         "app.mcp_server",
@@ -191,28 +205,28 @@ MCP_PORT=8002
 
 ---
 
-## ۹. مستندات REST API و اندپوینت‌های کلیدی
+## ۹. مستندات REST API و اندپوینت‌های کلیدی (Port 8001)
 
-کلیه درخواست‌ها (به جز `/healthz`) نیازمند هدر `X-API-Key` هستند:
+کلیه درخواست‌ها (به جز `/healthz`) نیازمند هدر `X-API-Key` هستند و از طریق پورت **8001** (پراکسی امن Nginx) سرو می‌شوند:
 
 ```bash
 # بررسی سلامت سرویس‌ها
-curl -X GET "http://localhost:8000/healthz"
+curl -X GET "http://localhost:8001/healthz"
 
 # دریافت لیست ریپازیتوری‌ها
-curl -X GET "http://localhost:8000/api/v1/repos" \
+curl -X GET "http://localhost:8001/api/v1/repos" \
   -H "X-API-Key: your-api-key"
 
 # گزارش بوی کد
-curl -X GET "http://localhost:8000/api/v1/analytics/code-smells?repo_name=MyProject" \
+curl -X GET "http://localhost:8001/api/v1/analytics/code-smells?repo_name=MyProject" \
   -H "X-API-Key: your-api-key"
 
 # محاسبه شعاع تخریب یک تابع
-curl -X GET "http://localhost:8000/api/v1/analytics/impact/parse_source_file" \
+curl -X GET "http://localhost:8001/api/v1/analytics/impact/parse_source_file" \
   -H "X-API-Key: your-api-key"
 
 # بازبینی معماری دیف
-curl -X POST "http://localhost:8000/api/v1/review/diff" \
+curl -X POST "http://localhost:8001/api/v1/review/diff" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{"diff_text": "diff --git a/... b/...", "repo_name": "MyProject"}'

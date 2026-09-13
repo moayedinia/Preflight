@@ -5,7 +5,7 @@
       "args": [
         "exec",
         "-i",
-        "graphrag_api",
+        "graphrag_mcp",
         "python",
         "-m",
         "app.mcp_server",
@@ -14,7 +14,7 @@
       ]
     },
     "codegraph-brain-sse": {
-      "url": "http://localhost:8001/sse"
+      "url": "http://localhost:8002/sse"
     }
   }
 }

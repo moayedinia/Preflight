@@ -109,11 +109,11 @@ flowchart TD
     end
 
     subgraph Interfaces ["۵. درگاه‌های دسترسی پلتفرم"]
-        GraphRAG --> WebUI["داشبورد تحت وب ۴ بخشی (Port 3000)"]
+        GraphRAG --> WebUI["داشبورد تحت وب ۴ بخشی (Port 8001)"]
         Reviewer --> WebUI
-        GraphRAG --> RestAPI["FastAPI Production API (Port 8000)"]
+        GraphRAG --> RestAPI["FastAPI Production API (Port 8001 /api/)"]
         Reviewer --> RestAPI
-        Neo4j --> MCPServer["FastMCP Server (Port 8001 / stdio)"]
+        Neo4j --> MCPServer["FastMCP Server (Port 8002 / stdio)"]
         MCPServer --> AIAgents["ایجنت‌های AI (Claude Desktop, Cursor, Antigravity)"]
     end
 ```
@@ -122,7 +122,7 @@ flowchart TD
 
 ## 🖥 داشبورد سازمانی ۴ بخشی
 
-داشبورد مدیریتی بر روی پورت `3000` در دسترس بوده و دارای ۴ نمای اصلی است:
+داشبورد مدیریتی بر روی پورت `8001` در دسترس بوده و دارای ۴ نمای اصلی است:
 1. 🌐 **نمای گراف و چت هوشمند (Knowledge Graph & GraphRAG):** بوم تعاملی Cytoscape با رنگ‌بندی دقیق نودها، فیلتر روی هر مخزن، بازرسی نود (کد و مستندات)، و پرسش و پاسخ معنایی متصل به LLM.
 2. 📊 **نمای سلامت معماری (Architecture Health):** نمایش چرخه‌های فراخوانی، توابع حجیم و کدهای مرده به صورت کارت‌ها و جدول‌های قابل تعامل.
 3. 📁 **هاب مخازن (Repositories Hub):** مدیریت لیست تمام پروژه‌های ایندکس‌شده با آمار خطوط و زبان‌ها و حذف آبشاری.
