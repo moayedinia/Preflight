@@ -24,8 +24,8 @@ def verify_api_key(
     Verifies that the incoming request contains a valid API key.
     Checks either 'X-API-Key' header or 'Authorization: Bearer <key>'.
     """
-    # If API_KEY is not set in environment and unauthenticated mode is explicitly allowed (dev)
-    if not API_KEY and ALLOW_UNAUTHENTICATED:
+    # If unauthenticated access is explicitly enabled, bypass checks
+    if ALLOW_UNAUTHENTICATED:
         return True
 
     if not API_KEY:

@@ -5,8 +5,12 @@ from app.core.embedder import get_embedding, EMBEDDING_DIM
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password123")
+NEO4J_AUTH = os.getenv("NEO4J_AUTH", "").strip().lower()
 
-driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+if NEO4J_AUTH == "none" or (NEO4J_PASSWORD and NEO4J_PASSWORD.lower() == "none") or not NEO4J_PASSWORD:
+    driver = GraphDatabase.driver(NEO4J_URI)
+else:
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
 def init_graph_schema():
     """Initializes constraints and vector search indexes in Neo4j."""
