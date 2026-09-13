@@ -2,7 +2,13 @@ import os
 import sys
 import argparse
 from typing import Optional, List
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except (ImportError, ModuleNotFoundError):
+    try:
+        from mcp.server.mcpserver import MCPServer as FastMCP
+    except (ImportError, ModuleNotFoundError):
+        raise ImportError("FastMCP is required to run CodeGraph Brain MCP Server. Ensure 'mcp<2' is installed.")
 
 from app.core.graph import (
     driver,
