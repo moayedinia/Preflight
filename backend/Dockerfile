@@ -44,6 +44,9 @@ RUN pip config set global.index-url "${PYPI_MIRROR}" && \
     pip config set global.timeout "180" && \
     pip config set global.retries "5"
 
+# Upgrade pip to latest version first
+RUN pip install --no-cache-dir --default-timeout=180 --retries=5 --index-url "${PYPI_MIRROR}" --trusted-host "${PYPI_HOST}" --upgrade pip
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir --default-timeout=180 --retries=5 --index-url "${PYPI_MIRROR}" --trusted-host "${PYPI_HOST}" -r requirements.txt
 
