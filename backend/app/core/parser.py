@@ -25,9 +25,21 @@ def _init_parser(lang_name: str, grammar_module: str, grammar_func: str = "langu
     try:
         mod = __import__(grammar_module)
         fn = getattr(mod, grammar_func)
-        ts_lang = Language(fn(), lang_name)
-        p = Parser()
-        p.set_language(ts_lang)
+        lang_ptr = fn()
+        try:
+            ts_lang = Language(lang_ptr, lang_name)
+        except TypeError:
+            ts_lang = Language(lang_ptr)
+
+        try:
+            p = Parser()
+            if hasattr(p, "set_language"):
+                p.set_language(ts_lang)
+            else:
+                p = Parser(ts_lang)
+        except Exception:
+            p = Parser(ts_lang)
+
         _PARSERS[lang_name] = p
         return p
     except Exception as e:
