@@ -1,112 +1,19 @@
 import os
 import hashlib
-import json
-import urllib.request
-import urllib.error
 import numpy as np
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v2-base-code" if OLLAMA_BASE_URL else "text-embedding-3-small")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768" if OLLAMA_BASE_URL else "1536"))
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
+HF_HOME = os.getenv("HF_HOME", "/app/models") # Default local model dir
 
-client = None
-if OLLAMA_BASE_URL:
-    try:
-        from openai import OpenAI
-        client = OpenAI(
-            base_url=f"{OLLAMA_BASE_URL.rstrip('/')}/v1",
-            api_key="ollama"
-        )
-    except Exception as e:
-        print(f"Notice: Could not initialize Ollama OpenAI-compatible client: {e}")
-elif OPENAI_API_KEY:
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY)
-    except Exception as e:
-        print(f"Notice: Could not initialize OpenAI client: {e}")
-
-def list_ollama_models(base_url: str = None) -> list[str]:
-    """Fetches list of available model tags from the remote or local Ollama server."""
-    target_url = (base_url or OLLAMA_BASE_URL or "").rstrip('/')
-    if not target_url or not target_url.startswith("http"):
-        return []
-    try:
-        req = urllib.request.Request(f"{target_url}/api/tags", headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return [m.get("name") for m in data.get("models", []) if m.get("name")]
-    except Exception as e:
-        print(f"Notice: Unable to query Ollama tags from {target_url}: {e}")
-        return []
-
-def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], str]:
-    """
-    Queries remote/internal Ollama server across standard embedding endpoints:
-    1. /api/embed (Modern Ollama >= 0.1.44)
-    2. /api/embeddings (Ollama legacy endpoint)
-    3. /v1/embeddings (OpenAI-compatible Ollama endpoint)
-    Returns: (embedding_vector, last_error_message)
-    """
-    base = base_url.rstrip('/')
-    clean_text = text.replace("\n", " ")[:8000]
-    last_err = ""
-
-    # 1. Try modern /api/embed
-    try:
-        url = f"{base}/api/embed"
-        payload = json.dumps({"model": model, "input": clean_text}).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            embs = data.get("embeddings")
-            if embs and len(embs) > 0 and len(embs[0]) > 0:
-                return embs[0], ""
-    except urllib.error.HTTPError as he:
-        try:
-            last_err = f"/api/embed: HTTP {he.code} - {he.read().decode('utf-8')}"
-        except Exception:
-            last_err = f"/api/embed: HTTP {he.code}"
-    except Exception as e:
-        last_err = f"/api/embed: {e}"
-
-    # 2. Try legacy /api/embeddings
-    try:
-        url = f"{base}/api/embeddings"
-        payload = json.dumps({"model": model, "prompt": clean_text}).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            emb = data.get("embedding")
-            if emb and len(emb) > 0:
-                return emb, ""
-    except urllib.error.HTTPError as he:
-        try:
-            last_err = f"/api/embeddings: HTTP {he.code} - {he.read().decode('utf-8')}"
-        except Exception:
-            last_err = f"/api/embeddings: HTTP {he.code}"
-    except Exception as e:
-        last_err = f"/api/embeddings: {e}"
-
-    # 3. Try /v1/embeddings (OpenAI format on Ollama)
-    try:
-        url = f"{base}/v1/embeddings"
-        payload = json.dumps({"model": model, "input": clean_text}).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json", "Authorization": "Bearer ollama"}
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            data_arr = data.get("data", [])
-            if data_arr and "embedding" in data_arr[0]:
-                return data_arr[0]["embedding"], ""
-    except Exception as e:
-        last_err = f"/v1/embeddings: {e}"
-
-    return [], last_err
+encoder = None
+try:
+    from sentence_transformers import SentenceTransformer
+    print(f"Loading HuggingFace model: {EMBEDDING_MODEL}")
+    # trust_remote_code=True is usually required for Jina embeddings
+    encoder = SentenceTransformer(EMBEDDING_MODEL, trust_remote_code=True)
+except Exception as e:
+    print(f"Notice: Could not load SentenceTransformer model {EMBEDDING_MODEL}: {e}")
 
 def _generate_fallback_embedding(text: str, dim: int = None) -> list[float]:
     """Generates a deterministic pseudo-random normalized vector for offline/mock mode."""
@@ -121,76 +28,45 @@ def _generate_fallback_embedding(text: str, dim: int = None) -> list[float]:
 
 def get_embedding(text: str, model: str = None) -> list[float]:
     """
-    Generates a vector embedding for code snippet or text using:
-    1. Ollama (e.g. Jina Embeddings: jina-embeddings-v2-base-code) on remote/internal server if OLLAMA_BASE_URL is set.
-    2. OpenAI (text-embedding-3-small) if OPENAI_API_KEY is set.
-    3. Deterministic normalized embedding fallback if neither is reachable.
+    Generates a vector embedding for code snippet or text using local HuggingFace model.
     """
     global EMBEDDING_DIM
     if not text or not text.strip():
         return [0.0] * EMBEDDING_DIM
 
     clean_text = text.replace("\n", " ")[:8000]
-    target_model = model or EMBEDDING_MODEL
 
-    # 1. Ollama (Remote Server / Internal Corporate)
-    if OLLAMA_BASE_URL:
-        emb, err = _query_ollama(clean_text, target_model, OLLAMA_BASE_URL)
-        if emb:
+    if encoder:
+        try:
+            emb = encoder.encode(clean_text).tolist()
             if len(emb) != EMBEDDING_DIM:
                 EMBEDDING_DIM = len(emb)
             return emb
-        else:
-            print(f"[Embedder] Ollama embedding query failed for '{target_model}' at '{OLLAMA_BASE_URL}': {err}. Using deterministic vector.")
-            return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
-
-    # 2. OpenAI
-    if client and OPENAI_API_KEY:
-        try:
-            response = client.embeddings.create(input=[clean_text], model=target_model)
-            return response.data[0].embedding
         except Exception as e:
-            print(f"[Embedder] OpenAI embedding error: {e}. Using deterministic fallback.")
+            print(f"[Embedder] HF embedding error: {e}. Using fallback.")
             return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
 
-    # 3. Deterministic fallback
     return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
 
 def verify_ollama_status() -> dict:
     """
-    Diagnostic tool to verify connectivity to the remote/internal Ollama server,
-    check model availability (e.g. Jina), and validate embedding output & dimension.
+    Diagnostic tool, updated for local HuggingFace.
     """
-    if not OLLAMA_BASE_URL:
-        return {
-            "status": "not_configured",
-            "message": "OLLAMA_BASE_URL is not set in environment.",
-            "server_url": None,
-            "target_model": EMBEDDING_MODEL,
-            "available_models": []
-        }
-
-    available_models = list_ollama_models(OLLAMA_BASE_URL)
-    test_vec, err = _query_ollama("test code embedding", EMBEDDING_MODEL, OLLAMA_BASE_URL)
-
-    if test_vec:
+    if encoder:
         return {
             "status": "connected",
-            "server_url": OLLAMA_BASE_URL,
+            "server_url": "local_huggingface",
             "target_model": EMBEDDING_MODEL,
-            "model_present": (EMBEDDING_MODEL in available_models) if available_models else True,
-            "detected_dimension": len(test_vec),
+            "model_present": True,
             "configured_dimension": EMBEDDING_DIM,
-            "available_models": available_models,
-            "sample_vector_preview": test_vec[:5]
+            "available_models": [EMBEDDING_MODEL]
         }
     else:
         return {
             "status": "error",
-            "server_url": OLLAMA_BASE_URL,
+            "server_url": "local_huggingface",
             "target_model": EMBEDDING_MODEL,
             "configured_dimension": EMBEDDING_DIM,
-            "available_models": available_models,
-            "error_detail": err or "No embedding returned from Ollama endpoint."
+            "available_models": [],
+            "error_detail": "Failed to load HuggingFace model."
         }
-
