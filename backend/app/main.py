@@ -101,6 +101,14 @@ class DiffReviewRequest(BaseModel):
     diff_text: str = Field(..., min_length=5, max_length=500_000, description="Unified Git diff content")
     repo_name: Optional[str] = Field(None, max_length=100)
 
+class LLMConfigRequest(BaseModel):
+    base_url: str = Field(..., max_length=500)
+    model: str = Field(..., max_length=100)
+    api_key: Optional[str] = Field("", max_length=200)
+
+class AutoDocRequest(BaseModel):
+    repo_name: Optional[str] = Field(None, max_length=100)
+
 @app.get("/healthz")
 def healthcheck():
     """
@@ -441,5 +449,28 @@ async def github_webhook(request: Request):
         "status": "accepted",
         "task_id": task.id,
         "message": f"Webhook accepted for repository '{clean_repo}'. Automated indexing queued."
+    }
+
+# 12. LLM Config & Auto-Documentation
+from app.core.llm import get_llm_config, set_llm_config
+from app.tasks.autodoc import generate_missing_docs_task
+
+@app.get("/api/v1/config/llm", dependencies=[Depends(verify_api_key)])
+def get_llm_settings():
+    return get_llm_config()
+
+@app.post("/api/v1/config/llm", dependencies=[Depends(verify_api_key)])
+def update_llm_settings(payload: LLMConfigRequest):
+    set_llm_config(payload.base_url, payload.model, payload.api_key)
+    return {"status": "success", "message": "LLM configuration updated successfully."}
+
+@app.post("/api/v1/tasks/autodoc", dependencies=[Depends(verify_api_key)])
+def trigger_auto_doc(payload: AutoDocRequest):
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    task = generate_missing_docs_task.delay(repo_name=clean_repo)
+    return {
+        "status": "queued",
+        "task_id": task.id,
+        "message": "Auto-Documentation engine started in background worker."
     }
 

@@ -74,15 +74,11 @@ Retrieved Code Graph Context:
 Please provide a detailed, well-structured explanation:
 """
 
-    # LLM integration pending alternative
-    if False:
-        pass
-        answer = (
-            "### Retrieved Code Graph Context (GraphRAG Traversal):\n\n"
-            f"**Top Matches Found:** {len(hits)}\n"
-            + "\n".join([f"- **`{h.get('name')}`** in `{h.get('file_path')}` (Score: {h.get('score', 0):.4f})" for h in hits])
-            + f"\n\n---\n\n{full_context[:1500]}..."
-        )
+    from app.core.llm import call_llm
+    try:
+        answer = call_llm(user_prompt, system_prompt)
+    except Exception as e:
+        answer = f"*(Notice: LLM response unavailable: {e})*\n\n### Retrieved Code Graph Context:\n\n{full_context}"
 
     return {
         "answer": answer,

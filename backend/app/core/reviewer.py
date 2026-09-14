@@ -71,10 +71,13 @@ Please provide a formal 4-part architectural review:
 4. Recommended Quality Assurance & Testing Steps
 """
 
-    ai_review_text = ""
-    # LLM integration pending update to local HF or alternative
-    ai_review_text = (
+    from app.core.llm import call_llm
+    try:
+        ai_review_text = call_llm(user_prompt, system_prompt)
+    except Exception as e:
+        ai_review_text = (
             f"### Automated Architectural Review (Graph Engine)\n\n"
+            f"*(Notice: AI Review failed: {e})*\n\n"
             f"**Overall Risk Rating:** `{highest_risk}`\n\n"
             f"**Downstream Blast Radius:**\n"
             f"- Modified Symbols: {', '.join(touched_symbols) or 'General edits'}\n"

@@ -121,6 +121,11 @@
       <button onclick="openIngestModal()" class="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-sky-600/25 transition">
         <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Ingest Project
       </button>
+
+      <!-- LLM Settings Button -->
+      <button onclick="openLlmConfigModal()" class="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-purple-600/25 transition">
+        <i data-lucide="settings" class="w-3.5 h-3.5"></i> LLM Settings
+      </button>
     </div>
   </header>
 
@@ -289,6 +294,9 @@
           </h2>
           <p class="text-xs text-slate-400 mt-0.5">Automated detection of circular dependencies, god functions, and dead code candidates.</p>
         </div>
+        <button onclick="triggerAutoDoc()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+          <i data-lucide="book-open" class="w-3.5 h-3.5"></i> Run Auto-Doc
+        </button>
         <button onclick="loadCodeSmells()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Run Audit
         </button>
@@ -751,6 +759,39 @@
 
       <div class="flex justify-end pt-1">
         <button onclick="closeIngestModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== LLM SETTINGS MODAL ==================== -->
+  <div id="llm-config-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+          <i data-lucide="settings" class="w-4 h-4 text-purple-400"></i> LLM Configuration (Auto-Doc & Review)
+        </h3>
+        <button onclick="closeLlmConfigModal()" class="text-slate-400 hover:text-slate-200">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">Base URL (OpenAI-compatible)</label>
+          <input id="llm-base-url" type="text" placeholder="http://localhost:11434/v1" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
+          <p class="text-[10px] text-slate-500 mt-1">For Ollama use: http://localhost:11434/v1. For OpenAI use: https://api.openai.com/v1.</p>
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Model Name</label>
+          <input id="llm-model-name" type="text" placeholder="llama3" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">API Key (Optional for Local)</label>
+          <input id="llm-api-key" type="password" placeholder="sk-..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
+        </div>
+        <button onclick="saveLlmConfig()" class="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/20 transition">
+          <i data-lucide="save" class="w-4 h-4"></i> Save Configuration
+        </button>
       </div>
     </div>
   </div>
@@ -1699,6 +1740,62 @@ asyncio.run(run())`;
     document.getElementById('chat-input')?.addEventListener('keypress', function (e) {
       if (e.key === 'Enter') submitChat();
     });
+
+    // LLM CONFIG & AUTODOC LOGIC
+    async function openLlmConfigModal() {
+      document.getElementById('llm-config-modal').classList.remove('hidden');
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/config/llm`, { headers: getHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('llm-base-url').value = data.base_url || '';
+          document.getElementById('llm-model-name').value = data.model || '';
+          document.getElementById('llm-api-key').value = data.api_key || '';
+        }
+      } catch (e) { console.error('Failed to load LLM config', e); }
+    }
+
+    function closeLlmConfigModal() {
+      document.getElementById('llm-config-modal').classList.add('hidden');
+    }
+
+    async function saveLlmConfig() {
+      const payload = {
+        base_url: document.getElementById('llm-base-url').value,
+        model: document.getElementById('llm-model-name').value,
+        api_key: document.getElementById('llm-api-key').value,
+      };
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/config/llm`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          alert('LLM Configuration saved successfully!');
+          closeLlmConfigModal();
+        } else {
+          alert('Failed to save configuration.');
+        }
+      } catch (e) { alert('Connection error.'); }
+    }
+
+    async function triggerAutoDoc() {
+      const repo = document.getElementById('repo-filter-select').value || undefined;
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/tasks/autodoc`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ repo_name: repo })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert(`Auto-Documentation Engine started! Task ID: ${data.task_id}`);
+        } else {
+          alert(`Error: ${data.detail}`);
+        }
+      } catch (e) { alert('Connection error.'); }
+    }
 
   </script>
 </body>
