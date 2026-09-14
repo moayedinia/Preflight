@@ -168,6 +168,35 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     MERGE (fn)-[:CALLS]->(callee)
                 """, func_id=func_id, call_name=call_name)
 
+        # 5. API Routes & Clients (Cross-Service Traceability)
+        for route in parsed_data.get("api_routes", []):
+            session.run("""
+                MATCH (f:File {id: $file_id})
+                MERGE (api:ApiRoute {path: $path, method: $method})
+                ON CREATE SET api.repo = $repo_name
+                MERGE (f)-[:EXPOSES_API]->(api)
+            """, file_id=file_id, path=route["path"], method=route["method"], repo_name=repo_name)
+
+        for client_req in parsed_data.get("api_clients", []):
+            session.run("""
+                MATCH (f:File {id: $file_id})
+                MERGE (api:ApiRoute {path: $path})
+                MERGE (f)-[:CALLS_API]->(api)
+            """, file_id=file_id, path=client_req["path"])
+
+        # 6. Test Coverage Link
+        if parsed_data.get("is_test"):
+            # Simple heuristic: link test file to files with similar names
+            # e.g. test_auth.py -> auth.py
+            base_name = file_path.split("/")[-1].replace("test_", "").replace(".test", "").replace("_test", "")
+            if base_name:
+                session.run("""
+                    MATCH (test:File {id: $file_id})
+                    MATCH (target:File {repo: $repo_name})
+                    WHERE target.path ENDS WITH $base_name AND target.id <> $file_id
+                    MERGE (test)-[:TESTS]->(target)
+                """, file_id=file_id, repo_name=repo_name, base_name=base_name)
+
 def vector_search(query_embedding: list[float], top_k: int = 5, repo_name: str = None) -> list[dict]:
     """
     Finds nearest functions/code elements using Neo4j Vector Index or similarity fallback.

@@ -300,15 +300,38 @@ def parse_source_file(file_path: str, code: bytes) -> dict:
         cfg = grammar_configs[lang]
         func_name = cfg[2] if len(cfg) > 2 else "language"
         p = _init_parser(lang, cfg[1], func_name)
-        if p:
-            try:
-                return _parse_with_treesitter(p, lang, file_path, code)
-            except Exception as e:
-                print(f"Tree-sitter parse error on {file_path}: {e}. Falling back to universal engine.")
-
     # Universal engine fallback for all languages
     text = code.decode("utf-8", errors="ignore")
-    return _parse_with_universal_engine(file_path, lang, text)
+    entities = None
+    if lang in grammar_configs and p:
+        try:
+            entities = _parse_with_treesitter(p, lang, file_path, code)
+        except Exception as e:
+            print(f"Tree-sitter parse error on {file_path}: {e}. Falling back to universal engine.")
+            
+    if not entities:
+        entities = _parse_with_universal_engine(file_path, lang, text)
+
+    # Cross-Service Traceability: Extract API Routes and Clients via Polyglot Regex
+    entities["api_routes"] = []
+    entities["api_clients"] = []
+    
+    # Matches: @app.get('/path'), router.post("/path"), app.put(...)
+    route_pattern = re.compile(r'(?:@app\.|@router\.|app\.|router\.)(get|post|put|delete|patch)\s*\(\s*[\'"]([^\'"]+)[\'"]')
+    for match in route_pattern.finditer(text):
+        method, path = match.groups()
+        entities["api_routes"].append({"method": method.upper(), "path": path})
+
+    # Matches: fetch('/path'), axios.get('/path'), requests.post('/path')
+    client_pattern = re.compile(r'(?:fetch|axios\.(?:get|post|put|delete|patch)|requests\.(?:get|post|put|delete|patch))\s*\(\s*[\'"]([^\'"]+)[\'"]')
+    for match in client_pattern.finditer(text):
+        path = match.group(1)
+        entities["api_clients"].append({"path": path})
+
+    # Test Coverage Detection
+    entities["is_test"] = "test" in file_path.lower() or "spec" in file_path.lower()
+    
+    return entities
 
 # Backward-compatible alias
 parse_python_file = parse_source_file
