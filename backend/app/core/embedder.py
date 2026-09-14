@@ -10,8 +10,16 @@ encoder = None
 try:
     from sentence_transformers import SentenceTransformer
     print(f"Loading HuggingFace model: {EMBEDDING_MODEL}")
+    
+    # Resolve absolute path if the model is locally downloaded in HF_HOME
+    model_path = EMBEDDING_MODEL
+    if not os.path.isabs(model_path):
+        local_path = os.path.join(HF_HOME, model_path)
+        if os.path.exists(local_path):
+            model_path = local_path
+            
     # trust_remote_code=True is usually required for Jina embeddings
-    encoder = SentenceTransformer(EMBEDDING_MODEL, trust_remote_code=True)
+    encoder = SentenceTransformer(model_path, trust_remote_code=True)
 except Exception as e:
     print(f"Notice: Could not load SentenceTransformer model {EMBEDDING_MODEL}: {e}")
 
