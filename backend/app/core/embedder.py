@@ -14,9 +14,19 @@ try:
     # Resolve absolute path if the model is locally downloaded in HF_HOME
     model_path = EMBEDDING_MODEL
     if not os.path.isabs(model_path):
+        # Check standard name
         local_path = os.path.join(HF_HOME, model_path)
+        # Check HuggingFace cache format name (models--org--model)
+        hf_cache_name = "models--" + model_path.replace("/", "--")
+        local_cache_path = os.path.join(HF_HOME, hf_cache_name)
+        
         if os.path.exists(local_path):
             model_path = local_path
+        elif os.path.exists(local_cache_path):
+            model_path = local_cache_path
+        elif os.path.exists(os.path.join(HF_HOME, "hub", hf_cache_name)):
+            # If user mapped ~/.cache/huggingface/hub to /app/models/hub
+            model_path = os.path.join(HF_HOME, "hub", hf_cache_name)
             
     # trust_remote_code=True is usually required for Jina embeddings
     encoder = SentenceTransformer(model_path, trust_remote_code=True)

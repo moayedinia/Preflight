@@ -97,7 +97,7 @@ def execute_nl2cypher_query(query: str, repo_name: str = None) -> dict:
     import json
     import re
 
-    schema = \"\"\"
+    schema = """
     Nodes:
     - (f:File {id, path, repo, language, churn})
     - (c:Class {id, name, file_path, repo, language, code})
@@ -115,7 +115,7 @@ def execute_nl2cypher_query(query: str, repo_name: str = None) -> dict:
     - (File)-[:CALLS_API]->(ApiRoute)
     - (Developer)-[:AUTHORED]->(File)
     - (File)-[:TESTS]->(File)
-    \"\"\"
+    """
 
     system_prompt_cypher = (
         "You are an expert Neo4j Cypher query writer. "
