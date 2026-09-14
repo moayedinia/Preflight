@@ -1,5 +1,5 @@
 import os
-from app.core.embedder import get_embedding, client
+from app.core.embedder import get_embedding
 from app.core.graph import vector_search, expand_graph_context
 
 def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) -> dict:
@@ -74,22 +74,9 @@ Retrieved Code Graph Context:
 Please provide a detailed, well-structured explanation:
 """
 
-    answer = ""
-    llm_model = os.getenv("LLM_MODEL") or ("gpt-4o-mini" if os.getenv("OPENAI_API_KEY") else None)
-    if client and llm_model:
-        try:
-            response = client.chat.completions.create(
-                model=llm_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.2
-            )
-            answer = response.choices[0].message.content
-        except Exception as e:
-            answer = f"*(Notice: LLM response unavailable: {e})*\n\n### Retrieved Code Graph Context:\n\n{full_context}"
-    else:
+    # LLM integration pending alternative
+    if False:
+        pass
         answer = (
             "### Retrieved Code Graph Context (GraphRAG Traversal):\n\n"
             f"**Top Matches Found:** {len(hits)}\n"

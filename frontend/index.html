@@ -88,6 +88,9 @@
         <button id="nav-btn-review" onclick="switchMainView('review')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
           <i data-lucide="git-pull-request" class="w-3.5 h-3.5"></i> Diff Impact & PR Review
         </button>
+        <button id="nav-btn-chat" onclick="switchMainView('chat')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="message-square" class="w-3.5 h-3.5"></i> AI Chat
+        </button>
         <button id="nav-btn-mcp" onclick="switchMainView('mcp')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
           <i data-lucide="cpu" class="w-3.5 h-3.5 text-sky-400"></i> MCP & Agent Connect
         </button>
@@ -456,6 +459,26 @@
             <i data-lucide="git-pull-request" class="w-10 h-10 mx-auto mb-3 opacity-40"></i>
             Enter a function name or paste a Git diff to visualize cascading structural impact and receive an AI-powered architectural review.
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VIEW CHAT: BUILT-IN RAG UI ================= -->
+    <div id="view-chat" class="flex-1 flex flex-col w-full h-full bg-slate-950 overflow-hidden hidden">
+      <div class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar" id="chat-history">
+        <div class="flex flex-col items-center justify-center h-full text-slate-500 opacity-60">
+          <i data-lucide="bot" class="w-16 h-16 mb-4"></i>
+          <p class="text-sm">Welcome to CodeGraph Brain AI Chat.</p>
+          <p class="text-xs mt-1">Ask questions about your codebase, architecture, or specific functions.</p>
+        </div>
+      </div>
+      <div class="p-4 bg-slate-900 border-t border-slate-800">
+        <div class="flex gap-2 max-w-4xl mx-auto">
+          <input id="chat-input" type="text" placeholder="e.g. How does authentication work? Who wrote the user module?" 
+            class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
+          <button onclick="submitChat()" class="px-6 py-3 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-sky-600/20 transition">
+            <i data-lucide="send" class="w-4 h-4"></i>
+          </button>
         </div>
       </div>
     </div>
@@ -1635,6 +1658,44 @@ asyncio.run(run())`;
       // Periodically refresh health
       setInterval(checkHealth, 15000);
     });
+    // CHAT LOGIC
+    async function submitChat() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      
+      const history = document.getElementById('chat-history');
+      if (history.querySelector('.opacity-60')) history.innerHTML = '';
+      
+      // Add user message
+      history.innerHTML += `<div class="flex justify-end"><div class="bg-sky-600 text-white p-3 rounded-l-xl rounded-tr-xl max-w-2xl text-sm">${text}</div></div>`;
+      input.value = '';
+      
+      try {
+        const repo = document.getElementById('repo-filter-select').value || undefined;
+        const res = await fetch(`${API_BASE_URL}/api/v1/chat`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ message: text, repo_name: repo })
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+          const formattedResponse = (data.response || '').replace(/\n/g, '<br>');
+          history.innerHTML += `<div class="flex justify-start"><div class="bg-slate-800 text-slate-200 p-3 rounded-r-xl rounded-tl-xl max-w-3xl text-sm border border-slate-700">${formattedResponse}</div></div>`;
+        } else {
+          history.innerHTML += `<div class="flex justify-start"><div class="bg-rose-900/50 text-rose-200 p-3 rounded-r-xl rounded-tl-xl max-w-3xl text-sm border border-rose-800">Error: ${data.detail || 'Unknown error'}</div></div>`;
+        }
+      } catch (err) {
+        history.innerHTML += `<div class="flex justify-start"><div class="bg-rose-900/50 text-rose-200 p-3 rounded-r-xl rounded-tl-xl max-w-3xl text-sm border border-rose-800">Connection Error</div></div>`;
+      }
+      history.scrollTop = history.scrollHeight;
+    }
+    
+    document.getElementById('chat-input')?.addEventListener('keypress', function (e) {
+      if (e.key === 'Enter') submitChat();
+    });
+
   </script>
 </body>
 </html>

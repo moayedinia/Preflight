@@ -1,7 +1,23 @@
 import os
+import subprocess
 from pathlib import Path
 from app.core.parser import parse_source_file, get_supported_extensions
 from app.core.graph import ingest_parsed_data
+
+def get_git_author(repo_path: str, file_path: str) -> tuple[str, str]:
+    """Retrieves the last author of a file using git."""
+    try:
+        res = subprocess.run(
+            ["git", "log", "-1", "--format=%an|%ae", "--", file_path],
+            cwd=repo_path, capture_output=True, text=True
+        )
+        if res.stdout.strip():
+            parts = res.stdout.strip().split("|")
+            if len(parts) >= 2:
+                return parts[0], parts[1]
+    except Exception:
+        pass
+    return "Unknown", "unknown@example.com"
 
 IGNORE_DIRS = {
     ".git", "__pycache__", "venv", ".venv", "env", "node_modules",
@@ -47,6 +63,11 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
                         code_bytes = f.read()
 
                     parsed = parse_source_file(rel_path, code_bytes)
+                    
+                    author, email = get_git_author(str(path), rel_path)
+                    parsed["author"] = author
+                    parsed["author_email"] = email
+
                     lang = parsed.get("language", "unknown")
                     languages_found.add(lang)
 

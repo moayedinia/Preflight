@@ -20,6 +20,7 @@ def init_graph_schema():
         session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (f:File) REQUIRE f.id IS UNIQUE")
         session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (c:Class) REQUIRE c.id IS UNIQUE")
         session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (fn:Function) REQUIRE fn.id IS UNIQUE")
+        session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (d:Developer) REQUIRE d.email IS UNIQUE")
 
         # Vector Index for Functions
         try:
@@ -52,16 +53,22 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
     file_path = parsed_data["file"]
     file_id = f"{repo_name}:{file_path}"
     lang = parsed_data.get("language", "unknown")
+    author = parsed_data.get("author", "Unknown")
+    author_email = parsed_data.get("author_email", "unknown@example.com")
 
     with driver.session() as session:
-        # 1. Repo and File nodes
+        # 1. Repo, File, and Developer nodes
         session.run("""
             MERGE (r:Repository {name: $repo_name})
             MERGE (f:File {id: $file_id})
             ON CREATE SET f.path = $file_path, f.repo = $repo_name, f.language = $lang
             ON MATCH SET f.language = $lang
             MERGE (r)-[:CONTAINS]->(f)
-        """, repo_name=repo_name, file_id=file_id, file_path=file_path, lang=lang)
+            
+            MERGE (d:Developer {email: $author_email})
+            ON CREATE SET d.name = $author
+            MERGE (d)-[:AUTHORED]->(f)
+        """, repo_name=repo_name, file_id=file_id, file_path=file_path, lang=lang, author=author, author_email=author_email)
 
         # 2. Imports
         for imp in parsed_data.get("imports", []):

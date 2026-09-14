@@ -2,7 +2,6 @@ import os
 import re
 from typing import Dict, Any, List, Optional
 from app.core.analytics import calculate_blast_radius
-from app.core.embedder import client
 
 def extract_modified_identifiers(diff_text: str) -> List[str]:
     """Extracts function and class names affected in a git diff."""
@@ -73,22 +72,8 @@ Please provide a formal 4-part architectural review:
 """
 
     ai_review_text = ""
-    llm_model = os.getenv("LLM_MODEL") or ("gpt-4o-mini" if os.getenv("OPENAI_API_KEY") else None)
-    if client and llm_model:
-        try:
-            resp = client.chat.completions.create(
-                model=llm_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.2
-            )
-            ai_review_text = resp.choices[0].message.content
-        except Exception as e:
-            ai_review_text = f"*(Notice: LLM Review synthesis unavailable: {e})*\n\n{context_summary}"
-    else:
-        ai_review_text = (
+    # LLM integration pending update to local HF or alternative
+    ai_review_text = (
             f"### Automated Architectural Review (Graph Engine)\n\n"
             f"**Overall Risk Rating:** `{highest_risk}`\n\n"
             f"**Downstream Blast Radius:**\n"

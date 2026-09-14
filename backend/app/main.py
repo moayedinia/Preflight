@@ -310,6 +310,27 @@ def graphrag_query(payload: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=2, max_length=2000)
+    repo_name: Optional[str] = Field(None, max_length=100)
+
+@app.post("/api/v1/chat", dependencies=[Depends(verify_api_key)])
+def chat_rag_endpoint(payload: ChatRequest):
+    """
+    Built-in RAG Chat: Conversational interface for the knowledge graph.
+    Currently returns structured graph traversal since LLM is offline.
+    """
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    try:
+        result = execute_graphrag_query(
+            query=payload.message,
+            repo_name=clean_repo,
+            top_k=4
+        )
+        return {"response": result["answer"], "sources": result["retrieved_nodes"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+
 # 7. Graph Statistics & Visual Elements
 @app.get("/api/v1/graph/stats", dependencies=[Depends(verify_api_key)])
 def graph_stats():
