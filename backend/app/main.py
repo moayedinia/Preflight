@@ -376,6 +376,18 @@ def remove_repository(repo_name: str):
     return delete_repository(repo_name)
 
 # 9. Architectural Code Smells & Blast Radius Analytics
+@app.get("/api/v1/analytics/dead-code", dependencies=[Depends(verify_api_key)])
+def get_dead_code(repo_name: Optional[str] = None):
+    return analytics.detect_dead_code_candidates(repo_name=repo_name)
+
+@app.get("/api/v1/analytics/clones", dependencies=[Depends(verify_api_key)])
+def get_code_clones(repo_name: Optional[str] = None):
+    return analytics.detect_code_clones(repo_name=repo_name)
+
+@app.get("/api/v1/analytics/hotspots", dependencies=[Depends(verify_api_key)])
+def get_hotspots(repo_name: Optional[str] = None):
+    return analytics.get_git_hotspots(repo_name=repo_name)
+
 @app.get("/api/v1/analytics/code-smells", dependencies=[Depends(verify_api_key)])
 def analyze_code_smells(repo_name: Optional[str] = None):
     """

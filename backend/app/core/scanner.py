@@ -4,20 +4,32 @@ from pathlib import Path
 from app.core.parser import parse_source_file, get_supported_extensions
 from app.core.graph import ingest_parsed_data
 
-def get_git_author(repo_path: str, file_path: str) -> tuple[str, str]:
-    """Retrieves the last author of a file using git."""
+def get_git_author_and_churn(repo_path: str, file_path: str) -> tuple[str, str, int]:
+    """Retrieves the last author and the total number of commits (churn) of a file using git."""
+    author = "Unknown"
+    email = "unknown@example.com"
+    churn = 0
     try:
-        res = subprocess.run(
+        # Get author
+        res_author = subprocess.run(
             ["git", "log", "-1", "--format=%an|%ae", "--", file_path],
             cwd=repo_path, capture_output=True, text=True
         )
-        if res.stdout.strip():
-            parts = res.stdout.strip().split("|")
+        if res_author.stdout.strip():
+            parts = res_author.stdout.strip().split("|")
             if len(parts) >= 2:
-                return parts[0], parts[1]
+                author, email = parts[0], parts[1]
+        
+        # Get churn (commit count)
+        res_churn = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD", "--", file_path],
+            cwd=repo_path, capture_output=True, text=True
+        )
+        if res_churn.stdout.strip():
+            churn = int(res_churn.stdout.strip())
     except Exception:
         pass
-    return "Unknown", "unknown@example.com"
+    return author, email, churn
 
 IGNORE_DIRS = {
     ".git", "__pycache__", "venv", ".venv", "env", "node_modules",
@@ -64,9 +76,10 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
 
                     parsed = parse_source_file(rel_path, code_bytes)
                     
-                    author, email = get_git_author(str(path), rel_path)
+                    author, email, churn = get_git_author_and_churn(str(path), rel_path)
                     parsed["author"] = author
                     parsed["author_email"] = email
+                    parsed["churn"] = churn
 
                     lang = parsed.get("language", "unknown")
                     languages_found.add(lang)

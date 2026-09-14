@@ -55,14 +55,15 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
     lang = parsed_data.get("language", "unknown")
     author = parsed_data.get("author", "Unknown")
     author_email = parsed_data.get("author_email", "unknown@example.com")
+    churn = parsed_data.get("churn", 0)
 
     with driver.session() as session:
         # 1. Repo, File, and Developer nodes
         session.run("""
             MERGE (r:Repository {name: $repo_name})
             MERGE (f:File {id: $file_id})
-            ON CREATE SET f.path = $file_path, f.repo = $repo_name, f.language = $lang
-            ON MATCH SET f.language = $lang
+            ON CREATE SET f.path = $file_path, f.repo = $repo_name, f.language = $lang, f.churn = $churn
+            ON MATCH SET f.language = $lang, f.churn = $churn
             MERGE (r)-[:CONTAINS]->(f)
             
             MERGE (d:Developer {email: $author_email})

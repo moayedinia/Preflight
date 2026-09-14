@@ -119,3 +119,43 @@ def calculate_blast_radius(function_name: str, repo_name: Optional[str] = None) 
             "total_affected_count": count,
             "risk_level": risk
         }
+
+def get_git_hotspots(repo_name: Optional[str] = None, limit: int = 15) -> List[Dict[str, Any]]:
+    """
+    Finds files that change the most often based on Git commit count (churn rate).
+    """
+    with driver.session() as session:
+        query = """
+        MATCH (f:File)
+        WHERE ($repo_name IS NULL OR f.repo = $repo_name) AND f.churn > 0
+        RETURN f.path AS path, f.churn AS churn, f.language AS language
+        ORDER BY f.churn DESC
+        LIMIT $limit
+        """
+        records = session.run(query, repo_name=repo_name, limit=limit)
+        return [dict(r) for r in records]
+
+def detect_code_clones(repo_name: Optional[str] = None, threshold: float = 0.95, limit: int = 20) -> List[Dict[str, Any]]:
+    """
+    Detects duplicated code blocks (clones) by computing Cosine Similarity on embeddings.
+    Warning: O(N^2) complexity in memory, so we compute top 500 largest functions.
+    """
+    with driver.session() as session:
+        # Instead of full N^2 in Neo4j, we limit to the largest functions to avoid timeout
+        query = """
+        MATCH (f1:Function), (f2:Function)
+        WHERE id(f1) > id(f2)
+          AND ($repo_name IS NULL OR f1.repo = $repo_name)
+          AND ($repo_name IS NULL OR f2.repo = $repo_name)
+          AND f1.embedding IS NOT NULL AND f2.embedding IS NOT NULL
+          AND size(f1.code) > 200 AND size(f2.code) > 200
+        WITH f1, f2, vector.similarity.cosine(f1.embedding, f2.embedding) AS sim
+        WHERE sim >= $threshold
+        RETURN f1.name AS fn1, f1.file_path AS file1,
+               f2.name AS fn2, f2.file_path AS file2,
+               sim AS similarity
+        ORDER BY sim DESC
+        LIMIT $limit
+        """
+        records = session.run(query, repo_name=repo_name, threshold=threshold, limit=limit)
+        return [dict(r) for r in records]

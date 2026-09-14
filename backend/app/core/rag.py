@@ -10,6 +10,11 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
     3. Traverses the graph to gather relational context (Callers, Callees, Classes, Files).
     4. Synthesizes a structured answer using an LLM.
     """
+    # Text-to-Cypher (NL2Cypher) RAG Mode
+    if query.strip().startswith("/cypher "):
+        actual_query = query.strip().replace("/cypher ", "").strip()
+        return execute_nl2cypher_query(actual_query, repo_name)
+
     # 1. Query Embedding
     query_vector = get_embedding(query)
 
@@ -85,3 +90,76 @@ Please provide a detailed, well-structured explanation:
         "retrieved_nodes": hits,
         "graph_context": relational_context
     }
+
+def execute_nl2cypher_query(query: str, repo_name: str = None) -> dict:
+    from app.core.llm import call_llm
+    from app.core.graph import driver
+    import json
+    import re
+
+    schema = \"\"\"
+    Nodes:
+    - (f:File {id, path, repo, language, churn})
+    - (c:Class {id, name, file_path, repo, language, code})
+    - (fn:Function {id, name, file_path, repo, language, code})
+    - (api:ApiRoute {path, method, repo})
+    - (d:Developer {email, name})
+
+    Relationships:
+    - (Repository)-[:CONTAINS]->(File)
+    - (File)-[:CONTAINS]->(Class)
+    - (File)-[:CONTAINS]->(Function)
+    - (Class)-[:HAS_METHOD]->(Function)
+    - (Function)-[:CALLS]->(FunctionReference)
+    - (File)-[:EXPOSES_API]->(ApiRoute)
+    - (File)-[:CALLS_API]->(ApiRoute)
+    - (Developer)-[:AUTHORED]->(File)
+    - (File)-[:TESTS]->(File)
+    \"\"\"
+
+    system_prompt_cypher = (
+        "You are an expert Neo4j Cypher query writer. "
+        "Write a read-only Cypher query to answer the user's question based on this schema:\n"
+        f"{schema}\n"
+        "Return ONLY a JSON object with a single key 'cypher'. Do not include markdown blocks or any other text."
+    )
+
+    try:
+        # Step 1: Generate Cypher
+        llm_resp = call_llm(query, system_prompt_cypher)
+        # Parse JSON
+        cypher_match = re.search(r'\{.*\}', llm_resp.replace('\n', ' '))
+        if not cypher_match:
+            raise ValueError("Failed to extract JSON from LLM response.")
+        
+        cypher_query = json.loads(cypher_match.group(0)).get("cypher", "")
+        if not cypher_query.lower().startswith("match"):
+            raise ValueError("Invalid Cypher query generated.")
+
+        # Step 2: Execute Cypher
+        with driver.session() as session:
+            result = session.run(cypher_query)
+            db_results = [dict(r) for r in result]
+        
+        # Step 3: Explain Results
+        explain_prompt = (
+            "You are a Senior Software Architect. Explain the result of this graph database query to the user.\n\n"
+            f"User Question: {query}\n"
+            f"Cypher Query Executed: {cypher_query}\n"
+            f"Database Result: {db_results[:20]}\n\n" # Limit to 20 to avoid context overflow
+            "Provide a concise, analytical answer based ONLY on the Database Result."
+        )
+        final_answer = call_llm("Explain the results.", explain_prompt)
+        
+        return {
+            "answer": final_answer + f"\n\n*(Generated via Cypher: `{cypher_query}`)*",
+            "retrieved_nodes": [],
+            "graph_context": db_results[:10]
+        }
+    except Exception as e:
+        return {
+            "answer": f"❌ NL2Cypher Failed: {e}",
+            "retrieved_nodes": [],
+            "graph_context": []
+        }
+
