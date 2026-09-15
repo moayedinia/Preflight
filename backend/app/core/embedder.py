@@ -6,38 +6,28 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-c
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 HF_HOME = os.getenv("HF_HOME", "/app/models") # Default local model dir
 
+def find_hf_model_dir(base_dir: str) -> str:
+    """Recursively searches for a valid HuggingFace model directory containing config.json and model weights."""
+    if not os.path.exists(base_dir):
+        return base_dir
+    for root, dirs, files in os.walk(base_dir):
+        if "config.json" in files and ("model.safetensors" in files or "pytorch_model.bin" in files or "model.onnx" in files):
+            return root
+    return base_dir
+
 encoder = None
 try:
     from sentence_transformers import SentenceTransformer
-    print(f"Loading HuggingFace model: {EMBEDDING_MODEL}")
+    print(f"Loading HuggingFace model for EMBEDDING_MODEL: {EMBEDDING_MODEL}")
     
-    # Resolve absolute path if the model is locally downloaded in HF_HOME
-    model_path = EMBEDDING_MODEL
+    # 1. Start with the default mounted models directory
+    search_path = "/app/models"
     
-    # If user provided a path inside /app/models or similar, check if it's a raw HF cache directory
-    if os.path.exists(model_path) and os.path.isdir(model_path):
-        snapshots_dir = os.path.join(model_path, "snapshots")
-        if os.path.exists(snapshots_dir):
-            # Auto-find the snapshot hash folder
-            snaps = os.listdir(snapshots_dir)
-            if snaps:
-                model_path = os.path.join(snapshots_dir, snaps[0])
-
-    elif not os.path.isabs(model_path):
-        # Check standard name
-        local_path = os.path.join("/app/models", model_path)
-        # Check HuggingFace cache format name (models--org--model)
-        hf_cache_name = "models--" + model_path.replace("/", "--")
-        local_cache_path = os.path.join("/app/models", hf_cache_name)
+    # If the user provided a specific absolute path that exists, use it as the search base
+    if os.path.isabs(EMBEDDING_MODEL) and os.path.exists(EMBEDDING_MODEL):
+        search_path = EMBEDDING_MODEL
         
-        if os.path.exists(local_path):
-            model_path = local_path
-        elif os.path.exists(local_cache_path):
-            snapshots_dir = os.path.join(local_cache_path, "snapshots")
-            if os.path.exists(snapshots_dir) and os.listdir(snapshots_dir):
-                model_path = os.path.join(snapshots_dir, os.listdir(snapshots_dir)[0])
-            else:
-                model_path = local_cache_path
+    model_path = find_hf_model_dir(search_path)
             
     print(f"[Embedder] Final resolved model_path: {model_path}")
     os.environ["HF_HUB_OFFLINE"] = "1"
