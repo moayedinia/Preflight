@@ -40,8 +40,10 @@ try:
                 model_path = local_cache_path
             
     print(f"[Embedder] Final resolved model_path: {model_path}")
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
     # trust_remote_code=True is usually required for Jina embeddings
-    encoder = SentenceTransformer(model_path, trust_remote_code=True)
+    encoder = SentenceTransformer(model_path, trust_remote_code=True, local_files_only=True)
 except Exception as e:
     print(f"Notice: Could not load SentenceTransformer model {model_path}: {e}")
 
