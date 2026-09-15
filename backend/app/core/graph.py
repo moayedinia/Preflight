@@ -1,6 +1,6 @@
 import os
 from neo4j import GraphDatabase
-from app.core.embedder import get_embedding, EMBEDDING_DIM
+from app.core.embedder import get_embedding, validate_embedding_configuration
 
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
@@ -14,6 +14,7 @@ else:
 
 def init_graph_schema():
     """Initializes constraints and vector search indexes in Neo4j."""
+    embedding_dim = validate_embedding_configuration()
     with driver.session() as session:
         # Constraints for faster lookup and deduplication
         session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (r:Repository) REQUIRE r.name IS UNIQUE")
@@ -29,15 +30,15 @@ def init_graph_schema():
             if check_rec:
                 cfg = check_rec.get("options", {}).get("indexConfig", {})
                 current_dim = cfg.get("vector.dimensions")
-                if current_dim and current_dim != EMBEDDING_DIM:
-                    print(f"Adapting vector index dimension: {current_dim} -> {EMBEDDING_DIM}")
+                if current_dim and current_dim != embedding_dim:
+                    print(f"Adapting vector index dimension: {current_dim} -> {embedding_dim}")
                     session.run("DROP INDEX function_embeddings IF EXISTS")
 
             session.run(f"""
             CREATE VECTOR INDEX function_embeddings IF NOT EXISTS
             FOR (fn:Function) ON (fn.embedding)
             OPTIONS {{indexConfig: {{
-                `vector.dimensions`: {EMBEDDING_DIM},
+                `vector.dimensions`: {embedding_dim},
                 `vector.similarity_function`: 'cosine'
             }}}}
             """)

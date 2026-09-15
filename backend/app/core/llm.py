@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+from urllib.parse import urlparse
 from typing import Optional
 from app.core.celery import CELERY_BROKER_URL
 
@@ -22,12 +23,23 @@ def get_llm_config() -> dict:
     }
 
 def set_llm_config(base_url: str, model: str, api_key: str):
+    base_url = normalize_llm_base_url(base_url)
     if r_client:
         r_client.set("codegraph_llm_config", json.dumps({
             "base_url": base_url,
             "model": model,
             "api_key": api_key
         }))
+
+def normalize_llm_base_url(base_url: str) -> str:
+    """Normalize an OpenAI-compatible API base and add /v1 when omitted."""
+    normalized = (base_url or "").strip().rstrip("/")
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("LLM base URL must be an absolute http(s) URL.")
+    if not normalized.endswith("/v1"):
+        normalized += "/v1"
+    return normalized
 
 def call_llm(prompt: str, system_prompt: str = "") -> str:
     """Calls any OpenAI-compatible endpoint (Ollama, vLLM, LMStudio, OpenAI)."""
@@ -45,7 +57,7 @@ def call_llm(prompt: str, system_prompt: str = "") -> str:
         "temperature": 0.1
     }
     
-    url = f"{config.get('base_url', '').rstrip('/')}/chat/completions"
+    url = f"{normalize_llm_base_url(config.get('base_url', ''))}/chat/completions"
     
     response = requests.post(url, headers=headers, json=payload, timeout=120)
     response.raise_for_status()

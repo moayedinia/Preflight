@@ -151,7 +151,7 @@ docker compose up -d --build
 # تنظیم مدل هوش مصنوعی لوکال
 curl -X POST "http://localhost:8001/api/v1/config/llm" \
   -H "X-API-Key: your-api-key" \
-  -d '{"base_url": "http://localhost:11434/v1", "model": "llama3", "api_key": ""}'
+  -d '{"base_url": "http://host.docker.internal:11434/v1", "model": "llama3", "api_key": ""}'
 
 # دریافت لیست کدهای تکراری (Clones)
 curl -X GET "http://localhost:8001/api/v1/analytics/clones?repo_name=MyProject" \

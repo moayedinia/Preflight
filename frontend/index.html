@@ -811,8 +811,8 @@
       <div class="space-y-3 text-xs">
         <div>
           <label class="block text-slate-400 mb-1">Base URL (OpenAI-compatible)</label>
-          <input id="llm-base-url" type="text" placeholder="http://localhost:11434/v1" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
-          <p class="text-[10px] text-slate-500 mt-1">For Ollama use: http://localhost:11434/v1. For OpenAI use: https://api.openai.com/v1.</p>
+          <input id="llm-base-url" type="text" placeholder="http://host.docker.internal:11434/v1" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
+          <p class="text-[10px] text-slate-500 mt-1">This URL is used by the backend containers. Same Linux host: http://host.docker.internal:11434/v1. Remote Ollama: http://SERVER_IP:11434/v1.</p>
         </div>
         <div>
           <label class="block text-slate-400 mb-1">Model Name</label>

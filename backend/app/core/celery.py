@@ -8,7 +8,7 @@ celery_app = Celery(
     "graphrag_worker",
     broker=CELERY_BROKER_URL,
     backend=CELERY_RESULT_BACKEND,
-    include=["app.tasks.ingestion"]
+    include=["app.tasks.ingestion", "app.tasks.autodoc"]
 )
 
 celery_app.conf.update(

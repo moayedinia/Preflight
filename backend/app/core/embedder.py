@@ -3,12 +3,38 @@ import hashlib
 import json
 import urllib.request
 import urllib.error
+from urllib.parse import urlparse
 import numpy as np
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+def _as_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def normalize_ollama_base_url(value: str | None) -> str:
+    """Return the Ollama server root (native API base, without /v1)."""
+    base = (value or "").strip().rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3].rstrip("/")
+    if base:
+        parsed = urlparse(base)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(f"Invalid OLLAMA_BASE_URL: {value!r}")
+    return base
+
+
+OLLAMA_BASE_URL = normalize_ollama_base_url(
+    os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ALLOW_FAKE_EMBEDDINGS = _as_bool(os.getenv("ALLOW_FAKE_EMBEDDINGS"), default=False)
+
+
+class EmbeddingError(RuntimeError):
+    """Raised when a real embedding cannot be produced safely."""
 
 client = None
 if OLLAMA_BASE_URL:
@@ -49,7 +75,7 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
     3. /v1/embeddings (OpenAI-compatible Ollama endpoint)
     Returns: (embedding_vector, last_error_message)
     """
-    base = base_url.rstrip('/')
+    base = normalize_ollama_base_url(base_url)
     clean_text = text.replace("\n", " ")[:8000]
     last_err = ""
 
@@ -124,9 +150,8 @@ def get_embedding(text: str, model: str = None) -> list[float]:
     Generates a vector embedding for code snippet or text using:
     1. Ollama (e.g. nomic-embed-text, jina-embeddings-v2-base-code) on remote/internal server if OLLAMA_BASE_URL is set.
     2. OpenAI (text-embedding-3-small) if OPENAI_API_KEY is set.
-    3. Deterministic normalized embedding fallback if neither is reachable.
+    3. Optional deterministic test vectors only when ALLOW_FAKE_EMBEDDINGS=true.
     """
-    global EMBEDDING_DIM
     if not text or not text.strip():
         return [0.0] * EMBEDDING_DIM
 
@@ -138,11 +163,18 @@ def get_embedding(text: str, model: str = None) -> list[float]:
         emb, err = _query_ollama(clean_text, target_model, OLLAMA_BASE_URL)
         if emb:
             if len(emb) != EMBEDDING_DIM:
-                EMBEDDING_DIM = len(emb)
+                raise EmbeddingError(
+                    f"Embedding dimension mismatch for '{target_model}': "
+                    f"Ollama returned {len(emb)}, but EMBEDDING_DIM={EMBEDDING_DIM}. "
+                    "Update EMBEDDING_DIM and recreate/re-index the vector data."
+                )
             return emb
-        else:
-            print(f"[Embedder] Ollama embedding query failed for '{target_model}' at '{OLLAMA_BASE_URL}': {err}. Using deterministic vector.")
+        if ALLOW_FAKE_EMBEDDINGS:
+            print(f"[Embedder] Ollama query failed: {err}. ALLOW_FAKE_EMBEDDINGS is enabled; using a deterministic test vector.")
             return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
+        raise EmbeddingError(
+            f"Ollama embedding failed for '{target_model}' at '{OLLAMA_BASE_URL}': {err}"
+        )
 
     # 2. OpenAI
     if client and OPENAI_API_KEY:
@@ -150,11 +182,35 @@ def get_embedding(text: str, model: str = None) -> list[float]:
             response = client.embeddings.create(input=[clean_text], model=target_model)
             return response.data[0].embedding
         except Exception as e:
-            print(f"[Embedder] OpenAI embedding error: {e}. Using deterministic fallback.")
-            return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
+            if ALLOW_FAKE_EMBEDDINGS:
+                print(f"[Embedder] OpenAI error: {e}. Using a deterministic test vector.")
+                return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
+            raise EmbeddingError(f"OpenAI embedding failed: {e}") from e
 
-    # 3. Deterministic fallback
-    return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
+    if ALLOW_FAKE_EMBEDDINGS:
+        return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
+    raise EmbeddingError("No embedding provider is configured and fake embeddings are disabled.")
+
+
+def validate_embedding_configuration() -> int:
+    """Verify provider reachability, model availability, and vector dimension."""
+    if not OLLAMA_BASE_URL:
+        if ALLOW_FAKE_EMBEDDINGS:
+            return EMBEDDING_DIM
+        raise EmbeddingError("OLLAMA_BASE_URL is not configured.")
+
+    vector, err = _query_ollama("code graph embedding health check", EMBEDDING_MODEL, OLLAMA_BASE_URL)
+    if not vector:
+        raise EmbeddingError(
+            f"Cannot initialize embeddings from '{OLLAMA_BASE_URL}' using "
+            f"'{EMBEDDING_MODEL}': {err}"
+        )
+    if len(vector) != EMBEDDING_DIM:
+        raise EmbeddingError(
+            f"Embedding dimension mismatch for '{EMBEDDING_MODEL}': "
+            f"detected {len(vector)}, configured {EMBEDDING_DIM}."
+        )
+    return EMBEDDING_DIM
 
 def verify_ollama_status() -> dict:
     """
@@ -174,13 +230,15 @@ def verify_ollama_status() -> dict:
     test_vec, err = _query_ollama("test code embedding", EMBEDDING_MODEL, OLLAMA_BASE_URL)
 
     if test_vec:
+        dimension_matches = len(test_vec) == EMBEDDING_DIM
         return {
-            "status": "connected",
+            "status": "connected" if dimension_matches else "dimension_mismatch",
             "server_url": OLLAMA_BASE_URL,
             "target_model": EMBEDDING_MODEL,
             "model_present": (EMBEDDING_MODEL in available_models) if available_models else True,
             "detected_dimension": len(test_vec),
             "configured_dimension": EMBEDDING_DIM,
+            "dimension_matches": dimension_matches,
             "available_models": available_models,
             "sample_vector_preview": test_vec[:5]
         }

@@ -63,7 +63,10 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
+      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
       - PIP_DEFAULT_TIMEOUT=180
@@ -106,7 +109,10 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
+      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
       - PIP_DEFAULT_TIMEOUT=180
@@ -150,7 +156,10 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
+      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
       - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
       - PIP_DEFAULT_TIMEOUT=180
