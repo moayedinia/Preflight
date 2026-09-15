@@ -13,20 +13,31 @@ try:
     
     # Resolve absolute path if the model is locally downloaded in HF_HOME
     model_path = EMBEDDING_MODEL
-    if not os.path.isabs(model_path):
+    
+    # If user provided a path inside /app/models or similar, check if it's a raw HF cache directory
+    if os.path.exists(model_path) and os.path.isdir(model_path):
+        snapshots_dir = os.path.join(model_path, "snapshots")
+        if os.path.exists(snapshots_dir):
+            # Auto-find the snapshot hash folder
+            snaps = os.listdir(snapshots_dir)
+            if snaps:
+                model_path = os.path.join(snapshots_dir, snaps[0])
+
+    elif not os.path.isabs(model_path):
         # Check standard name
-        local_path = os.path.join(HF_HOME, model_path)
+        local_path = os.path.join("/app/models", model_path)
         # Check HuggingFace cache format name (models--org--model)
         hf_cache_name = "models--" + model_path.replace("/", "--")
-        local_cache_path = os.path.join(HF_HOME, hf_cache_name)
+        local_cache_path = os.path.join("/app/models", hf_cache_name)
         
         if os.path.exists(local_path):
             model_path = local_path
         elif os.path.exists(local_cache_path):
-            model_path = local_cache_path
-        elif os.path.exists(os.path.join(HF_HOME, "hub", hf_cache_name)):
-            # If user mapped ~/.cache/huggingface/hub to /app/models/hub
-            model_path = os.path.join(HF_HOME, "hub", hf_cache_name)
+            snapshots_dir = os.path.join(local_cache_path, "snapshots")
+            if os.path.exists(snapshots_dir) and os.listdir(snapshots_dir):
+                model_path = os.path.join(snapshots_dir, os.listdir(snapshots_dir)[0])
+            else:
+                model_path = local_cache_path
             
     # trust_remote_code=True is usually required for Jina embeddings
     encoder = SentenceTransformer(model_path, trust_remote_code=True)
