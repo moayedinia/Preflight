@@ -61,7 +61,8 @@ services:
       - ALLOWED_REPO_DIR=/app/repos
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - HF_HOME=/app/models
+      - HF_HOME=/tmp/hf_home
+      - HF_HUB_OFFLINE=1
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v2-base-code}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - LLM_MODEL=${LLM_MODEL:-}
@@ -105,7 +106,8 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-RedisSecurePass2026!}@redis:6379/0
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - HF_HOME=/app/models
+      - HF_HOME=/tmp/hf_home
+      - HF_HUB_OFFLINE=1
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v2-base-code}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - LLM_MODEL=${LLM_MODEL:-}
@@ -150,7 +152,8 @@ services:
       - NEO4J_AUTH=${NEO4J_AUTH:-none}
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - HF_HOME=/app/models
+      - HF_HOME=/tmp/hf_home
+      - HF_HUB_OFFLINE=1
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v2-base-code}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - LLM_MODEL=${LLM_MODEL:-}
