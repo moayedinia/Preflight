@@ -39,10 +39,11 @@ try:
             else:
                 model_path = local_cache_path
             
+    print(f"[Embedder] Final resolved model_path: {model_path}")
     # trust_remote_code=True is usually required for Jina embeddings
     encoder = SentenceTransformer(model_path, trust_remote_code=True)
 except Exception as e:
-    print(f"Notice: Could not load SentenceTransformer model {EMBEDDING_MODEL}: {e}")
+    print(f"Notice: Could not load SentenceTransformer model {model_path}: {e}")
 
 def _generate_fallback_embedding(text: str, dim: int = None) -> list[float]:
     """Generates a deterministic pseudo-random normalized vector for offline/mock mode."""
