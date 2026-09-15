@@ -38,7 +38,13 @@
 ### نیازمندی‌ها:
 - **Docker** و **Docker Compose**
 - حداقل ۴ گیگابایت حافظه رم آزاد
-- نصب و در حال اجرا بودن **Ollama** (مثلاً مدل `nomic-embed-text` یا مدل دلخواه شما).
+- نصب و در حال اجرا بودن **Ollama** و مدل embedding مخصوص کد:
+  `ollama pull unclemusclez/jina-embeddings-v2-base-code`
+
+> مدل Hugging Face با شناسه `jinaai/jina-embeddings-v2-base-code` مستقیماً یک مخزن
+> Transformers/Safetensors است. برای Ollama از تبدیل آماده
+> `unclemusclez/jina-embeddings-v2-base-code:latest` استفاده کنید. مدل‌های دارای
+> `reranker` برای `EMBEDDING_MODEL` معتبر نیستند.
 
 ### گام‌های راه‌اندازی:
 ```bash

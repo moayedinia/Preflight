@@ -27,7 +27,8 @@ def normalize_ollama_base_url(value: str | None) -> str:
 OLLAMA_BASE_URL = normalize_ollama_base_url(
     os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 )
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+DEFAULT_EMBEDDING_MODEL = "unclemusclez/jina-embeddings-v2-base-code:latest"
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ALLOW_FAKE_EMBEDDINGS = _as_bool(os.getenv("ALLOW_FAKE_EMBEDDINGS"), default=False)
@@ -35,6 +36,19 @@ ALLOW_FAKE_EMBEDDINGS = _as_bool(os.getenv("ALLOW_FAKE_EMBEDDINGS"), default=Fal
 
 class EmbeddingError(RuntimeError):
     """Raised when a real embedding cannot be produced safely."""
+
+
+def validate_embedding_model_name(model: str) -> str:
+    """Reject rerankers early: Ollama's embedding endpoint requires an embedding model."""
+    normalized = (model or "").strip()
+    if not normalized:
+        raise EmbeddingError("EMBEDDING_MODEL is empty.")
+    if "rerank" in normalized.lower():
+        raise EmbeddingError(
+            f"'{normalized}' is a reranker, not an embedding model. Use "
+            f"'{DEFAULT_EMBEDDING_MODEL}' for jina-embeddings-v2-base-code on Ollama."
+        )
+    return normalized
 
 client = None
 if OLLAMA_BASE_URL:
@@ -76,8 +90,12 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
     Returns: (embedding_vector, last_error_message)
     """
     base = normalize_ollama_base_url(base_url)
+    try:
+        model = validate_embedding_model_name(model)
+    except EmbeddingError as exc:
+        return [], str(exc)
     clean_text = text.replace("\n", " ")[:8000]
-    last_err = ""
+    errors = []
 
     # 1. Try modern /api/embed
     try:
@@ -91,11 +109,11 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
                 return embs[0], ""
     except urllib.error.HTTPError as he:
         try:
-            last_err = f"/api/embed: HTTP {he.code} - {he.read().decode('utf-8')}"
+            errors.append(f"/api/embed: HTTP {he.code} - {he.read().decode('utf-8')}")
         except Exception:
-            last_err = f"/api/embed: HTTP {he.code}"
+            errors.append(f"/api/embed: HTTP {he.code}")
     except Exception as e:
-        last_err = f"/api/embed: {e}"
+        errors.append(f"/api/embed: {e}")
 
     # 2. Try legacy /api/embeddings
     try:
@@ -109,11 +127,11 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
                 return emb, ""
     except urllib.error.HTTPError as he:
         try:
-            last_err = f"/api/embeddings: HTTP {he.code} - {he.read().decode('utf-8')}"
+            errors.append(f"/api/embeddings: HTTP {he.code} - {he.read().decode('utf-8')}")
         except Exception:
-            last_err = f"/api/embeddings: HTTP {he.code}"
+            errors.append(f"/api/embeddings: HTTP {he.code}")
     except Exception as e:
-        last_err = f"/api/embeddings: {e}"
+        errors.append(f"/api/embeddings: {e}")
 
     # 3. Try /v1/embeddings (OpenAI format on Ollama)
     try:
@@ -130,9 +148,9 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
             if data_arr and "embedding" in data_arr[0]:
                 return data_arr[0]["embedding"], ""
     except Exception as e:
-        last_err = f"/v1/embeddings: {e}"
+        errors.append(f"/v1/embeddings: {e}")
 
-    return [], last_err
+    return [], "; ".join(errors)
 
 def _generate_fallback_embedding(text: str, dim: int = None) -> list[float]:
     """Generates a deterministic pseudo-random normalized vector for offline/mock mode."""
@@ -156,7 +174,7 @@ def get_embedding(text: str, model: str = None) -> list[float]:
         return [0.0] * EMBEDDING_DIM
 
     clean_text = text.replace("\n", " ")[:8000]
-    target_model = model or EMBEDDING_MODEL
+    target_model = validate_embedding_model_name(model or EMBEDDING_MODEL)
 
     # 1. Ollama
     if OLLAMA_BASE_URL:

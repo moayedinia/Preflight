@@ -15,6 +15,10 @@ class EmbedderConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             embedder.normalize_ollama_base_url("ollama.example:11434")
 
+    def test_reranker_is_rejected_before_calling_ollama(self):
+        with self.assertRaisesRegex(embedder.EmbeddingError, "reranker, not an embedding model"):
+            embedder.validate_embedding_model_name("jina-reranker-v2:latest")
+
     def test_connection_failure_does_not_generate_fake_vectors_by_default(self):
         with (
             patch.object(embedder, "OLLAMA_BASE_URL", "http://ollama:11434"),

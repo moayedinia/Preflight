@@ -99,7 +99,7 @@ flowchart TD
 
 ## 🛠 راه‌اندازی سریع با Docker
 
-تنظیمات پلتفرم در قالب کانتینرها در `docker-compose.yml` پیکربندی شده است. استخراج وکتورها و تولید Embedding از طریق سرویس Ollama (مانند `nomic-embed-text` یا هر مدل دلخواه دیگر) انجام می‌شود.
+تنظیمات پلتفرم در قالب کانتینرها در `docker-compose.yml` پیکربندی شده است. استخراج وکتورها و تولید Embedding از طریق سرویس Ollama و مدل مخصوص کد `unclemusclez/jina-embeddings-v2-base-code:latest` انجام می‌شود. این مدل تبدیل Ollama-compatible مدل اصلی `jinaai/jina-embeddings-v2-base-code` است و بردارهای 768 بعدی تولید می‌کند؛ مدل‌های reranker قابل استفاده به‌عنوان `EMBEDDING_MODEL` نیستند.
 
 ```bash
 # ۱. کلون پروژه
