@@ -99,7 +99,7 @@ flowchart TD
 
 ## 🛠 راه‌اندازی سریع با Docker
 
-تنظیمات پلتفرم در قالب ۶ کانتینر در `docker-compose.yml` پیکربندی شده است. مدل Embedding برای کارکرد آفلاین (`jina-embeddings-v2-base-code`) داخل پوشه `models/` بایند شده است.
+تنظیمات پلتفرم در قالب ۶ کانتینر در `docker-compose.yml` پیکربندی شده است. مدل Embedding برای کارکرد آفلاین (`codesage-large-v2`) داخل پوشه `models/` بایند شده است.
 
 ```bash
 # ۱. کلون پروژه

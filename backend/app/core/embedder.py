@@ -2,8 +2,8 @@ import os
 import hashlib
 import numpy as np
 
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "codesage/codesage-large-v2")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 HF_HOME = os.getenv("HF_HOME", "/app/models") # Default local model dir
 
 def find_hf_model_dir(base_dir: str) -> str:
@@ -32,7 +32,7 @@ try:
     print(f"[Embedder] Final resolved model_path: {model_path}")
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    # trust_remote_code=True is usually required for Jina embeddings
+    # trust_remote_code=True is usually required for some custom models
     encoder = SentenceTransformer(model_path, trust_remote_code=True, local_files_only=True)
 except Exception as e:
     print(f"Notice: Could not load SentenceTransformer model {model_path}: {e}")
