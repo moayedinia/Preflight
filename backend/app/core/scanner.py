@@ -12,8 +12,8 @@ def get_git_author_and_churn(repo_path: str, file_path: str) -> tuple[str, str, 
     try:
         # Get author
         res_author = subprocess.run(
-            ["git", "log", "-1", "--format=%an|%ae", "--", file_path],
-            cwd=repo_path, capture_output=True, text=True
+            ["git", "-c", "core.quotepath=false", "-c", "i18n.logoutputencoding=utf-8", "log", "-1", "--format=%an|%ae", "--", file_path],
+            cwd=repo_path, capture_output=True, text=True, encoding="utf-8", errors="replace"
         )
         if res_author.stdout.strip():
             parts = res_author.stdout.strip().split("|")
@@ -22,8 +22,8 @@ def get_git_author_and_churn(repo_path: str, file_path: str) -> tuple[str, str, 
         
         # Get churn (commit count)
         res_churn = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD", "--", file_path],
-            cwd=repo_path, capture_output=True, text=True
+            ["git", "-c", "core.quotepath=false", "rev-list", "--count", "HEAD", "--", file_path],
+            cwd=repo_path, capture_output=True, text=True, encoding="utf-8", errors="replace"
         )
         if res_churn.stdout.strip():
             churn = int(res_churn.stdout.strip())

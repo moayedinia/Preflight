@@ -25,11 +25,21 @@ ENV PIP_TRUSTED_HOST=${PYPI_HOST}
 ENV PIP_DEFAULT_TIMEOUT=180
 ENV PIP_RETRIES=5
 
+# Configure system UTF-8 locale and Python I/O encoding globally
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV PYTHONIOENCODING=utf-8
+
 # Install necessary build tools and security dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure Git globally to preserve non-ASCII / Persian UTF-8 filenames and commits
+RUN git config --global core.quotepath false && \
+    git config --global i18n.commitencoding utf-8 && \
+    git config --global i18n.logoutputencoding utf-8
 
 WORKDIR /app
 

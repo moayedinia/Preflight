@@ -75,10 +75,71 @@ def detect_language(file_path: str) -> str:
     ext = Path(file_path).suffix.lower()
     return EXTENSION_MAP.get(ext, "unknown")
 
-# --- AST Node Handlers for Tree-sitter Supported Languages ---
+# --- Encoding and Text Handlers for Multi-Encoding / Persian Source Code ---
+
+def decode_source_code(raw_bytes: bytes) -> tuple[str, bytes]:
+    """
+    Decodes source code bytes into Unicode text and canonical UTF-8 bytes.
+    Accurately handles UTF-8, UTF-8-BOM (Visual Studio), UTF-16 LE/BE,
+    Windows-1256 (Persian/Arabic ANSI), and Latin-1 without replacing characters with question marks.
+    Returns:
+        (code_text: str, utf8_bytes: bytes)
+    """
+    if not raw_bytes:
+        return "", b""
+
+    # 1. Check explicit BOMs first (UTF-8 BOM or UTF-16 LE/BE BOM)
+    if raw_bytes.startswith(b"\xef\xbb\xbf"):
+        try:
+            text = raw_bytes.decode("utf-8-sig")
+            return text, text.encode("utf-8")
+        except UnicodeDecodeError:
+            pass
+
+    if raw_bytes.startswith((b"\xff\xfe", b"\xfe\xff")):
+        for enc in ("utf-16", "utf-16-le", "utf-16-be"):
+            try:
+                text = raw_bytes.decode(enc)
+                return text, text.encode("utf-8")
+            except (UnicodeDecodeError, LookupError):
+                pass
+
+    # 2. Clean UTF-8 (Strict)
+    try:
+        text = raw_bytes.decode("utf-8")
+        return text, raw_bytes
+    except UnicodeDecodeError:
+        pass
+
+    # 3. UTF-16 without BOM (detect null-byte cadence common in UTF-16 code files)
+    if len(raw_bytes) >= 4 and (raw_bytes[1::2].count(0) > len(raw_bytes) // 4 or raw_bytes[0::2].count(0) > len(raw_bytes) // 4):
+        for enc in ("utf-16-le", "utf-16-be"):
+            try:
+                text = raw_bytes.decode(enc)
+                return text, text.encode("utf-8")
+            except (UnicodeDecodeError, LookupError):
+                pass
+
+    # 4. Windows-1256 / CP1256 (Standard Persian/Arabic Windows ANSI encoding)
+    try:
+        text = raw_bytes.decode("cp1256")
+        return text, text.encode("utf-8")
+    except UnicodeDecodeError:
+        pass
+
+    # 5. Latin-1 / ISO-8859-1 fallback
+    try:
+        text = raw_bytes.decode("latin-1")
+        return text, text.encode("utf-8")
+    except Exception:
+        pass
+
+    # 6. Absolute fallback: UTF-8 with replacement
+    text = raw_bytes.decode("utf-8", errors="replace")
+    return text, text.encode("utf-8")
 
 def _get_node_text(node, code_bytes: bytes) -> str:
-    return code_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="ignore")
+    return code_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
 def _parse_with_treesitter(p: Parser, lang: str, file_path: str, code_bytes: bytes) -> dict:
     """AST parsing for languages supported by Tree-sitter grammars."""
@@ -300,12 +361,12 @@ def parse_source_file(file_path: str, code: bytes) -> dict:
         cfg = grammar_configs[lang]
         func_name = cfg[2] if len(cfg) > 2 else "language"
         p = _init_parser(lang, cfg[1], func_name)
-    # Universal engine fallback for all languages
-    text = code.decode("utf-8", errors="ignore")
+    # Decode source code bytes safely to Unicode text and canonical UTF-8 bytes
+    text, code_utf8 = decode_source_code(code)
     entities = None
     if lang in grammar_configs and p:
         try:
-            entities = _parse_with_treesitter(p, lang, file_path, code)
+            entities = _parse_with_treesitter(p, lang, file_path, code_utf8)
         except Exception as e:
             print(f"Tree-sitter parse error on {file_path}: {e}. Falling back to universal engine.")
             

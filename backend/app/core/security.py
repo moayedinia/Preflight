@@ -46,11 +46,17 @@ def verify_api_key(
     return True
 
 def sanitize_name(name: str) -> str:
-    """Sanitizes repository or entity name to prevent injection / path traversal."""
+    """
+    Sanitizes repository or entity name to prevent injection / path traversal.
+    Supports Unicode alphanumeric names (including Persian / Arabic), dashes, dots, and underscores.
+    """
     if not name or len(name) > 100:
         raise HTTPException(status_code=400, detail="Invalid name length.")
-    # Allow alphanumeric, underscore, dash, dot
-    if not re.match(r"^[a-zA-Z0-9_\-\.]+$", name):
+    name = name.strip()
+    if name in (".", "..") or "/" in name or "\\" in name or "\x00" in name:
+        raise HTTPException(status_code=400, detail="Name contains invalid path characters.")
+    # Allow alphanumeric (including Unicode/Persian letters and numbers), underscore, dash, dot
+    if not re.match(r"^[\w\-\.]+$", name, re.UNICODE):
         raise HTTPException(status_code=400, detail="Name contains invalid characters.")
     return name
 

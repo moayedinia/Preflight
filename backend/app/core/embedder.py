@@ -100,8 +100,8 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
     # 1. Try modern /api/embed
     try:
         url = f"{base}/api/embed"
-        payload = json.dumps({"model": model, "input": clean_text}).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        payload = json.dumps({"model": model, "input": clean_text}, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json; charset=utf-8"})
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             embs = data.get("embeddings")
@@ -118,8 +118,8 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
     # 2. Try legacy /api/embeddings
     try:
         url = f"{base}/api/embeddings"
-        payload = json.dumps({"model": model, "prompt": clean_text}).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        payload = json.dumps({"model": model, "prompt": clean_text}, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json; charset=utf-8"})
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             emb = data.get("embedding")
@@ -136,11 +136,11 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
     # 3. Try /v1/embeddings (OpenAI format on Ollama)
     try:
         url = f"{base}/v1/embeddings"
-        payload = json.dumps({"model": model, "input": clean_text}).encode("utf-8")
+        payload = json.dumps({"model": model, "input": clean_text}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             url,
             data=payload,
-            headers={"Content-Type": "application/json", "Authorization": "Bearer ollama"}
+            headers={"Content-Type": "application/json; charset=utf-8", "Authorization": "Bearer ollama"}
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode("utf-8"))

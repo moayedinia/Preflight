@@ -62,7 +62,7 @@ def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Option
             detail=f"Permission denied on repos directory ({ALLOWED_REPO_DIR}): {pe}. Run 'chmod -R 777 ./repos' on the host server."
         )
 
-    cmd = ["git", "clone", "--depth", "1"]
+    cmd = ["git", "-c", "core.quotepath=false", "clone", "--depth", "1"]
     if branch:
         clean_branch = re.sub(r"[^a-zA-Z0-9_\-\./]", "", branch)
         cmd.extend(["--branch", clean_branch])
@@ -75,6 +75,8 @@ def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Option
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=180, # 3 minutes max
             check=True
         )
@@ -88,10 +90,31 @@ def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Option
 
     return target_dir
 
+def decode_zip_filename(raw_name: str, flag_bits: int) -> str:
+    """
+    Recovers proper UTF-8 or Windows CP1256 (Persian/Arabic) filenames from ZIP archives.
+    When bit 11 (0x800) is unset, standard ZIP decodes raw bytes using CP437.
+    """
+    if flag_bits & 0x800:
+        return raw_name
+
+    try:
+        raw_bytes = raw_name.encode("cp437")
+    except UnicodeEncodeError:
+        return raw_name
+
+    for enc in ("utf-8", "cp1256", "utf-8-sig", "latin-1"):
+        try:
+            return raw_bytes.decode(enc)
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            continue
+
+    return raw_name
+
 def extract_safe_zip(zip_path: Path, repo_name: str) -> Path:
     """
     Safely extracts a ZIP archive into the sandboxed repository folder,
-    protecting against Zip Slip directory traversal vulnerabilities.
+    preserving non-ASCII and Persian filenames and protecting against Zip Slip.
     """
     clean_name = sanitize_name(repo_name)
     target_dir = ALLOWED_REPO_DIR / clean_name
@@ -110,15 +133,22 @@ def extract_safe_zip(zip_path: Path, repo_name: str) -> Path:
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         for member in zf.infolist():
-            # Zip Slip check: ensure extracted path does not escape sandbox
-            extracted_path = (target_dir / member.filename).resolve()
-            try:
-                if not extracted_path.is_relative_to(target_resolved):
-                    raise HTTPException(status_code=400, detail="Malicious ZIP detected (Zip Slip vulnerability).")
-            except AttributeError:
-                if not str(extracted_path).startswith(str(target_resolved)):
-                    raise HTTPException(status_code=400, detail="Malicious ZIP detected.")
+            decoded_filename = decode_zip_filename(member.filename, member.flag_bits)
+            # Normalize path separators (handle Windows backslashes)
+            norm_path = decoded_filename.replace("\\", "/").strip("/")
+            if not norm_path or ".." in norm_path.split("/"):
+                continue
 
-        zf.extractall(target_dir)
+            extracted_path = (target_dir / norm_path).resolve()
+            # Zip Slip check: ensure extracted path does not escape sandbox
+            if not str(extracted_path).startswith(str(target_resolved)):
+                raise HTTPException(status_code=400, detail="Malicious ZIP detected (Zip Slip vulnerability).")
+
+            if member.is_dir() or decoded_filename.endswith("/"):
+                extracted_path.mkdir(parents=True, exist_ok=True)
+            else:
+                extracted_path.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member) as src_file, open(extracted_path, "wb") as dst_file:
+                    shutil.copyfileobj(src_file, dst_file)
 
     return target_dir
