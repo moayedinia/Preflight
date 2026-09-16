@@ -17,7 +17,11 @@ from app.core.graph import (
     ingest_parsed_data,
     init_graph_schema,
     get_graph_stats,
-    get_graph_elements
+    get_graph_elements,
+    get_node_details,
+    get_vector_database_stats,
+    get_vector_database_records,
+    get_node_vector
 )
 from app.core.rag import execute_graphrag_query
 from app.core.scanner import scan_and_ingest_directory
@@ -390,11 +394,56 @@ def graph_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/graph/elements", dependencies=[Depends(verify_api_key)])
-def graph_elements(repo_name: Optional[str] = None, limit: Optional[int] = 120):
-    clean_limit = min(max(limit or 100, 10), 300)
+def graph_elements(repo_name: Optional[str] = None, limit: Optional[int] = 300):
+    clean_limit = min(max(limit or 300, 10), 1000)
     clean_repo = sanitize_name(repo_name) if repo_name else None
     try:
         return get_graph_elements(repo_name=clean_repo, limit=clean_limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/graph/node/{node_id:path}", dependencies=[Depends(verify_api_key)])
+def graph_node_details(node_id: str):
+    """Returns detailed information, source code, and connections for a specific graph node."""
+    try:
+        details = get_node_details(node_id)
+        if not details:
+            raise HTTPException(status_code=404, detail="Node not found")
+        return details
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/vector-db/stats", dependencies=[Depends(verify_api_key)])
+def vector_db_stats(repo_name: Optional[str] = None):
+    """Returns vector database statistics, dimensions, and model configuration."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    try:
+        return get_vector_database_stats(clean_repo)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/vector-db/records", dependencies=[Depends(verify_api_key)])
+def vector_db_records(repo_name: Optional[str] = None, search: Optional[str] = None, limit: Optional[int] = 100):
+    """Returns indexed vector records for a repository."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    clean_limit = min(max(limit or 50, 1), 500)
+    try:
+        return get_vector_database_records(clean_repo, search=search, limit=clean_limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/vector-db/vector/{node_id:path}", dependencies=[Depends(verify_api_key)])
+def vector_db_node_vector(node_id: str):
+    """Returns full float array vector for a specific entity."""
+    try:
+        data = get_node_vector(node_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Vector embedding not found for this node")
+        return data
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -9,6 +9,8 @@
   <script src="/vendor/tailwind.js"></script>
   <!-- Cytoscape.js for interactive graph visualization -->
   <script src="/vendor/cytoscape.min.js"></script>
+  <!-- Vis-Network for High-Performance Force-Directed Knowledge Graph (Graphify Engine) -->
+  <script src="/vendor/vis-network.min.js"></script>
   <!-- Lucide Icons -->
   <script src="/vendor/lucide.min.js"></script>
   <script>
@@ -29,7 +31,7 @@
     }
   </script>
   <style>
-    #cy {
+    #vis-network-container, #cy {
       width: 100%;
       height: 100%;
       position: absolute;
@@ -78,6 +80,9 @@
       <nav class="flex items-center space-x-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800 text-xs font-medium">
         <button id="nav-btn-graph" onclick="switchMainView('graph')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 bg-sky-600 text-white font-semibold shadow-sm transition">
           <i data-lucide="share-2" class="w-3.5 h-3.5"></i> Graph & RAG
+        </button>
+        <button id="nav-btn-vectordb" onclick="switchMainView('vectordb')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="database" class="w-3.5 h-3.5 text-emerald-400"></i> Vector Database
         </button>
         <button id="nav-btn-analytics" onclick="switchMainView('analytics')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
           <i data-lucide="activity" class="w-3.5 h-3.5"></i> Architecture Health
@@ -169,27 +174,63 @@
   <!-- ==================== MAIN VIEW CONTAINER ==================== -->
   <main class="flex-1 relative overflow-hidden flex">
 
-    <!-- ================= VIEW 1: GRAPH & GRAPHRAG ================= -->
-    <div id="view-graph" class="flex-1 flex w-full h-full relative">
-      <!-- Cytoscape Canvas Area -->
-      <div class="flex-1 relative bg-slate-950">
-        <div id="cy"></div>
+    <!-- ================= VIEW 1: GRAPH & GRAPHRAG (FULL SCREEN VIS-NETWORK) ================= -->
+    <div id="view-graph" class="flex-1 flex w-full h-full relative overflow-hidden bg-slate-950">
+      <!-- Vis-Network Full Screen Canvas Area -->
+      <div class="flex-1 relative w-full h-full bg-slate-950">
+        <!-- Vis-Network Canvas -->
+        <div id="vis-network-container" class="w-full h-full absolute inset-0"></div>
+        <!-- Fallback hidden cytoscape container -->
+        <div id="cy" class="hidden"></div>
 
         <!-- Floating Controls (Top Left) -->
-        <div class="absolute top-4 left-4 z-10 flex gap-2">
-          <button onclick="fitGraph()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2 rounded-xl border border-slate-800 shadow-xl transition" title="Fit to screen">
-            <i data-lucide="maximize-2" class="w-4 h-4"></i>
+        <div class="absolute top-4 left-4 z-10 flex items-center gap-2">
+          <button onclick="toggleGraphFullscreen()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2.5 rounded-xl border border-slate-800 shadow-2xl transition hover:scale-105" title="Full Screen (تمام صفحه)">
+            <i data-lucide="maximize-2" class="w-4 h-4 text-sky-400"></i>
           </button>
-          <button onclick="resetLayout()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2 rounded-xl border border-slate-800 shadow-xl transition" title="Recalculate layout">
-            <i data-lucide="layout-grid" class="w-4 h-4"></i>
+          <button onclick="fitGraph()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2.5 rounded-xl border border-slate-800 shadow-2xl transition hover:scale-105" title="Fit to screen (تنظیم روی صفحه)">
+            <i data-lucide="scan" class="w-4 h-4 text-slate-300"></i>
+          </button>
+          <button id="btn-toggle-physics" onclick="togglePhysics()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2.5 rounded-xl border border-slate-800 shadow-2xl transition hover:scale-105" title="Toggle Physics Simulation">
+            <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+          </button>
+          <button onclick="loadGraph()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2.5 rounded-xl border border-slate-800 shadow-2xl transition hover:scale-105" title="Reload Graph">
+            <i data-lucide="rotate-cw" class="w-4 h-4 text-slate-300"></i>
           </button>
         </div>
 
-        <!-- Graph Legend (Bottom Left) -->
-        <div class="absolute bottom-4 left-4 z-10 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl p-3 shadow-2xl flex flex-col gap-2 text-xs">
+        <!-- Floating Search & Filter Bar (Top Center) -->
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col sm:flex-row items-center gap-2">
+          <div class="relative">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+            <input id="graph-search-input" oninput="searchGraphNodes(this.value)" placeholder="Search node in graph..." 
+              class="bg-slate-900/95 backdrop-blur border border-slate-700/80 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 w-56 md:w-72 shadow-2xl focus:outline-none focus:border-sky-500 font-mono">
+          </div>
+          <div class="hidden sm:flex items-center gap-1 bg-slate-900/90 backdrop-blur p-1 rounded-xl border border-slate-800 shadow-2xl text-xs">
+            <button id="filter-pill-ALL" onclick="filterGraphByType('ALL')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-sky-600 text-white shadow transition">All</button>
+            <button id="filter-pill-Function" onclick="filterGraphByType('Function')" class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition">Functions</button>
+            <button id="filter-pill-Class" onclick="filterGraphByType('Class')" class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition">Classes</button>
+            <button id="filter-pill-File" onclick="filterGraphByType('File')" class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition">Files</button>
+            <button id="filter-pill-Repository" onclick="filterGraphByType('Repository')" class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition">Repos</button>
+          </div>
+        </div>
+
+        <!-- Floating AI Search Drawer Toggle (Top Right) -->
+        <div class="absolute top-4 right-4 z-10">
+          <button id="btn-toggle-sidebar" onclick="toggleGraphSidebar()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-300 hover:text-white px-3 py-2 rounded-xl border border-slate-800 shadow-2xl flex items-center gap-2 text-xs font-semibold transition hover:scale-105" title="Toggle AI Search Drawer">
+            <i data-lucide="sparkles" class="w-4 h-4 text-sky-400"></i>
+            <span>AI Search Drawer</span>
+          </button>
+        </div>
+
+        <!-- Graph Legend & Engine Badge (Bottom Left) -->
+        <div class="absolute bottom-4 left-4 z-10 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl p-3 shadow-2xl flex flex-col gap-2 text-xs max-w-sm">
           <div class="font-semibold text-slate-300 pb-1 border-b border-slate-800 flex items-center justify-between gap-4">
             <span class="flex items-center gap-1.5"><i data-lucide="info" class="w-3.5 h-3.5 text-sky-400"></i> Entity Legend</span>
-            <span id="node-count-badge" class="text-[10px] text-slate-400 font-mono">0 nodes</span>
+            <div class="flex items-center gap-2">
+              <span class="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-700/50 px-1.5 py-0.5 rounded font-mono">Graphify Vis.js</span>
+              <span id="node-count-badge" class="text-[10px] text-slate-400 font-mono">0 nodes</span>
+            </div>
           </div>
           <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 text-[11px]">
             <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span> Repository</div>
@@ -203,14 +244,19 @@
         </div>
       </div>
 
-      <!-- Right Panel: GraphRAG Query & Node Inspector -->
-      <aside class="w-96 bg-slate-900/95 backdrop-blur border-l border-slate-800 flex flex-col z-20 shadow-2xl">
-        <div class="flex border-b border-slate-800 text-xs font-semibold">
-          <button id="sidebar-tab-rag-btn" onclick="switchSidebarTab('rag')" class="flex-1 py-3 text-center border-b-2 border-sky-500 text-sky-400 flex items-center justify-center gap-1.5">
-            <i data-lucide="sparkles" class="w-4 h-4"></i> GraphRAG Search
-          </button>
-          <button id="sidebar-tab-inspector-btn" onclick="switchSidebarTab('inspector')" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5">
-            <i data-lucide="inspect" class="w-4 h-4"></i> Node Inspector
+      <!-- Right Panel: Collapsible GraphRAG Query & Node Inspector Drawer -->
+      <aside id="graph-sidebar" class="w-96 bg-slate-900/95 backdrop-blur border-l border-slate-800 flex flex-col z-20 shadow-2xl transition-all duration-300 hidden">
+        <div class="flex border-b border-slate-800 text-xs font-semibold items-center justify-between px-2">
+          <div class="flex flex-1">
+            <button id="sidebar-tab-rag-btn" onclick="switchSidebarTab('rag')" class="flex-1 py-3 text-center border-b-2 border-sky-500 text-sky-400 flex items-center justify-center gap-1.5">
+              <i data-lucide="sparkles" class="w-4 h-4"></i> GraphRAG Search
+            </button>
+            <button id="sidebar-tab-inspector-btn" onclick="switchSidebarTab('inspector')" class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5">
+              <i data-lucide="inspect" class="w-4 h-4"></i> Inspector
+            </button>
+          </div>
+          <button onclick="toggleGraphSidebar()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition" title="Close Drawer">
+            <i data-lucide="x" class="w-4 h-4"></i>
           </button>
         </div>
 
@@ -247,7 +293,7 @@
         <div id="sidebar-tab-inspector" class="flex-1 p-4 overflow-y-auto custom-scrollbar hidden space-y-4">
           <div id="inspector-placeholder" class="text-center py-16 text-slate-500 text-xs">
             <i data-lucide="mouse-pointer-click" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-            Click on any node in the knowledge graph to inspect its AST properties, relationships, and source code.
+            Click on any node in the knowledge graph to open its interactive popup and inspect properties.
           </div>
 
           <div id="inspector-details" class="hidden space-y-3 text-xs">
@@ -285,7 +331,127 @@
       </aside>
     </div>
 
-    <!-- ================= VIEW 2: ARCHITECTURE HEALTH & CODE SMELLS ================= -->
+    <!-- ================= VIEW 2: VECTOR DATABASE EXPLORER ================= -->
+    <div id="view-vectordb" class="hidden flex-1 overflow-y-auto custom-scrollbar p-6 bg-slate-950 space-y-6">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+        <div>
+          <h2 class="text-lg font-extrabold text-slate-100 flex items-center gap-2">
+            <i data-lucide="database" class="w-5 h-5 text-emerald-400"></i> Vector Database & Embeddings Explorer
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">بانک اطلاعاتی بردارهای ۷۶۸ بُعدی تولید شده توسط Ollama / Jina Code برای هر مخزن و تست تشابه معنایی کسینوسی.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="loadVectorDbData()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> بروزرسانی (Refresh)
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
+          <div class="flex items-center justify-between text-slate-400">
+            <span>تعداد کل بردارها</span>
+            <i data-lucide="layers" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <div id="vdb-stat-total" class="text-2xl font-bold text-slate-100 mt-2 font-mono">0</div>
+          <p class="text-[11px] text-slate-500 mt-1">توابع و کلاس‌های ایندکس شده</p>
+        </div>
+
+        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
+          <div class="flex items-center justify-between text-slate-400">
+            <span>ابعاد بردار (Dimensions)</span>
+            <i data-lucide="maximize" class="w-4 h-4 text-sky-400"></i>
+          </div>
+          <div id="vdb-stat-dim" class="text-2xl font-bold text-sky-400 mt-2 font-mono">768</div>
+          <p class="text-[11px] text-slate-500 mt-1">Dense Float32 Vectors</p>
+        </div>
+
+        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
+          <div class="flex items-center justify-between text-slate-400">
+            <span>مدل امبدینگ</span>
+            <i data-lucide="cpu" class="w-4 h-4 text-purple-400"></i>
+          </div>
+          <div id="vdb-stat-model" class="text-xs font-bold text-purple-300 mt-3 font-mono truncate">jina-embeddings-v2-code</div>
+          <p class="text-[11px] text-slate-500 mt-1">اجرا بر روی Ollama هاست</p>
+        </div>
+
+        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
+          <div class="flex items-center justify-between text-slate-400">
+            <span>وضعیت ایندکس وکتور Neo4j</span>
+            <i data-lucide="shield-check" class="w-4 h-4 text-teal-400"></i>
+          </div>
+          <div class="flex items-center gap-2 mt-2">
+            <span id="vdb-stat-status-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            <span id="vdb-stat-status" class="text-sm font-bold text-emerald-400 font-mono">ONLINE</span>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-1">Index: function_embeddings</p>
+        </div>
+      </div>
+
+      <!-- Vector Search Sandbox & Probe -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <i data-lucide="crosshair" class="w-4 h-4 text-emerald-400"></i> تست جستجوی تشابه معنایی کسینوسی (Cosine Vector Search Sandbox)
+            </h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">یک مفهوم، سوال یا تکه کد بنویسید تا نزدیک‌ترین بردارهای کد در دیتابیس را بر اساس تشابه کسینوسی بیابید.</p>
+          </div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3">
+          <input id="vdb-probe-input" type="text" placeholder="مثال: MauiProgram create app, parse source code, authenticate user jwt..." 
+            class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono">
+          <button onclick="runVectorProbeSearch()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition">
+            <i data-lucide="search" class="w-3.5 h-3.5"></i> اجرای جستجوی برداری
+          </button>
+        </div>
+
+        <!-- Probe Results Area -->
+        <div id="vdb-probe-results" class="hidden space-y-3 pt-2"></div>
+      </div>
+
+      <!-- Vector Records Explorer Table -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-800 gap-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <i data-lucide="list-filter" class="w-4 h-4 text-sky-400"></i> رکوردهای وکتور ذخیره شده در Neo4j
+            </h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">مشاهده و بازرسی تمام موجودیت‌های دارای بردار امبدینگ</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="vdb-table-filter" oninput="debounceVdbFilter()" type="text" placeholder="فیلتر بر اساس نام یا فایل..." 
+              class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 font-mono w-60">
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 text-[11px] font-mono">
+                <th class="py-2.5 px-3">نام موجودیت (Entity)</th>
+                <th class="py-2.5 px-3">نوع</th>
+                <th class="py-2.5 px-3">مخزن و مسیر فایل</th>
+                <th class="py-2.5 px-3">ابعاد</th>
+                <th class="py-2.5 px-3">پیش‌نمایش بردار</th>
+                <th class="py-2.5 px-3 text-right">عملیات</th>
+              </tr>
+            </thead>
+            <tbody id="vdb-table-body" class="divide-y divide-slate-800/60 font-mono">
+              <tr>
+                <td colspan="6" class="text-center py-8 text-slate-500">در حال بارگذاری رکوردهای وکتور...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VIEW 3: ARCHITECTURE HEALTH & CODE SMELLS ================= -->
     <div id="view-analytics" class="hidden flex-1 overflow-y-auto custom-scrollbar p-6 bg-slate-950 space-y-6">
       <div class="flex items-center justify-between pb-4 border-b border-slate-800">
         <div>
@@ -674,6 +840,166 @@
     </div>
   </main>
 
+  <!-- ==================== INTERACTIVE NODE DETAIL POPUP MODAL ==================== -->
+  <div id="node-detail-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150">
+      <!-- Header -->
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/95">
+        <div class="flex items-center gap-3">
+          <div id="modal-node-icon" class="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            <i data-lucide="code" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span id="modal-node-type" class="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-emerald-950 text-emerald-400 border border-emerald-800">FUNCTION</span>
+              <span id="modal-node-lang" class="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-slate-800 text-slate-300">C#</span>
+              <span id="modal-node-repo" class="text-xs text-purple-400 font-semibold font-mono">SpotMarket</span>
+            </div>
+            <h2 id="modal-node-name" class="text-base font-bold text-slate-100 font-mono mt-0.5 truncate max-w-xl">MauiProgram</h2>
+          </div>
+        </div>
+        <button onclick="closeNodeModal()" class="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition" title="Close (Esc)">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-5 text-xs">
+        <!-- Metadata Row -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 font-semibold uppercase">مسیر فایل (File Location)</span>
+            <p id="modal-node-file" class="text-slate-200 font-mono text-[11px] truncate mt-0.5 select-all" title="File Path">SpotMarket/Program.cs</p>
+            <span id="modal-node-lines" class="text-[10px] text-sky-400 font-mono">L12 - L84</span>
+          </div>
+          <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 font-semibold uppercase">تغییرات گیت (Git Churn & Author)</span>
+            <p id="modal-node-author" class="text-slate-200 font-mono text-[11px] truncate mt-0.5">Author</p>
+            <span id="modal-node-churn" class="text-[10px] text-amber-400 font-mono">0 commits</span>
+          </div>
+          <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 font-semibold uppercase">وضعیت وکتور (Vector Status)</span>
+            <p id="modal-node-vector-status" class="text-emerald-400 font-mono text-[11px] font-semibold mt-0.5 flex items-center gap-1">
+              <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> 768d Indexed
+            </p>
+            <span id="modal-node-vector-model" class="text-[10px] text-slate-400 font-mono truncate">Jina Code v2</span>
+          </div>
+          <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80 flex flex-col justify-center">
+            <button id="modal-btn-inspect-vector" onclick="inspectCurrentNodeVector()" class="w-full py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition">
+              <i data-lucide="binary" class="w-3.5 h-3.5"></i> بازرسی بردار (Inspect Vector)
+            </button>
+          </div>
+        </div>
+
+        <!-- Docstring Section -->
+        <div id="modal-doc-section" class="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-1">
+          <span class="text-[10px] text-slate-500 uppercase font-semibold">توضیحات و مستندات (Docstring / Description)</span>
+          <p id="modal-node-doc" class="text-slate-300 text-[11px] italic leading-relaxed whitespace-pre-line"></p>
+        </div>
+
+        <!-- Source Code Section -->
+        <div id="modal-code-section" class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
+              <i data-lucide="file-code" class="w-3.5 h-3.5 text-sky-400"></i> سورس کد کامل (Source Implementation)
+            </span>
+            <button onclick="copyModalSourceCode()" id="modal-btn-copy-code" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 text-[11px] flex items-center gap-1.5 transition">
+              <i data-lucide="copy" class="w-3 h-3"></i> <span id="modal-copy-code-text">کپی کد</span>
+            </button>
+          </div>
+          <pre class="bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-x-auto text-[11px] font-mono text-emerald-400 max-h-72 custom-scrollbar select-text"><code id="modal-node-code"></code></pre>
+        </div>
+
+        <!-- Graph Relationships (Incoming & Outgoing Connections) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Incoming (Callers / Referencing) -->
+          <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div class="flex items-center justify-between pb-1 border-b border-slate-800/80">
+              <span class="text-xs font-semibold text-sky-400 flex items-center gap-1.5">
+                <i data-lucide="arrow-down-left" class="w-3.5 h-3.5"></i> اتصالات ورودی (Incoming Callers)
+              </span>
+              <span id="modal-incoming-count" class="text-[10px] font-mono text-slate-500">0 callers</span>
+            </div>
+            <div id="modal-incoming-list" class="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar"></div>
+          </div>
+
+          <!-- Outgoing (Callees / Calls) -->
+          <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div class="flex items-center justify-between pb-1 border-b border-slate-800/80">
+              <span class="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i> اتصالات خروجی (Outgoing Callees)
+              </span>
+              <span id="modal-outgoing-count" class="text-[10px] font-mono text-slate-500">0 callees</span>
+            </div>
+            <div id="modal-outgoing-list" class="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between">
+        <button onclick="calculateModalNodeBlastRadius()" class="px-3.5 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+          <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-indigo-400"></i> محاسبه شعاع اثر تغییرات (Blast Radius)
+        </button>
+        <button onclick="closeNodeModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition">
+          بستن (Close)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== VECTOR EMBEDDING INSPECTOR MODAL ==================== -->
+  <div id="vector-inspector-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-2xl max-h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/95">
+        <div class="flex items-center gap-2.5">
+          <div class="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            <i data-lucide="binary" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+              <span>Vector Embedding Inspector</span>
+              <span id="vec-inspect-dim-badge" class="text-[10px] bg-emerald-950 border border-emerald-600/50 text-emerald-400 px-2 py-0.5 rounded-full font-mono">768 Dimensions</span>
+            </h3>
+            <p id="vec-inspect-entity-name" class="text-xs text-slate-400 font-mono truncate">MauiProgram</p>
+          </div>
+        </div>
+        <button onclick="closeVectorInspectorModal()" class="text-slate-400 hover:text-slate-200">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      
+      <div class="p-6 space-y-4 flex-1 overflow-y-auto custom-scrollbar text-xs">
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+          <div>
+            <span class="text-slate-500 text-[10px]">مدل امبدینگ:</span>
+            <span class="font-mono text-slate-200 ml-1">jina-embeddings-v2-code:latest</span>
+          </div>
+          <div>
+            <span class="text-slate-500 text-[10px]">معیار تشابه:</span>
+            <span class="font-mono text-emerald-400 ml-1">Cosine Similarity (Normalized)</span>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase">آرایه مقادیر عددی بردار (Raw Float32 Array - 768 Values)</span>
+            <button onclick="copyRawVector()" id="btn-copy-vector" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1">
+              <i data-lucide="copy" class="w-3 h-3"></i> <span id="copy-vector-text">کپی کل آرایه وکتور</span>
+            </button>
+          </div>
+          <pre id="vec-inspect-raw-content" class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-[11px] font-mono text-emerald-400 max-h-80 overflow-y-auto custom-scrollbar leading-relaxed select-all"></pre>
+        </div>
+      </div>
+
+      <div class="px-6 py-3 border-t border-slate-800 bg-slate-900/95 flex justify-end">
+        <button onclick="closeVectorInspectorModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition">
+          بستن (Close)
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== AUTOMATED INGEST MODAL ==================== -->
   <div id="ingest-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
     <div class="bg-slate-900 border border-slate-800 w-full max-w-xl rounded-2xl p-6 shadow-2xl space-y-4">
@@ -856,7 +1182,17 @@
       ? ''
       : (window.location.hostname === 'localhost' ? 'http://localhost:8000' : `${window.location.protocol}//${window.location.hostname}:8000`);
     let cy = null;
+    let network = null;
+    let visNodes = null;
+    let visEdges = null;
+    let visNodesView = null;
     let currentSelectedNode = null;
+    let currentModalNodeId = null;
+    let currentModalNodeData = null;
+    let currentVectorRaw = [];
+    let isSidebarOpen = false;
+    let physicsEnabled = true;
+    let currentTypeFilter = 'ALL';
 
     // --- Authentication & Headers ---
     function getApiKey() {
@@ -890,21 +1226,27 @@
 
     // --- Main View Navigation ---
     function switchMainView(viewName) {
-      const views = ['graph', 'analytics', 'repos', 'review', 'chat', 'mcp'];
+      const views = ['graph', 'vectordb', 'analytics', 'repos', 'review', 'chat', 'mcp'];
       views.forEach(v => {
         const el = document.getElementById(`view-${v}`);
         const btn = document.getElementById(`nav-btn-${v}`);
-        if (v === viewName) {
-          el.classList.remove('hidden');
-          btn.className = 'px-3.5 py-1.5 rounded-lg flex items-center gap-2 bg-sky-600 text-white font-semibold shadow-sm transition';
-        } else {
-          el.classList.add('hidden');
-          btn.className = 'px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition';
+        if (el) {
+          if (v === viewName) {
+            el.classList.remove('hidden');
+            if (btn) btn.className = 'px-3.5 py-1.5 rounded-lg flex items-center gap-2 bg-sky-600 text-white font-semibold shadow-sm transition';
+          } else {
+            el.classList.add('hidden');
+            if (btn) btn.className = 'px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition';
+          }
         }
       });
 
-      if (viewName === 'graph' && cy) {
-        setTimeout(() => { cy.resize(); cy.fit(); }, 50);
+      if (viewName === 'graph') {
+        if (network) {
+          setTimeout(() => { network.fit({ animation: true }); }, 60);
+        }
+      } else if (viewName === 'vectordb') {
+        loadVectorDbData();
       } else if (viewName === 'analytics') {
         loadCodeSmells();
       } else if (viewName === 'repos') {
@@ -1109,64 +1451,258 @@ asyncio.run(run())`;
       }
     }
 
-    // --- Cytoscape Knowledge Graph Setup ---
-    function initCytoscape() {
-      cy = cytoscape({
-        container: document.getElementById('cy'),
-        style: [
-          {
-            selector: 'node',
-            style: {
-              'label': 'data(label)',
-              'color': '#cbd5e1',
-              'font-size': '10px',
-              'text-valign': 'bottom',
-              'text-margin-y': 4,
-              'background-color': '#64748b',
-              'width': 24,
-              'height': 24
-            }
+    // --- Vis.js Force-Directed Knowledge Graph Setup (Graphify Engine) ---
+    function initVisNetwork() {
+      const container = document.getElementById('vis-network-container');
+      if (!container || typeof vis === 'undefined') return;
+
+      visNodes = new vis.DataSet([]);
+      visEdges = new vis.DataSet([]);
+      visNodesView = new vis.DataView(visNodes);
+
+      const data = {
+        nodes: visNodesView,
+        edges: visEdges
+      };
+
+      const options = {
+        nodes: {
+          shape: 'dot',
+          size: 16,
+          font: {
+            size: 11,
+            color: '#cbd5e1',
+            face: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
           },
-          { selector: 'node[type = "Repository"]', style: { 'background-color': '#a855f7', 'width': 36, 'height': 36 } },
-          { selector: 'node[type = "File"]', style: { 'background-color': '#0284c7', 'width': 28, 'height': 28 } },
-          { selector: 'node[type = "Class"]', style: { 'background-color': '#f59e0b', 'width': 26, 'height': 26 } },
-          { selector: 'node[type = "Function"]', style: { 'background-color': '#10b981', 'width': 22, 'height': 22 } },
-          { selector: 'node[type = "Module"]', style: { 'background-color': '#f43f5e', 'width': 20, 'height': 20 } },
-          { selector: 'node[type = "ApiRoute"]', style: { 'background-color': '#ec4899', 'width': 24, 'height': 24, 'shape': 'diamond' } },
-          { selector: 'node[type = "Developer"]', style: { 'background-color': '#14b8a6', 'width': 30, 'height': 30, 'shape': 'hexagon' } },
-          {
-            selector: 'edge',
-            style: {
-              'width': 1.5,
-              'line-color': '#334155',
-              'target-arrow-color': '#475569',
-              'target-arrow-shape': 'triangle',
-              'curve-style': 'bezier',
-              'label': 'data(label)',
-              'font-size': '8px',
-              'color': '#64748b'
-            }
-          },
-          {
-            selector: 'node:selected',
-            style: {
-              'border-width': 3,
-              'border-color': '#38bdf8',
-              'shadow-blur': 12,
-              'shadow-color': '#38bdf8'
-            }
+          borderWidth: 2,
+          shadow: {
+            enabled: true,
+            color: 'rgba(0,0,0,0.6)',
+            size: 6,
+            x: 2,
+            y: 2
           }
-        ],
-        layout: { name: 'cose', animate: true, padding: 50 }
+        },
+        edges: {
+          width: 1.5,
+          color: {
+            color: '#334155',
+            highlight: '#38bdf8',
+            hover: '#64748b'
+          },
+          arrows: {
+            to: { enabled: true, scaleFactor: 0.7 }
+          },
+          font: {
+            size: 9,
+            color: '#64748b',
+            align: 'middle'
+          },
+          smooth: {
+            type: 'continuous',
+            roundness: 0.2
+          }
+        },
+        groups: {
+          Repository: {
+            color: { background: '#9333ea', border: '#c084fc', highlight: { background: '#a855f7', border: '#e9d5ff' } },
+            shape: 'diamond',
+            size: 26,
+            font: { color: '#f3e8ff', size: 12 }
+          },
+          File: {
+            color: { background: '#0284c7', border: '#38bdf8', highlight: { background: '#0ea5e9', border: '#bae6fd' } },
+            shape: 'dot',
+            size: 18,
+            font: { color: '#e0f2fe', size: 10 }
+          },
+          Class: {
+            color: { background: '#d97706', border: '#fbbf24', highlight: { background: '#f59e0b', border: '#fef3c7' } },
+            shape: 'dot',
+            size: 16,
+            font: { color: '#fef3c7', size: 10 }
+          },
+          Function: {
+            color: { background: '#059669', border: '#34d399', highlight: { background: '#10b981', border: '#d1fae5' } },
+            shape: 'dot',
+            size: 14,
+            font: { color: '#d1fae5', size: 9 }
+          },
+          Module: {
+            color: { background: '#e11d48', border: '#fb7185', highlight: { background: '#f43f5e', border: '#ffe4e6' } },
+            shape: 'dot',
+            size: 15,
+            font: { color: '#ffe4e6', size: 10 }
+          },
+          ApiRoute: {
+            color: { background: '#db2777', border: '#f472b6', highlight: { background: '#ec4899', border: '#fce7f3' } },
+            shape: 'triangle',
+            size: 16,
+            font: { color: '#fce7f3', size: 10 }
+          },
+          Developer: {
+            color: { background: '#0d9488', border: '#2dd4bf', highlight: { background: '#14b8a6', border: '#ccfbf1' } },
+            shape: 'hexagon',
+            size: 20,
+            font: { color: '#ccfbf1', size: 11 }
+          }
+        },
+        physics: {
+          enabled: true,
+          solver: 'forceAtlas2Based',
+          forceAtlas2Based: {
+            gravitationalConstant: -75,
+            centralGravity: 0.008,
+            springLength: 95,
+            springConstant: 0.07,
+            damping: 0.45,
+            avoidOverlap: 0.85
+          },
+          maxVelocity: 45,
+          minVelocity: 0.75,
+          timestep: 0.35,
+          stabilization: {
+            enabled: true,
+            iterations: 120,
+            updateInterval: 25
+          }
+        },
+        interaction: {
+          hover: true,
+          tooltipDelay: 150,
+          hideEdgesOnDrag: false,
+          keyboard: true,
+          navigationButtons: false
+        }
+      };
+
+      network = new vis.Network(container, data, options);
+
+      // Node Click Handler -> Open Detailed Interactive Popup Modal
+      network.on('click', function(params) {
+        if (params.nodes && params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          openNodeModal(nodeId);
+        }
       });
 
-      cy.on('tap', 'node', function(evt) {
-        inspectNode(evt.target.data());
+      // Double Click -> Focus
+      network.on('doubleClick', function(params) {
+        if (params.nodes && params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          network.focus(nodeId, { scale: 1.3, animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+        }
       });
     }
 
-    function fitGraph() { if (cy) cy.fit(); }
-    function resetLayout() { if (cy) cy.layout({ name: 'cose', animate: true }).run(); }
+    function fitGraph() {
+      if (network) network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+    }
+
+    function togglePhysics() {
+      if (!network) return;
+      physicsEnabled = !physicsEnabled;
+      network.setOptions({ physics: { enabled: physicsEnabled } });
+      const btn = document.getElementById('btn-toggle-physics');
+      if (btn) {
+        btn.innerHTML = physicsEnabled 
+          ? '<i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>' 
+          : '<i data-lucide="zap-off" class="w-4 h-4 text-slate-500"></i>';
+        btn.title = physicsEnabled ? 'Physics: Running (Click to Freeze)' : 'Physics: Frozen (Click to Resume)';
+        if (window.lucide) window.lucide.createIcons();
+      }
+    }
+
+    function toggleGraphFullscreen() {
+      const elem = document.getElementById('view-graph');
+      if (!document.fullscreenElement) {
+        if (elem.requestFullscreen) {
+          elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+          elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+          elem.msRequestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+
+    document.addEventListener('fullscreenchange', () => {
+      if (network) {
+        setTimeout(() => { network.fit({ animation: true }); }, 150);
+      }
+    });
+
+    function toggleGraphSidebar() {
+      isSidebarOpen = !isSidebarOpen;
+      const sidebar = document.getElementById('graph-sidebar');
+      const btn = document.getElementById('btn-toggle-sidebar');
+      if (sidebar) {
+        if (isSidebarOpen) {
+          sidebar.classList.remove('hidden');
+          if (btn) {
+            btn.classList.add('bg-sky-600', 'text-white');
+            btn.classList.remove('bg-slate-900/90', 'text-slate-300');
+          }
+        } else {
+          sidebar.classList.add('hidden');
+          if (btn) {
+            btn.classList.remove('bg-sky-600', 'text-white');
+            btn.classList.add('bg-slate-900/90', 'text-slate-300');
+          }
+        }
+      }
+      if (network) {
+        setTimeout(() => { network.redraw(); }, 200);
+      }
+    }
+
+    function searchGraphNodes(query) {
+      if (!network || !visNodes) return;
+      const q = (query || '').trim().toLowerCase();
+      if (!q) {
+        network.unselectAll();
+        return;
+      }
+      const matches = visNodes.get({
+        filter: n => (n.label && n.label.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))
+      });
+      if (matches.length > 0) {
+        const target = matches[0];
+        network.focus(target.id, {
+          scale: 1.4,
+          animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+        });
+        network.selectNodes([target.id]);
+      }
+    }
+
+    function filterGraphByType(type) {
+      currentTypeFilter = type;
+      ['ALL', 'Function', 'Class', 'File', 'Repository'].forEach(t => {
+        const pill = document.getElementById(`filter-pill-${t}`);
+        if (pill) {
+          if (t === type) {
+            pill.className = 'px-2.5 py-1 rounded-lg text-xs font-semibold bg-sky-600 text-white shadow transition';
+          } else {
+            pill.className = 'px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition';
+          }
+        }
+      });
+
+      if (!visNodesView) return;
+      if (type === 'ALL') {
+        visNodesView.setFilter(() => true);
+      } else {
+        visNodesView.setFilter(item => item.group === type || item.type === type);
+      }
+      if (network) {
+        setTimeout(() => { network.fit({ animation: true }); }, 100);
+      }
+    }
 
     async function refreshData() {
       await checkHealth();
@@ -1206,6 +1742,9 @@ asyncio.run(run())`;
 
     function onRepoFilterChange() {
       loadGraph();
+      if (!document.getElementById('view-vectordb').classList.contains('hidden')) {
+        loadVectorDbData();
+      }
       if (!document.getElementById('view-analytics').classList.contains('hidden')) {
         loadCodeSmells();
       }
@@ -1213,34 +1752,441 @@ asyncio.run(run())`;
 
     async function loadGraph() {
       const selectedRepo = document.getElementById('repo-filter-select').value;
-      let url = `${API_BASE}/api/v1/graph/elements?limit=140`;
+      let url = `${API_BASE}/api/v1/graph/elements?limit=350`;
       if (selectedRepo) url += `&repo_name=${encodeURIComponent(selectedRepo)}`;
 
       try {
         const res = await fetch(url, { headers: getAuthHeaders() });
         if (!res.ok) return;
         const data = await res.json();
-        cy.elements().remove();
-        
-        if (data.nodes && data.nodes.length > 0) {
-          cy.add(data.nodes);
-          cy.add(data.edges);
-          cy.layout({ name: 'cose', animate: false, padding: 40 }).run();
-          document.getElementById('node-count-badge').innerText = `${data.nodes.length} nodes`;
-        } else {
-          document.getElementById('node-count-badge').innerText = '0 nodes';
+
+        if (visNodes && visEdges) {
+          visNodes.clear();
+          visEdges.clear();
+
+          if (data.nodes && data.nodes.length > 0) {
+            const formattedNodes = data.nodes.map(n => ({
+              id: n.id,
+              label: n.label,
+              title: `${n.type}: ${n.label} (${(n.properties && n.properties.file_path) || n.label})`,
+              group: n.group || n.type,
+              properties: n.properties || {}
+            }));
+
+            const formattedEdges = (data.edges || []).map(e => ({
+              id: e.id,
+              from: e.from || e.source,
+              to: e.to || e.target,
+              label: e.label || '',
+              title: e.label || ''
+            }));
+
+            visNodes.add(formattedNodes);
+            visEdges.add(formattedEdges);
+
+            document.getElementById('node-count-badge').innerText = `${formattedNodes.length} nodes / ${formattedEdges.length} edges`;
+            
+            if (network) {
+              network.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+            }
+          } else {
+            document.getElementById('node-count-badge').innerText = '0 nodes';
+          }
         }
       } catch (err) {
         console.warn('Graph load error:', err);
       }
     }
 
-    // --- Node Inspection & Details ---
+    // --- Interactive Node Popup Modal & Details ---
+    async function openNodeModal(nodeId) {
+      const modal = document.getElementById('node-detail-modal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+
+      // Reset placeholders
+      document.getElementById('modal-node-name').innerText = 'Loading node details...';
+      document.getElementById('modal-node-type').innerText = '...';
+      document.getElementById('modal-node-lang').innerText = '...';
+      document.getElementById('modal-node-repo').innerText = '...';
+      document.getElementById('modal-node-file').innerText = 'Loading...';
+      document.getElementById('modal-node-lines').innerText = '';
+      document.getElementById('modal-node-author').innerText = '-';
+      document.getElementById('modal-node-churn').innerText = '-';
+      document.getElementById('modal-node-code').innerText = '// Loading code snippet...';
+      document.getElementById('modal-incoming-list').innerHTML = '<span class="text-slate-500">Loading callers...</span>';
+      document.getElementById('modal-outgoing-list').innerHTML = '<span class="text-slate-500">Loading callees...</span>';
+
+      currentModalNodeId = nodeId;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/graph/node/${encodeURIComponent(nodeId)}`, { headers: getAuthHeaders() });
+        if (!res.ok) {
+          document.getElementById('modal-node-name').innerText = nodeId;
+          document.getElementById('modal-node-code').innerText = '// Node details not available.';
+          return;
+        }
+        const data = await res.json();
+        currentModalNodeData = data;
+
+        document.getElementById('modal-node-name').innerText = data.label || data.id;
+        document.getElementById('modal-node-type').innerText = data.type || 'NODE';
+        document.getElementById('modal-node-lang').innerText = data.language ? data.language.toUpperCase() : 'UNIVERSAL';
+        document.getElementById('modal-node-repo').innerText = data.repo || 'Repository';
+
+        document.getElementById('modal-node-file').innerText = data.file_path || 'Scope: Repo';
+        if (data.start_line) {
+          document.getElementById('modal-node-lines').innerText = `L${data.start_line} - L${data.end_line || data.start_line}`;
+        } else {
+          document.getElementById('modal-node-lines').innerText = '';
+        }
+
+        document.getElementById('modal-node-author').innerText = data.author || 'Universal';
+        document.getElementById('modal-node-churn').innerText = `${data.churn || 0} commits`;
+
+        const vStatus = document.getElementById('modal-node-vector-status');
+        const vInspectBtn = document.getElementById('modal-btn-inspect-vector');
+        if (data.has_embedding) {
+          vStatus.innerHTML = `<i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400"></i> ${data.embedding_dim || 768}d Indexed`;
+          vStatus.className = 'text-emerald-400 font-mono text-[11px] font-semibold mt-0.5 flex items-center gap-1';
+          if (vInspectBtn) vInspectBtn.classList.remove('opacity-50', 'pointer-events-none');
+        } else {
+          vStatus.innerHTML = `<i data-lucide="x-circle" class="w-3.5 h-3.5 text-slate-500"></i> No Embedding`;
+          vStatus.className = 'text-slate-400 font-mono text-[11px] mt-0.5 flex items-center gap-1';
+          if (vInspectBtn) vInspectBtn.classList.add('opacity-50', 'pointer-events-none');
+        }
+
+        // Docstring
+        const docBox = document.getElementById('modal-doc-section');
+        if (data.docstring && data.docstring.trim()) {
+          docBox.classList.remove('hidden');
+          document.getElementById('modal-node-doc').innerText = data.docstring;
+        } else {
+          docBox.classList.add('hidden');
+        }
+
+        // Code
+        const codeBox = document.getElementById('modal-code-section');
+        if (data.code && data.code.trim()) {
+          codeBox.classList.remove('hidden');
+          document.getElementById('modal-node-code').innerText = data.code;
+        } else {
+          codeBox.classList.add('hidden');
+        }
+
+        // Incoming connections (Callers)
+        const inList = document.getElementById('modal-incoming-list');
+        const incoming = data.incoming_connections || [];
+        document.getElementById('modal-incoming-count').innerText = `${incoming.length} callers`;
+        if (incoming.length === 0) {
+          inList.innerHTML = '<span class="text-slate-500 text-[11px]">بدون فراخوانی ورودی (Root / Entrypoint)</span>';
+        } else {
+          inList.innerHTML = incoming.map(c => `
+            <div onclick="jumpToConnectedNode('${c.source_id}')" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800/80 cursor-pointer flex items-center justify-between transition group">
+              <div class="flex items-center gap-1.5 truncate">
+                <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                <span class="font-mono text-slate-200 group-hover:text-sky-300 font-semibold truncate">${c.source_name}</span>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 text-slate-400 font-mono">${c.type}</span>
+            </div>
+          `).join('');
+        }
+
+        // Outgoing connections (Callees)
+        const outList = document.getElementById('modal-outgoing-list');
+        const outgoing = data.outgoing_connections || [];
+        document.getElementById('modal-outgoing-count').innerText = `${outgoing.length} callees`;
+        if (outgoing.length === 0) {
+          outList.innerHTML = '<span class="text-slate-500 text-[11px]">بدون فراخوانی خروجی (Leaf Node)</span>';
+        } else {
+          outList.innerHTML = outgoing.map(c => `
+            <div onclick="jumpToConnectedNode('${c.target_id}')" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800/80 cursor-pointer flex items-center justify-between transition group">
+              <div class="flex items-center gap-1.5 truncate">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span class="font-mono text-slate-200 group-hover:text-emerald-300 font-semibold truncate">${c.target_name}</span>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 text-slate-400 font-mono">${c.type}</span>
+            </div>
+          `).join('');
+        }
+
+        if (window.lucide) window.lucide.createIcons();
+
+        // Also update sidebar inspector if open
+        inspectNode({
+          type: data.type,
+          label: data.label,
+          properties: data.properties
+        });
+      } catch (err) {
+        console.warn('Node detail error:', err);
+      }
+    }
+
+    function closeNodeModal() {
+      const m = document.getElementById('node-detail-modal');
+      if (m) m.classList.add('hidden');
+    }
+
+    function jumpToConnectedNode(nodeId) {
+      closeNodeModal();
+      locateEntityInGraph(nodeId);
+    }
+
+    function copyModalSourceCode() {
+      const code = document.getElementById('modal-node-code').innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        const lbl = document.getElementById('modal-copy-code-text');
+        if (lbl) {
+          lbl.innerText = 'کپی شد!';
+          setTimeout(() => { lbl.innerText = 'کپی کد'; }, 2000);
+        }
+      });
+    }
+
+    function calculateModalNodeBlastRadius() {
+      if (!currentModalNodeData || !currentModalNodeData.label) return;
+      closeNodeModal();
+      switchMainView('review');
+      document.getElementById('impact-fn-input').value = currentModalNodeData.label;
+      submitImpactSearch();
+    }
+
+    function locateEntityInGraph(nodeId) {
+      switchMainView('graph');
+      if (!network || !visNodes) return;
+      
+      const item = visNodes.get(nodeId) || visNodes.get({
+        filter: n => n.id === nodeId || n.label === nodeId || (n.properties && (n.properties.name === nodeId || n.properties.id === nodeId))
+      })[0];
+
+      if (item) {
+        network.focus(item.id, {
+          scale: 1.3,
+          animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+        });
+        network.selectNodes([item.id]);
+        openNodeModal(item.id);
+      } else {
+        openNodeModal(nodeId);
+      }
+    }
+
+    function inspectCurrentNodeVector() {
+      if (!currentModalNodeId) return;
+      openVectorInspectorModal(currentModalNodeId, document.getElementById('modal-node-name').innerText);
+    }
+
+    async function openVectorInspectorModal(nodeId, name) {
+      const modal = document.getElementById('vector-inspector-modal');
+      modal.classList.remove('hidden');
+      document.getElementById('vec-inspect-entity-name').innerText = name || nodeId;
+      document.getElementById('vec-inspect-raw-content').innerText = 'Loading vector float array...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/vector-db/vector/${encodeURIComponent(nodeId)}`, { headers: getAuthHeaders() });
+        if (!res.ok) {
+          document.getElementById('vec-inspect-raw-content').innerText = 'Vector data not found for this node.';
+          return;
+        }
+        const data = await res.json();
+        currentVectorRaw = data.vector || [];
+        document.getElementById('vec-inspect-dim-badge').innerText = `${currentVectorRaw.length} Dimensions`;
+
+        const lines = [];
+        for (let i = 0; i < currentVectorRaw.length; i += 4) {
+          const slice = currentVectorRaw.slice(i, i + 4);
+          const strSlice = slice.map(v => (v >= 0 ? '+' : '') + v.toFixed(6)).join(',  ');
+          lines.push(`[${String(i).padStart(3, '0')}..${String(Math.min(i+3, currentVectorRaw.length-1)).padStart(3, '0')}]:  ${strSlice}`);
+        }
+        document.getElementById('vec-inspect-raw-content').innerText = lines.join('\n');
+        if (window.lucide) window.lucide.createIcons();
+      } catch (e) {
+        document.getElementById('vec-inspect-raw-content').innerText = 'Error loading vector: ' + e.message;
+      }
+    }
+
+    function closeVectorInspectorModal() {
+      document.getElementById('vector-inspector-modal').classList.add('hidden');
+    }
+
+    function copyRawVector() {
+      if (!currentVectorRaw || currentVectorRaw.length === 0) return;
+      navigator.clipboard.writeText(JSON.stringify(currentVectorRaw)).then(() => {
+        const lbl = document.getElementById('copy-vector-text');
+        if (lbl) {
+          lbl.innerText = 'کپی شد!';
+          setTimeout(() => { lbl.innerText = 'کپی کل آرایه وکتور'; }, 2000);
+        }
+      });
+    }
+
+    // --- Vector Database Explorer View Logic ---
+    let vdbFilterTimeout = null;
+    function debounceVdbFilter() {
+      clearTimeout(vdbFilterTimeout);
+      vdbFilterTimeout = setTimeout(() => {
+        const query = document.getElementById('vdb-table-filter').value.trim();
+        loadVectorDbRecords(query);
+      }, 300);
+    }
+
+    async function loadVectorDbData() {
+      const selectedRepo = document.getElementById('repo-filter-select').value || null;
+      let statsUrl = `${API_BASE}/api/v1/vector-db/stats`;
+      if (selectedRepo) statsUrl += `?repo_name=${encodeURIComponent(selectedRepo)}`;
+
+      try {
+        const res = await fetch(statsUrl, { headers: getAuthHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('vdb-stat-total').innerText = data.total_vectors || 0;
+          document.getElementById('vdb-stat-dim').innerText = `${data.dimensions}d`;
+          document.getElementById('vdb-stat-model').innerText = data.model || 'jina-embeddings-v2-code:latest';
+          document.getElementById('vdb-stat-status').innerText = data.status || 'ONLINE';
+          const dot = document.getElementById('vdb-stat-status-dot');
+          if (dot) {
+            dot.className = data.status === 'ONLINE' ? 'w-2.5 h-2.5 rounded-full bg-emerald-400' : 'w-2.5 h-2.5 rounded-full bg-amber-400';
+          }
+        }
+      } catch (err) {
+        console.warn('Vector stats error:', err);
+      }
+
+      loadVectorDbRecords();
+    }
+
+    async function loadVectorDbRecords(search = '') {
+      const selectedRepo = document.getElementById('repo-filter-select').value || null;
+      let url = `${API_BASE}/api/v1/vector-db/records?limit=100`;
+      if (selectedRepo) url += `&repo_name=${encodeURIComponent(selectedRepo)}`;
+      if (search) url += `&search=${encodeURIComponent(search)}`;
+
+      const tbody = document.getElementById('vdb-table-body');
+      try {
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const records = await res.json();
+
+        if (!records || records.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-slate-500">هیچ بردار کدی مطابق با جستجو یافت نشد.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = records.map(r => {
+          const sample = (r.sample_vector || []).map(v => typeof v === 'number' ? (v >= 0 ? '+' : '') + v.toFixed(3) : v).join(', ');
+          const typeColor = r.type === 'Class' ? 'bg-amber-400' : 'bg-emerald-400';
+          const typeBadge = r.type === 'Class' ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-emerald-950 text-emerald-300 border-emerald-800';
+          return `
+            <tr class="hover:bg-slate-900/60 transition group">
+              <td class="py-2.5 px-3">
+                <span class="font-bold text-slate-100 flex items-center gap-1.5 cursor-pointer hover:text-sky-300" onclick="openNodeModal('${r.id}')">
+                  <span class="w-2 h-2 rounded-full ${typeColor}"></span>
+                  ${r.name}
+                </span>
+              </td>
+              <td class="py-2.5 px-3">
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono border ${typeBadge}">${r.type}</span>
+              </td>
+              <td class="py-2.5 px-3 text-slate-300 font-mono text-[11px] truncate max-w-xs" title="${r.file_path}">
+                <span class="text-purple-400">${r.repo}/</span>${r.file_path}
+              </td>
+              <td class="py-2.5 px-3">
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-800">
+                  ${r.dim || 768}d
+                </span>
+              </td>
+              <td class="py-2.5 px-3 text-slate-500 text-[10px] font-mono truncate max-w-xs">
+                [${sample}...]
+              </td>
+              <td class="py-2.5 px-3 text-right space-x-1 whitespace-nowrap">
+                <button onclick="openVectorInspectorModal('${r.id}', '${r.name}')" class="px-2 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded text-[11px] transition" title="مشاهده مقادیر عددی بردار">
+                  <i data-lucide="binary" class="w-3 h-3 inline"></i> بردار
+                </button>
+                <button onclick="openNodeModal('${r.id}')" class="px-2 py-1 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded text-[11px] transition" title="مشاهده کد منبع">
+                  <i data-lucide="code" class="w-3 h-3 inline"></i> کد
+                </button>
+                <button onclick="locateEntityInGraph('${r.id}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] transition" title="نمایش در گراف">
+                  <i data-lucide="share-2" class="w-3 h-3 inline"></i> گراف
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+        if (window.lucide) window.lucide.createIcons();
+      } catch (e) {
+        console.warn('Vector records load error:', e);
+      }
+    }
+
+    async function runVectorProbeSearch() {
+      const query = document.getElementById('vdb-probe-input').value.trim();
+      if (!query) return;
+
+      const resultsDiv = document.getElementById('vdb-probe-results');
+      resultsDiv.classList.remove('hidden');
+      resultsDiv.innerHTML = '<div class="text-slate-500 animate-pulse text-xs py-2">در حال استخراج امبدینگ پرس‌وجو از Ollama و اجرای جستجوی کسینوسی در Neo4j...</div>';
+
+      const selectedRepo = document.getElementById('repo-filter-select').value || null;
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/query`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ query: query, repo_name: selectedRepo, top_k: 6 })
+        });
+        if (!res.ok) {
+          resultsDiv.innerHTML = '<div class="text-rose-400 text-xs">خطا در اجرای جستجوی برداری</div>';
+          return;
+        }
+        const data = await res.json();
+        const nodes = data.retrieved_nodes || [];
+        if (nodes.length === 0) {
+          resultsDiv.innerHTML = '<div class="text-slate-500 text-xs">هیچ موجودیتی با این بردار یافت نشد.</div>';
+          return;
+        }
+
+        resultsDiv.innerHTML = `
+          <div class="text-[11px] font-semibold text-emerald-400 mb-2">تطبیق‌های کسینوسی برتر (${nodes.length} رکورد):</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            ${nodes.map(n => {
+              const scorePct = Math.round((n.score || 0.8) * 100);
+              return `
+                <div class="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-slate-100 font-mono text-xs flex items-center gap-1.5">
+                      <i data-lucide="code" class="w-3.5 h-3.5 text-emerald-400"></i> ${n.name}
+                    </span>
+                    <span class="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                      Cosine Match: ${scorePct}%
+                    </span>
+                  </div>
+                  <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                    <div class="bg-emerald-500 h-1.5 rounded-full" style="width: ${scorePct}%"></div>
+                  </div>
+                  <div class="text-[10px] text-slate-400 font-mono truncate">${n.file_path || ''} (L${n.start_line || 1}-L${n.end_line || 1})</div>
+                  ${n.docstring ? `<p class="text-[11px] text-slate-300 italic truncate">${n.docstring}</p>` : ''}
+                  <div class="flex gap-2 pt-1">
+                    <button onclick="openNodeModal('${n.id || n.name}')" class="px-2.5 py-1 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 rounded text-[10px] font-semibold">مشاهده کد کامل</button>
+                    <button onclick="locateEntityInGraph('${n.id || n.name}')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-semibold">نمایش در گراف</button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+      } catch (err) {
+        resultsDiv.innerHTML = `<div class="text-rose-400 text-xs">خطا: ${err.message}</div>`;
+      }
+    }
+
+    // --- Node Inspection in Sidebar ---
     function inspectNode(data) {
       currentSelectedNode = data;
-      switchSidebarTab('inspector');
-      document.getElementById('inspector-placeholder').classList.add('hidden');
-      document.getElementById('inspector-details').classList.remove('hidden');
+      const placeholder = document.getElementById('inspector-placeholder');
+      const details = document.getElementById('inspector-details');
+      if (placeholder) placeholder.classList.add('hidden');
+      if (details) details.classList.remove('hidden');
 
       document.getElementById('insp-type').innerText = data.type || 'NODE';
       document.getElementById('insp-name').innerText = data.label || 'Unknown';
@@ -1687,6 +2633,9 @@ asyncio.run(run())`;
         }
       }
       switchMainView('graph');
+      if (network) {
+        setTimeout(() => { network.fit({ animation: true }); }, 200);
+      }
       if (typeof cy !== 'undefined' && cy) {
         setTimeout(() => { cy.resize(); cy.fit(); }, 200);
       }
@@ -1854,11 +2803,20 @@ asyncio.run(run())`;
     // --- On DOM Ready ---
     window.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
-      initCytoscape();
+      initVisNetwork();
       updateApiKeyBadge();
       refreshData();
       // Periodically refresh health
       setInterval(checkHealth, 15000);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeNodeModal();
+        closeVectorInspectorModal();
+        closeIngestModal();
+        closeLlmConfigModal();
+      }
     });
     // CHAT LOGIC
     async function submitChat() {

@@ -343,9 +343,10 @@ def get_graph_stats() -> dict:
             return dict(rec)
         return {"repositories": 0, "files": 0, "classes": 0, "functions": 0, "relationships": 0}
 
-def get_graph_elements(repo_name: str = None, limit: int = 150) -> dict:
+def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
     """
-    Exports nodes and edges formatted for Cytoscape.js / visual rendering.
+    Exports nodes and edges formatted for Vis.js Network and Cytoscape.js visual rendering.
+    Strips large 768-dim float embeddings to maintain light network payloads and high FPS.
     """
     with driver.session() as session:
         query = """
@@ -360,46 +361,65 @@ def get_graph_elements(repo_name: str = None, limit: int = 150) -> dict:
         nodes = {}
         edges = []
 
+        def format_node(node_obj):
+            n_labels = list(node_obj.labels)
+            label = n_labels[0] if n_labels else "Node"
+            name = node_obj.get("name") or node_obj.get("path") or node_obj.get("id") or "Node"
+            node_id = str(node_obj.get("id") or (node_obj.element_id if hasattr(node_obj, "element_id") else node_obj.id))
+            
+            raw_props = dict(node_obj)
+            has_embedding = "embedding" in raw_props and raw_props["embedding"] is not None
+            embedding_dim = len(raw_props["embedding"]) if has_embedding and isinstance(raw_props["embedding"], list) else 0
+            if "embedding" in raw_props:
+                del raw_props["embedding"]
+            raw_props["has_embedding"] = has_embedding
+            raw_props["embedding_dim"] = embedding_dim
+
+            return {
+                "id": node_id,
+                "label": name,
+                "type": label,
+                "group": label,
+                "properties": raw_props,
+                "data": {
+                    "id": node_id,
+                    "label": name,
+                    "type": label,
+                    "properties": raw_props
+                }
+            }
+
         for record in result:
             n = record.get("n")
             r = record.get("r")
             m = record.get("m")
 
             if n:
-                n_labels = list(n.labels)
-                label = n_labels[0] if n_labels else "Node"
-                name = n.get("name") or n.get("path") or n.get("id") or "Node"
-                node_id = str(n.element_id if hasattr(n, "element_id") else n.id)
-                nodes[node_id] = {
-                    "data": {
-                        "id": node_id,
-                        "label": name,
-                        "type": label,
-                        "properties": dict(n)
-                    }
-                }
+                n_id = str(n.get("id") or (n.element_id if hasattr(n, "element_id") else n.id))
+                if n_id not in nodes:
+                    nodes[n_id] = format_node(n)
 
             if m:
-                m_labels = list(m.labels)
-                m_label = m_labels[0] if m_labels else "Node"
-                m_name = m.get("name") or m.get("path") or m.get("id") or "Node"
-                m_node_id = str(m.element_id if hasattr(m, "element_id") else m.id)
-                nodes[m_node_id] = {
-                    "data": {
-                        "id": m_node_id,
-                        "label": m_name,
-                        "type": m_label,
-                        "properties": dict(m)
-                    }
-                }
+                m_id = str(m.get("id") or (m.element_id if hasattr(m, "element_id") else m.id))
+                if m_id not in nodes:
+                    nodes[m_id] = format_node(m)
 
             if r and n and m:
+                src_id = str(n.get("id") or (n.element_id if hasattr(n, "element_id") else n.id))
+                tgt_id = str(m.get("id") or (m.element_id if hasattr(m, "element_id") else m.id))
                 edge_id = str(r.element_id if hasattr(r, "element_id") else r.id)
                 edges.append({
+                    "id": edge_id,
+                    "from": src_id,
+                    "to": tgt_id,
+                    "source": src_id,
+                    "target": tgt_id,
+                    "label": r.type,
+                    "title": r.type,
                     "data": {
                         "id": edge_id,
-                        "source": str(n.element_id if hasattr(n, "element_id") else n.id),
-                        "target": str(m.element_id if hasattr(m, "element_id") else m.id),
+                        "source": src_id,
+                        "target": tgt_id,
                         "label": r.type
                     }
                 })
@@ -408,6 +428,167 @@ def get_graph_elements(repo_name: str = None, limit: int = 150) -> dict:
             "nodes": list(nodes.values()),
             "edges": edges
         }
+
+def get_node_details(node_id: str) -> dict:
+    """
+    Fetches comprehensive node details including properties, full code,
+    and all incoming and outgoing connections for popup inspection.
+    """
+    with driver.session() as session:
+        query = """
+        MATCH (n)
+        WHERE n.id = $node_id OR elementId(n) = $node_id
+        OPTIONAL MATCH (n)-[out_r]->(target)
+        OPTIONAL MATCH (source)-[in_r]->(n)
+        RETURN n,
+               labels(n) AS labels,
+               COLLECT(DISTINCT {
+                   type: type(out_r),
+                   target_id: coalesce(target.id, elementId(target)),
+                   target_name: coalesce(target.name, target.path, target.id),
+                   target_label: head(labels(target))
+               }) AS outgoing,
+               COLLECT(DISTINCT {
+                   type: type(in_r),
+                   source_id: coalesce(source.id, elementId(source)),
+                   source_name: coalesce(source.name, source.path, source.id),
+                   source_label: head(labels(source))
+               }) AS incoming
+        """
+        result = session.run(query, node_id=node_id).single()
+        if not result:
+            return {}
+
+        n = result.get("n")
+        labels = list(result.get("labels") or [])
+        primary_label = labels[0] if labels else "Node"
+
+        props = dict(n)
+        has_vector = "embedding" in props and props["embedding"] is not None
+        dim = len(props["embedding"]) if has_vector and isinstance(props["embedding"], list) else 0
+        sample_vec = props["embedding"][:5] if has_vector and isinstance(props["embedding"], list) else []
+        if "embedding" in props:
+            del props["embedding"]
+
+        # Filter out empty entries from OPTIONAL MATCH
+        outgoing = [o for o in (result.get("outgoing") or []) if o.get("type")]
+        incoming = [i for i in (result.get("incoming") or []) if i.get("type")]
+
+        return {
+            "id": str(n.get("id") or (n.element_id if hasattr(n, "element_id") else n.id)),
+            "label": n.get("name") or n.get("path") or n.get("id") or "Node",
+            "type": primary_label,
+            "labels": labels,
+            "properties": props,
+            "code": props.get("code", ""),
+            "docstring": props.get("docstring", ""),
+            "file_path": props.get("file_path") or props.get("path") or "",
+            "language": props.get("language", ""),
+            "repo": props.get("repo", ""),
+            "start_line": props.get("start_line"),
+            "end_line": props.get("end_line"),
+            "author": props.get("author", ""),
+            "churn": props.get("churn", 0),
+            "has_embedding": has_vector,
+            "embedding_dim": dim,
+            "sample_vector": sample_vec,
+            "outgoing_connections": outgoing,
+            "incoming_connections": incoming
+        }
+
+def get_vector_database_stats(repo_name: str = None) -> dict:
+    """
+    Returns vector database statistics, dimension info, and total indexed entities.
+    """
+    dim = validate_embedding_configuration()
+    model = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v2-code:latest")
+
+    with driver.session() as session:
+        query = """
+        MATCH (fn:Function)
+        WHERE $repo_name IS NULL OR fn.repo = $repo_name
+        WITH count(fn) AS total_fn,
+             count(fn.embedding) AS vec_fn
+        OPTIONAL MATCH (c:Class)
+        WHERE $repo_name IS NULL OR c.repo = $repo_name
+        WITH total_fn, vec_fn,
+             count(c) AS total_cls,
+             count(c.embedding) AS vec_cls
+        OPTIONAL MATCH (r:Repository)
+        WHERE $repo_name IS NULL OR r.name = $repo_name
+        RETURN total_fn, vec_fn, total_cls, vec_cls, count(r) AS total_repos
+        """
+        rec = session.run(query, repo_name=repo_name).single()
+        data = dict(rec) if rec else {}
+
+        vec_fn = data.get("vec_fn", 0)
+        vec_cls = data.get("vec_cls", 0)
+
+        return {
+            "repo_name": repo_name or "All Repositories",
+            "index_name": "function_embeddings",
+            "dimensions": dim,
+            "similarity_metric": "cosine",
+            "model": model,
+            "total_functions": data.get("total_fn", 0),
+            "vectorized_functions": vec_fn,
+            "total_classes": data.get("total_cls", 0),
+            "vectorized_classes": vec_cls,
+            "total_vectors": vec_fn + vec_cls,
+            "status": "ONLINE" if (vec_fn + vec_cls) > 0 else "EMPTY"
+        }
+
+def get_vector_database_records(repo_name: str = None, search: str = None, limit: int = 100) -> list[dict]:
+    """
+    Returns searchable records of all vectorized code entities in Neo4j.
+    """
+    with driver.session() as session:
+        query = """
+        MATCH (fn:Function)
+        WHERE ($repo_name IS NULL OR fn.repo = $repo_name)
+          AND fn.embedding IS NOT NULL
+          AND ($search IS NULL OR toLower(fn.name) CONTAINS toLower($search) OR toLower(fn.file_path) CONTAINS toLower($search))
+        RETURN fn.id AS id,
+               fn.name AS name,
+               'Function' AS type,
+               fn.file_path AS file_path,
+               fn.repo AS repo,
+               fn.language AS language,
+               fn.start_line AS start_line,
+               fn.end_line AS end_line,
+               size(fn.embedding) AS dim,
+               fn.embedding[0..5] AS sample_vector,
+               fn.docstring AS docstring,
+               fn.code AS code
+        ORDER BY fn.file_path ASC, fn.start_line ASC
+        LIMIT $limit
+        """
+        records = session.run(query, repo_name=repo_name, search=search, limit=limit)
+        results = []
+        for r in records:
+            d = dict(r)
+            results.append(d)
+        return results
+
+def get_node_vector(node_id: str) -> dict:
+    """
+    Retrieves the full embedding vector (float array) for a specific node.
+    """
+    with driver.session() as session:
+        query = """
+        MATCH (n)
+        WHERE n.id = $node_id OR elementId(n) = $node_id
+        RETURN n.id AS id,
+               coalesce(n.name, n.path, n.id) AS name,
+               n.file_path AS file_path,
+               n.repo AS repo,
+               size(n.embedding) AS dim,
+               n.embedding AS vector
+        """
+        rec = session.run(query, node_id=node_id).single()
+        if not rec or not rec.get("vector"):
+            return {}
+        return dict(rec)
 
 def close_connection():
     driver.close()
