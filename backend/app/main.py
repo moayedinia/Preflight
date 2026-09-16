@@ -34,11 +34,14 @@ from app.core.security import (
     ALLOWED_REPO_DIR
 )
 from app.core.cloner import clone_git_repo, extract_safe_zip
+from app.core import analytics
 from app.core.analytics import (
     detect_circular_dependencies,
     detect_high_risk_hubs,
     detect_dead_code_candidates,
-    calculate_blast_radius
+    calculate_blast_radius,
+    detect_code_clones,
+    get_git_hotspots
 )
 from app.core.repo_manager import (
     list_all_repositories,

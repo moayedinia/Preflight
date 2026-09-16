@@ -1875,9 +1875,9 @@ asyncio.run(run())`;
       
       try {
         const repo = document.getElementById('repo-filter-select').value || undefined;
-        const res = await fetch(`${API_BASE_URL}/api/v1/chat`, {
+        const res = await fetch(`${API_BASE}/api/v1/chat`, {
           method: 'POST',
-          headers: getHeaders(),
+          headers: getAuthHeaders(),
           body: JSON.stringify({ message: text, repo_name: repo })
         });
         const data = await res.json();
@@ -1902,7 +1902,7 @@ asyncio.run(run())`;
     async function openLlmConfigModal() {
       document.getElementById('llm-config-modal').classList.remove('hidden');
       try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/config/llm`, { headers: getHeaders() });
+        const res = await fetch(`${API_BASE}/api/v1/config/llm`, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           document.getElementById('llm-base-url').value = data.base_url || '';
@@ -1923,9 +1923,9 @@ asyncio.run(run())`;
         api_key: document.getElementById('llm-api-key').value,
       };
       try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/config/llm`, {
+        const res = await fetch(`${API_BASE}/api/v1/config/llm`, {
           method: 'POST',
-          headers: getHeaders(),
+          headers: getAuthHeaders(),
           body: JSON.stringify(payload)
         });
         if (res.ok) {
@@ -1940,9 +1940,9 @@ asyncio.run(run())`;
     async function triggerAutoDoc() {
       const repo = document.getElementById('repo-filter-select').value || undefined;
       try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/tasks/autodoc`, {
+        const res = await fetch(`${API_BASE}/api/v1/tasks/autodoc`, {
           method: 'POST',
-          headers: getHeaders(),
+          headers: getAuthHeaders(),
           body: JSON.stringify({ repo_name: repo })
         });
         const data = await res.json();
