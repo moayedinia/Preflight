@@ -111,7 +111,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
             MERGE (d:Developer {email: $author_email})
             ON CREATE SET d.name = $author
             MERGE (d)-[:AUTHORED]->(f)
-        """, repo_name=repo_name, file_id=file_id, file_path=file_path, lang=lang, author=author, author_email=author_email)
+        """, repo_name=repo_name, file_id=file_id, file_path=file_path, lang=lang, author=author, author_email=author_email, churn=churn)
 
         # 2. Imports
         for imp in parsed_data.get("imports", []):
