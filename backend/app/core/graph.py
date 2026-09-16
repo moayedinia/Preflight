@@ -1,17 +1,22 @@
 import os
 import time
 from neo4j import GraphDatabase
-from app.core.embedder import get_embedding, validate_embedding_configuration
+from app.core.embedder import get_embedding, validate_embedding_configuration, EMBEDDING_DIM
 
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password123")
 NEO4J_AUTH = os.getenv("NEO4J_AUTH", "").strip().lower()
 
+driver_kwargs = {
+    "connection_timeout": 5.0,
+    "max_connection_lifetime": 300,
+}
+
 if NEO4J_AUTH == "none" or (NEO4J_PASSWORD and NEO4J_PASSWORD.lower() == "none") or not NEO4J_PASSWORD:
-    driver = GraphDatabase.driver(NEO4J_URI)
+    driver = GraphDatabase.driver(NEO4J_URI, **driver_kwargs)
 else:
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD), **driver_kwargs)
 
 def wait_for_neo4j(max_retries: int = 30, retry_delay: float = 2.0) -> bool:
     """
@@ -39,15 +44,26 @@ def init_graph_schema(max_retries: int = 30, retry_delay: float = 2.0):
         print("[Neo4j Warning] Neo4j is not reachable. Schema initialization deferred.", flush=True)
         return
 
-    embedding_dim = validate_embedding_configuration()
-    with driver.session() as session:
-        # Constraints for faster lookup and deduplication
-        session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (r:Repository) REQUIRE r.name IS UNIQUE")
-        session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (f:File) REQUIRE f.id IS UNIQUE")
-        session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (c:Class) REQUIRE c.id IS UNIQUE")
-        session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (fn:Function) REQUIRE fn.id IS UNIQUE")
-        session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (d:Developer) REQUIRE d.email IS UNIQUE")
+    # 1. First ensure unique constraints exist in Neo4j
+    try:
+        with driver.session() as session:
+            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (r:Repository) REQUIRE r.name IS UNIQUE")
+            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (f:File) REQUIRE f.id IS UNIQUE")
+            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (c:Class) REQUIRE c.id IS UNIQUE")
+            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (fn:Function) REQUIRE fn.id IS UNIQUE")
+            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (d:Developer) REQUIRE d.email IS UNIQUE")
+        print("[Neo4j] Unique constraints verified successfully.", flush=True)
+    except Exception as const_err:
+        print(f"[Neo4j Warning] Could not ensure constraints: {const_err}", flush=True)
 
+    # 2. Determine embedding dimensions safely with fast timeout
+    try:
+        embedding_dim = validate_embedding_configuration(timeout=5)
+    except Exception as emb_err:
+        print(f"[Neo4j Schema Notice] Embedding configuration validation deferred ({emb_err}). Using configured default EMBEDDING_DIM={EMBEDDING_DIM}.", flush=True)
+        embedding_dim = EMBEDDING_DIM
+
+    with driver.session() as session:
         # Vector Index for Functions (Supports both Neo4j 5.15+ DDL and Neo4j 5.11-5.14 procedure)
         try:
             index_exists = False

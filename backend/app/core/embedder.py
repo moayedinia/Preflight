@@ -81,7 +81,7 @@ def list_ollama_models(base_url: str = None) -> list[str]:
         print(f"Notice: Unable to query Ollama tags from {target_url}: {e}")
         return []
 
-def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], str]:
+def _query_ollama(text: str, model: str, base_url: str, timeout: int = 60) -> tuple[list[float], str]:
     """
     Queries remote/internal Ollama server across standard embedding endpoints:
     1. /api/embed (Modern Ollama >= 0.1.44)
@@ -102,7 +102,7 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
         url = f"{base}/api/embed"
         payload = json.dumps({"model": model, "input": clean_text}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json; charset=utf-8"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             embs = data.get("embeddings")
             if embs and len(embs) > 0 and len(embs[0]) > 0:
@@ -120,7 +120,7 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
         url = f"{base}/api/embeddings"
         payload = json.dumps({"model": model, "prompt": clean_text}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json; charset=utf-8"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             emb = data.get("embedding")
             if emb and len(emb) > 0:
@@ -142,7 +142,7 @@ def _query_ollama(text: str, model: str, base_url: str) -> tuple[list[float], st
             data=payload,
             headers={"Content-Type": "application/json; charset=utf-8", "Authorization": "Bearer ollama"}
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             data_arr = data.get("data", [])
             if data_arr and "embedding" in data_arr[0]:
@@ -210,14 +210,14 @@ def get_embedding(text: str, model: str = None) -> list[float]:
     raise EmbeddingError("No embedding provider is configured and fake embeddings are disabled.")
 
 
-def validate_embedding_configuration() -> int:
-    """Verify provider reachability, model availability, and vector dimension."""
+def validate_embedding_configuration(timeout: int = 5) -> int:
+    """Verify provider reachability, model availability, and vector dimension with quick timeout."""
     if not OLLAMA_BASE_URL:
         if ALLOW_FAKE_EMBEDDINGS:
             return EMBEDDING_DIM
         raise EmbeddingError("OLLAMA_BASE_URL is not configured.")
 
-    vector, err = _query_ollama("code graph embedding health check", EMBEDDING_MODEL, OLLAMA_BASE_URL)
+    vector, err = _query_ollama("code graph embedding health check", EMBEDDING_MODEL, OLLAMA_BASE_URL, timeout=timeout)
     if not vector:
         raise EmbeddingError(
             f"Cannot initialize embeddings from '{OLLAMA_BASE_URL}' using "
@@ -245,7 +245,7 @@ def verify_ollama_status() -> dict:
         }
 
     available_models = list_ollama_models(OLLAMA_BASE_URL)
-    test_vec, err = _query_ollama("test code embedding", EMBEDDING_MODEL, OLLAMA_BASE_URL)
+    test_vec, err = _query_ollama("test code embedding", EMBEDDING_MODEL, OLLAMA_BASE_URL, timeout=5)
 
     if test_vec:
         dimension_matches = len(test_vec) == EMBEDDING_DIM

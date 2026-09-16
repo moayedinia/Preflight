@@ -76,10 +76,15 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    try:
-        init_graph_schema()
-    except Exception as e:
-        print(f"Schema initialization warning: {e}")
+    import threading
+    def _run_init():
+        try:
+            init_graph_schema()
+        except Exception as e:
+            print(f"[Schema initialization warning] {e}", flush=True)
+
+    thread = threading.Thread(target=_run_init, daemon=True, name="schema_init_thread")
+    thread.start()
 
 # Request Models
 class CodeUpload(BaseModel):
