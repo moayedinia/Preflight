@@ -218,9 +218,11 @@ async def ingest_from_zip(
     derived_name = repo_name or file.filename.replace(".zip", "")
     clean_repo = sanitize_name(derived_name)
 
-    # Save uploaded file to temp directory
-    temp_dir = Path(tempfile.gettempdir())
-    temp_zip_path = temp_dir / f"upload_{clean_repo}_{file.filename}"
+    # Save uploaded file to shared repository directory so worker container can access it
+    uploads_dir = ALLOWED_REPO_DIR / ".uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    clean_filename = Path(file.filename).name
+    temp_zip_path = uploads_dir / f"upload_{clean_repo}_{clean_filename}"
 
     with open(temp_zip_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -295,17 +297,42 @@ def get_task_status(task_id: str):
     """Returns status and metadata for background Celery tasks."""
     if not task_id or len(task_id) > 64:
         raise HTTPException(status_code=400, detail="Invalid task ID format.")
+    
     res = celery_app.AsyncResult(task_id)
-    info = res.info if isinstance(res.info, dict) else {}
-    ready = res.ready()
-    status = res.status
-    result = res.result if ready else None
+    
+    try:
+        status = res.status
+    except Exception:
+        status = "UNKNOWN"
+
+    info = {}
+    try:
+        raw_info = res.info
+        if isinstance(raw_info, dict):
+            info = raw_info
+        elif isinstance(raw_info, Exception):
+            info = {"error": str(raw_info), "status": str(raw_info)}
+        elif raw_info is not None:
+            info = {"status": str(raw_info)}
+    except Exception as e:
+        info = {"error": str(e), "status": "Task failed or result unreadable"}
+
+    result = None
+    ready = False
+    try:
+        ready = res.ready()
+        if ready and status != "FAILURE":
+            result = res.result
+    except Exception as e:
+        if status == "FAILURE":
+            info["error"] = info.get("error") or str(e)
+
     percent = 100 if status == "SUCCESS" else info.get("percent", 0)
 
     return {
         "task_id": task_id,
         "status": status,
-        "progress": info.get("status", "Processing..." if not ready else "Finished"),
+        "progress": info.get("status", "Processing..." if not ready else ("Finished" if status == "SUCCESS" else "Failed")),
         "percent": percent,
         "current": info.get("current", 0),
         "total": info.get("total", 0),

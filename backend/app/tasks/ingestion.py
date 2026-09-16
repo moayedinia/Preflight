@@ -11,7 +11,7 @@ def async_index_repository(self, repo_path: str, repo_name: str = None):
         result = scan_and_ingest_directory(repo_path, repo_name)
         return result
     except Exception as e:
-        self.update_state(state="FAILURE", meta={"exc": str(e)})
+        print(f"[Celery Ingestion Error] async_index_repository failed: {e}")
         raise e
 
 @celery_app.task(bind=True)
@@ -53,7 +53,7 @@ def async_clone_and_index(self, git_url: str, repo_name: str = None, branch: str
         result = scan_and_ingest_directory(str(cloned_path), actual_name, progress_callback=on_progress)
         return result
     except Exception as e:
-        self.update_state(state="FAILURE", meta={"exc": str(e), "error": str(e)})
+        print(f"[Celery Ingestion Error] async_clone_and_index failed: {e}")
         raise e
 
 @celery_app.task(bind=True)
@@ -67,8 +67,8 @@ def async_extract_and_index(self, zip_path_str: str, repo_name: str):
         state="PROGRESS",
         meta={"status": "Extracting archive safely...", "percent": 5, "current": 0, "total": 0, "stage": "extracting"}
     )
+    zip_path = Path(zip_path_str)
     try:
-        zip_path = Path(zip_path_str)
         extracted_dir = extract_safe_zip(zip_path, repo_name)
 
         self.update_state(
@@ -95,9 +95,14 @@ def async_extract_and_index(self, zip_path_str: str, repo_name: str):
 
         # Cleanup temporary zip file
         if zip_path.exists():
-            zip_path.unlink()
+            zip_path.unlink(missing_ok=True)
 
         return result
     except Exception as e:
-        self.update_state(state="FAILURE", meta={"exc": str(e), "error": str(e)})
+        print(f"[Celery Ingestion Error] async_extract_and_index failed: {e}")
+        if zip_path.exists():
+            try:
+                zip_path.unlink(missing_ok=True)
+            except Exception:
+                pass
         raise e
