@@ -27,7 +27,7 @@ def normalize_ollama_base_url(value: str | None) -> str:
 OLLAMA_BASE_URL = normalize_ollama_base_url(
     os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 )
-DEFAULT_EMBEDDING_MODEL = "unclemusclez/jina-embeddings-v2-base-code:latest"
+DEFAULT_EMBEDDING_MODEL = "jina-embeddings-v2-code:latest"
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -46,7 +46,7 @@ def validate_embedding_model_name(model: str) -> str:
     if "rerank" in normalized.lower():
         raise EmbeddingError(
             f"'{normalized}' is a reranker, not an embedding model. Use "
-            f"'{DEFAULT_EMBEDDING_MODEL}' for jina-embeddings-v2-base-code on Ollama."
+            f"'{DEFAULT_EMBEDDING_MODEL}' for jina-embeddings-v2-code on Ollama."
         )
     return normalized
 

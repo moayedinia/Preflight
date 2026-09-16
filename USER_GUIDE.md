@@ -39,12 +39,9 @@
 - **Docker** و **Docker Compose**
 - حداقل ۴ گیگابایت حافظه رم آزاد
 - نصب و در حال اجرا بودن **Ollama** و مدل embedding مخصوص کد:
-  `ollama pull unclemusclez/jina-embeddings-v2-base-code`
+  `jina-embeddings-v2-code:latest`
 
-> مدل Hugging Face با شناسه `jinaai/jina-embeddings-v2-base-code` مستقیماً یک مخزن
-> Transformers/Safetensors است. برای Ollama از تبدیل آماده
-> `unclemusclez/jina-embeddings-v2-base-code:latest` استفاده کنید. مدل‌های دارای
-> `reranker` برای `EMBEDDING_MODEL` معتبر نیستند.
+> این مدل بر پایه `jina-embeddings-v2-base-code` است و بردارهای ۷۶۸ بعدی استاندارد تولید می‌کند.
 
 ### گام‌های راه‌اندازی:
 ```bash
