@@ -23,25 +23,66 @@ def init_graph_schema():
         session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (fn:Function) REQUIRE fn.id IS UNIQUE")
         session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (d:Developer) REQUIRE d.email IS UNIQUE")
 
-        # Vector Index for Functions
+        # Vector Index for Functions (Supports both Neo4j 5.15+ DDL and Neo4j 5.11-5.14 procedure)
         try:
-            # Check if vector index exists with matching dimension; recreate if dimension changed
-            check_rec = session.run("SHOW INDEXES YIELD name, options WHERE name = 'function_embeddings'").single()
-            if check_rec:
-                cfg = check_rec.get("options", {}).get("indexConfig", {})
-                current_dim = cfg.get("vector.dimensions")
-                if current_dim and current_dim != embedding_dim:
-                    print(f"Adapting vector index dimension: {current_dim} -> {embedding_dim}")
-                    session.run("DROP INDEX function_embeddings IF EXISTS")
+            index_exists = False
+            current_dim = None
+            try:
+                records = session.run("SHOW INDEXES YIELD name, type, options WHERE name = 'function_embeddings'").data()
+                if records:
+                    index_exists = True
+                    cfg = records[0].get("options", {}).get("indexConfig", {})
+                    current_dim = cfg.get("vector.dimensions")
+            except Exception:
+                try:
+                    records = session.run("SHOW INDEXES YIELD name WHERE name = 'function_embeddings'").data()
+                    if records:
+                        index_exists = True
+                except Exception:
+                    pass
 
-            session.run(f"""
-            CREATE VECTOR INDEX function_embeddings IF NOT EXISTS
-            FOR (fn:Function) ON (fn.embedding)
-            OPTIONS {{indexConfig: {{
-                `vector.dimensions`: {embedding_dim},
-                `vector.similarity_function`: 'cosine'
-            }}}}
-            """)
+            if index_exists and current_dim and current_dim != embedding_dim:
+                print(f"Adapting vector index dimension: {current_dim} -> {embedding_dim}")
+                try:
+                    session.run("DROP INDEX function_embeddings IF EXISTS")
+                except Exception:
+                    try:
+                        session.run("DROP INDEX function_embeddings")
+                    except Exception:
+                        pass
+                index_exists = False
+
+            if not index_exists:
+                # 1. Try modern Neo4j 5.15+ Cypher DDL
+                try:
+                    session.run(f"""
+                    CREATE VECTOR INDEX function_embeddings IF NOT EXISTS
+                    FOR (fn:Function) ON (fn.embedding)
+                    OPTIONS {{indexConfig: {{
+                        `vector.dimensions`: {embedding_dim},
+                        `vector.similarity_function`: 'cosine'
+                    }}}}
+                    """)
+                    print(f"Vector index 'function_embeddings' initialized via Cypher DDL (dim={embedding_dim})")
+                except Exception as ddl_err:
+                    # 2. Fallback to Neo4j 5.11 - 5.14 procedure
+                    print(f"Notice: DDL vector index syntax not supported on this Neo4j version ({ddl_err}). Falling back to db.index.vector.createNodeIndex...")
+                    try:
+                        session.run(f"""
+                        CALL db.index.vector.createNodeIndex(
+                            'function_embeddings',
+                            'Function',
+                            'embedding',
+                            {embedding_dim},
+                            'cosine'
+                        )
+                        """)
+                        print(f"Vector index 'function_embeddings' initialized via procedure (dim={embedding_dim})")
+                    except Exception as proc_err:
+                        if "already exists" in str(proc_err).lower():
+                            print("Vector index 'function_embeddings' already exists.")
+                        else:
+                            raise proc_err
         except Exception as e:
             print(f"Notice regarding vector index: {e}")
 
