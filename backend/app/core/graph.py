@@ -1,4 +1,5 @@
 import os
+import time
 from neo4j import GraphDatabase
 from app.core.embedder import get_embedding, validate_embedding_configuration
 
@@ -12,8 +13,32 @@ if NEO4J_AUTH == "none" or (NEO4J_PASSWORD and NEO4J_PASSWORD.lower() == "none")
 else:
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
-def init_graph_schema():
-    """Initializes constraints and vector search indexes in Neo4j."""
+def wait_for_neo4j(max_retries: int = 30, retry_delay: float = 2.0) -> bool:
+    """
+    Waits for Neo4j to become responsive and ready to accept Cypher queries.
+    Retries up to max_retries times with retry_delay seconds between attempts.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            with driver.session() as session:
+                session.run("RETURN 1").consume()
+            print(f"[Neo4j] Connected successfully to {NEO4J_URI} (ready after attempt {attempt}).", flush=True)
+            return True
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"[Neo4j] Waiting for database to become available (attempt {attempt}/{max_retries}): {e} ...", flush=True)
+                time.sleep(retry_delay)
+            else:
+                print(f"[Neo4j] Failed to connect to {NEO4J_URI} after {max_retries} attempts: {e}", flush=True)
+                return False
+    return False
+
+def init_graph_schema(max_retries: int = 30, retry_delay: float = 2.0):
+    """Initializes constraints and vector search indexes in Neo4j with connection retry."""
+    if not wait_for_neo4j(max_retries=max_retries, retry_delay=retry_delay):
+        print("[Neo4j Warning] Neo4j is not reachable. Schema initialization deferred.", flush=True)
+        return
+
     embedding_dim = validate_embedding_configuration()
     with driver.session() as session:
         # Constraints for faster lookup and deduplication

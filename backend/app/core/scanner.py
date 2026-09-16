@@ -98,6 +98,7 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None, progress_ca
             total_classes += len(parsed.get("classes", []))
             total_functions += len(parsed.get("functions", []))
         except Exception as e:
+            print(f"[Scanner Warning] Error processing {rel_path}: {e}", flush=True)
             errors.append({"file": rel_path, "error": str(e)})
 
     return {
