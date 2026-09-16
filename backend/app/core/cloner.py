@@ -51,11 +51,16 @@ def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Option
     clean_name = sanitize_name(repo_name)
 
     target_dir = ALLOWED_REPO_DIR / clean_name
-    target_dir.parent.mkdir(parents=True, exist_ok=True)
-
-    # If repo already exists, remove it for a clean fresh clone
-    if target_dir.exists():
-        shutil.rmtree(target_dir, ignore_errors=True)
+    try:
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        # If repo already exists, remove it for a clean fresh clone
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+    except PermissionError as pe:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Permission denied on repos directory ({ALLOWED_REPO_DIR}): {pe}. Run 'chmod -R 777 ./repos' on the host server."
+        )
 
     cmd = ["git", "clone", "--depth", "1"]
     if branch:
@@ -75,6 +80,8 @@ def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Option
         )
     except subprocess.CalledProcessError as e:
         err_msg = e.stderr.replace(token, "***") if token else e.stderr
+        if "permission denied" in err_msg.lower():
+            err_msg += " -> Suggestion: Run 'chmod -R 777 ./repos' on your host machine to allow Docker write access."
         raise HTTPException(status_code=500, detail=f"Git clone failed: {err_msg}")
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Git clone timed out after 3 minutes.")
@@ -88,11 +95,16 @@ def extract_safe_zip(zip_path: Path, repo_name: str) -> Path:
     """
     clean_name = sanitize_name(repo_name)
     target_dir = ALLOWED_REPO_DIR / clean_name
-    target_dir.parent.mkdir(parents=True, exist_ok=True)
-
-    if target_dir.exists():
-        shutil.rmtree(target_dir, ignore_errors=True)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError as pe:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Permission denied on repos directory ({ALLOWED_REPO_DIR}): {pe}. Run 'chmod -R 777 ./repos' on the host server."
+        )
 
     target_resolved = target_dir.resolve()
 

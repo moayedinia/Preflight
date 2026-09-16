@@ -33,9 +33,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Create non-root system user for security
-RUN groupadd -g 1001 appgroup && \
-    useradd -u 1001 -g appgroup -s /bin/bash -m appuser
+# Create non-root system user for security (UID 1000 matches standard Linux primary user)
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN (groupadd -g ${USER_GID} appgroup 2>/dev/null || groupadd appgroup) && \
+    (useradd -u ${USER_UID} -g appgroup -s /bin/bash -m appuser 2>/dev/null || useradd -g appgroup -s /bin/bash -m appuser)
 
 # Configure pip config file for system-wide package installations
 RUN pip config set global.index-url "${PYPI_MIRROR}" && \
