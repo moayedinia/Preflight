@@ -39,11 +39,12 @@ IGNORE_DIRS = {
 
 SUPPORTED_EXTENSIONS = get_supported_extensions()
 
-def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
+def scan_and_ingest_directory(repo_path: str, repo_name: str = None, progress_callback = None) -> dict:
     """
     Crawls a local repository directory, parses all supported source code files
     (Python, JS/TS, Go, Java, C/C++, C#, Rust, PHP, Ruby, Kotlin, Swift, Shell, etc.)
     and indexes them into the Neo4j Code Knowledge Graph.
+    Reports real-time progress via progress_callback(current, total, current_file).
     """
     path = Path(repo_path)
     if not path.exists() or not path.is_dir():
@@ -52,45 +53,52 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None) -> dict:
     if not repo_name:
         repo_name = path.name
 
-    total_files = 0
+    # Pre-collect all matching files to calculate precise progress
+    supported_files = []
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith(".")]
+        for file in files:
+            ext = Path(file).suffix.lower()
+            if ext in SUPPORTED_EXTENSIONS:
+                full_path = Path(root) / file
+                rel_path = full_path.relative_to(path).as_posix()
+                supported_files.append((full_path, rel_path))
+
+    total_files = len(supported_files)
     parsed_files = 0
     total_classes = 0
     total_functions = 0
     languages_found = set()
     errors = []
 
-    for root, dirs, files in os.walk(path):
-        # Skip ignored folders
-        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith(".")]
+    for idx, (full_path, rel_path) in enumerate(supported_files):
+        if progress_callback:
+            try:
+                progress_callback(idx + 1, total_files, rel_path)
+            except Exception as cb_err:
+                print(f"[Scanner] progress_callback error: {cb_err}")
 
-        for file in files:
-            ext = Path(file).suffix.lower()
-            if ext in SUPPORTED_EXTENSIONS:
-                total_files += 1
-                full_path = Path(root) / file
-                rel_path = full_path.relative_to(path).as_posix()
+        try:
+            with open(full_path, "rb") as f:
+                code_bytes = f.read()
 
-                try:
-                    with open(full_path, "rb") as f:
-                        code_bytes = f.read()
+            parsed = parse_source_file(rel_path, code_bytes)
+            
+            author, email, churn = get_git_author_and_churn(str(path), rel_path)
+            parsed["author"] = author
+            parsed["author_email"] = email
+            parsed["churn"] = churn
 
-                    parsed = parse_source_file(rel_path, code_bytes)
-                    
-                    author, email, churn = get_git_author_and_churn(str(path), rel_path)
-                    parsed["author"] = author
-                    parsed["author_email"] = email
-                    parsed["churn"] = churn
+            lang = parsed.get("language", "unknown")
+            languages_found.add(lang)
 
-                    lang = parsed.get("language", "unknown")
-                    languages_found.add(lang)
+            ingest_parsed_data(repo_name, parsed)
 
-                    ingest_parsed_data(repo_name, parsed)
-
-                    parsed_files += 1
-                    total_classes += len(parsed.get("classes", []))
-                    total_functions += len(parsed.get("functions", []))
-                except Exception as e:
-                    errors.append({"file": rel_path, "error": str(e)})
+            parsed_files += 1
+            total_classes += len(parsed.get("classes", []))
+            total_functions += len(parsed.get("functions", []))
+        except Exception as e:
+            errors.append({"file": rel_path, "error": str(e)})
 
     return {
         "repo_name": repo_name,

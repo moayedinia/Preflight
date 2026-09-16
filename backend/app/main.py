@@ -297,11 +297,23 @@ def get_task_status(task_id: str):
         raise HTTPException(status_code=400, detail="Invalid task ID format.")
     res = celery_app.AsyncResult(task_id)
     info = res.info if isinstance(res.info, dict) else {}
+    ready = res.ready()
+    status = res.status
+    result = res.result if ready else None
+    percent = 100 if status == "SUCCESS" else info.get("percent", 0)
+
     return {
         "task_id": task_id,
-        "status": res.status,
-        "progress": info.get("status", "Processing..."),
-        "result": res.result if res.ready() else None
+        "status": status,
+        "progress": info.get("status", "Processing..." if not ready else "Finished"),
+        "percent": percent,
+        "current": info.get("current", 0),
+        "total": info.get("total", 0),
+        "current_file": info.get("current_file", ""),
+        "stage": info.get("stage", ""),
+        "repo_name": info.get("repo_name", (result or {}).get("repo_name", "") if isinstance(result, dict) else ""),
+        "meta": info,
+        "result": result
     }
 
 # 6. GraphRAG Query
