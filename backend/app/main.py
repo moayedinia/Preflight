@@ -600,6 +600,19 @@ def update_llm_settings(payload: LLMConfigRequest):
     set_llm_config(payload.base_url, payload.model, payload.api_key)
     return {"status": "success", "message": "LLM configuration updated successfully."}
 
+class AutoDocRequest(BaseModel):
+    repo_name: Optional[str] = None
+
+@app.post("/api/v1/tasks/autodoc", dependencies=[Depends(verify_api_key)])
+def trigger_auto_doc(payload: AutoDocRequest):
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    task = generate_missing_docs_task.delay(repo_name=clean_repo)
+    return {
+        "status": "queued",
+        "task_id": task.id,
+        "message": "Auto-Documentation engine started in background worker."
+    }
+
 @app.get("/api/v1/llm/status", dependencies=[Depends(verify_api_key)])
 def check_llm_status():
     """

@@ -359,29 +359,69 @@ def get_graph_stats() -> dict:
             return dict(rec)
         return {"repositories": 0, "files": 0, "classes": 0, "functions": 0, "relationships": 0}
 
+def resolve_cross_references(repo_name: str = None):
+    """
+    Resolves function call references into direct Function->Function relationships,
+    and ensures all methods and functions are linked to their parent File and Repository.
+    """
+    with driver.session() as session:
+        try:
+            # 1. Resolve Function -> Function calls within repository
+            session.run("""
+                MATCH (caller:Function)
+                WHERE $repo_name IS NULL OR caller.repo = $repo_name
+                MATCH (caller)-[:CALLS]->(ref:FunctionReference)
+                MATCH (target:Function {name: ref.name})
+                WHERE ($repo_name IS NULL OR target.repo = $repo_name)
+                  AND caller <> target
+                MERGE (caller)-[:CALLS]->(target)
+            """, repo_name=repo_name)
+
+            # 2. Ensure class methods are also directly connected to their File (CONTAINS)
+            session.run("""
+                MATCH (f:File)-[:CONTAINS]->(c:Class)-[:HAS_METHOD]->(fn:Function)
+                WHERE $repo_name IS NULL OR f.repo = $repo_name
+                MERGE (f)-[:CONTAINS]->(fn)
+                SET fn.repo = f.repo, fn.file_path = f.path
+            """, repo_name=repo_name)
+
+            # 3. Ensure all Files are linked to their Repository
+            session.run("""
+                MATCH (f:File)
+                WHERE f.repo IS NOT NULL AND ($repo_name IS NULL OR f.repo = $repo_name)
+                MERGE (r:Repository {name: f.repo})
+                MERGE (r)-[:CONTAINS]->(f)
+            """, repo_name=repo_name)
+        except Exception as e:
+            print(f"[Graph] resolve_cross_references warning: {e}", flush=True)
+
 def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
     """
     Exports nodes and edges formatted for Vis.js Network and Cytoscape.js visual rendering.
     Strips large 768-dim float embeddings to maintain light network payloads and high FPS.
+    Uses bidirectional relationship traversal and exact startNode/endNode tracking.
     """
+    # Fast resolution of calls and links
+    resolve_cross_references(repo_name)
+
     with driver.session() as session:
         query = """
         MATCH (n)
         WHERE $repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name
         WITH n LIMIT $limit
-        OPTIONAL MATCH (n)-[r]->(m)
-        RETURN n, r, m
+        OPTIONAL MATCH (n)-[r]-(m)
+        WHERE ($repo_name IS NULL OR m.repo = $repo_name OR m.name = $repo_name OR m:Repository OR m:Module OR m:FunctionReference)
+        RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
         """
         result = session.run(query, repo_name=repo_name, limit=limit)
         
         nodes = {}
         edges = []
+        edge_keys = set()
 
         def format_node(node_obj):
             n_labels = list(node_obj.labels)
             label = n_labels[0] if n_labels else "Node"
-            name = node_obj.get("name") or node_obj.get("path") or node_obj.get("id") or "Node"
-            node_id = str(node_obj.get("id") or (node_obj.element_id if hasattr(node_obj, "element_id") else node_obj.id))
             
             raw_props = dict(node_obj)
             has_embedding = "embedding" in raw_props and raw_props["embedding"] is not None
@@ -390,6 +430,15 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
                 del raw_props["embedding"]
             raw_props["has_embedding"] = has_embedding
             raw_props["embedding_dim"] = embedding_dim
+
+            # Label formatting: for File, display clean filename instead of full long path
+            if label == "File":
+                file_p = raw_props.get("path") or raw_props.get("file_path") or "file"
+                name = os.path.basename(file_p) or file_p
+            else:
+                name = raw_props.get("name") or raw_props.get("path") or raw_props.get("id") or "Node"
+            
+            node_id = str(node_obj.get("id") or (node_obj.element_id if hasattr(node_obj, "element_id") else node_obj.id))
 
             return {
                 "id": node_id,
@@ -409,6 +458,8 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
             n = record.get("n")
             r = record.get("r")
             m = record.get("m")
+            r_start = record.get("r_start")
+            r_end = record.get("r_end")
 
             if n:
                 n_id = str(n.get("id") or (n.element_id if hasattr(n, "element_id") else n.id))
@@ -420,25 +471,29 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
                 if m_id not in nodes:
                     nodes[m_id] = format_node(m)
 
-            if r and n and m:
-                src_id = str(n.get("id") or (n.element_id if hasattr(n, "element_id") else n.id))
-                tgt_id = str(m.get("id") or (m.element_id if hasattr(m, "element_id") else m.id))
+            if r and r_start and r_end:
+                src_id = str(r_start.get("id") or (r_start.element_id if hasattr(r_start, "element_id") else r_start.id))
+                tgt_id = str(r_end.get("id") or (r_end.element_id if hasattr(r_end, "element_id") else r_end.id))
                 edge_id = str(r.element_id if hasattr(r, "element_id") else r.id)
-                edges.append({
-                    "id": edge_id,
-                    "from": src_id,
-                    "to": tgt_id,
-                    "source": src_id,
-                    "target": tgt_id,
-                    "label": r.type,
-                    "title": r.type,
-                    "data": {
+                edge_key = f"{src_id}->{tgt_id}:{r.type}"
+
+                if edge_key not in edge_keys:
+                    edge_keys.add(edge_key)
+                    edges.append({
                         "id": edge_id,
+                        "from": src_id,
+                        "to": tgt_id,
                         "source": src_id,
                         "target": tgt_id,
-                        "label": r.type
-                    }
-                })
+                        "label": r.type,
+                        "title": r.type,
+                        "data": {
+                            "id": edge_id,
+                            "source": src_id,
+                            "target": tgt_id,
+                            "label": r.type
+                        }
+                    })
 
         return {
             "nodes": list(nodes.values()),

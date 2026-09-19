@@ -117,8 +117,10 @@
         <button id="nav-btn-review" onclick="switchMainView('review')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
           <i data-lucide="git-pull-request" class="w-3.5 h-3.5"></i> Diff Impact & PR Review
         </button>
-        <button id="nav-btn-chat" onclick="switchMainView('chat')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
-          <i data-lucide="message-square" class="w-3.5 h-3.5"></i> AI Chat
+        <button id="nav-btn-chat" onclick="switchMainView('chat')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-sky-400 bg-sky-950/40 border border-sky-600/40 hover:bg-sky-900/40 transition font-semibold">
+          <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
+          <span>AI Chat</span>
+          <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
         </button>
         <button id="nav-btn-mcp" onclick="switchMainView('mcp')" class="px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition">
           <i data-lucide="cpu" class="w-3.5 h-3.5 text-sky-400"></i> MCP & Agent Connect
@@ -126,7 +128,7 @@
       </nav>
     </div>
 
-    <!-- Right Controls: System Health, API Key, Ingest Button -->
+    <!-- Right Controls: System Health, API Key, Ingest Button, AI Assistant -->
     <div class="flex items-center space-x-3">
       <!-- Health Indicator -->
       <div id="health-badge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-300 font-mono" title="Neo4j & Redis Health">
@@ -151,33 +153,40 @@
         <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Ingest Project
       </button>
 
+      <!-- Direct AI Assistant Chat Button -->
+      <button onclick="switchMainView('chat')" class="px-3.5 py-1.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-sky-600/25 transition" title="Open AI Chat Assistant">
+        <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+        <span>AI Assistant</span>
+      </button>
+
       <!-- LLM Settings Button -->
-      <button onclick="openLlmConfigModal()" class="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-purple-600/25 transition">
-        <i data-lucide="settings" class="w-3.5 h-3.5"></i> LLM Settings
+      <button onclick="openLlmConfigModal()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition" title="Configure LLM Endpoint">
+        <i data-lucide="settings" class="w-3.5 h-3.5 text-purple-400"></i>
+        <span class="hidden md:inline">LLM Config</span>
       </button>
     </div>
   </header>
 
-  <!-- Metric Statistics Subbar -->
+  <!-- Metric Statistics Subbar (Clickable) -->
   <section class="bg-slate-900 border-b border-slate-800/80 px-6 py-2 flex items-center justify-between text-xs text-slate-300 z-20">
     <div class="flex items-center space-x-6 overflow-x-auto custom-scrollbar py-0.5">
-      <div class="flex items-center gap-1.5">
+      <div onclick="switchMainView('repos')" class="flex items-center gap-1.5 cursor-pointer hover:text-sky-400 transition" title="Click to manage repositories">
         <span class="text-slate-500">Repositories:</span>
         <span id="stat-repos" class="font-bold text-slate-100 font-mono">0</span>
       </div>
-      <div class="flex items-center gap-1.5">
+      <div onclick="switchMainView('graph'); filterGraphByType('File');" class="flex items-center gap-1.5 cursor-pointer hover:text-sky-400 transition" title="Click to filter files in graph">
         <span class="text-slate-500">Files:</span>
         <span id="stat-files" class="font-bold text-sky-400 font-mono">0</span>
       </div>
-      <div class="flex items-center gap-1.5">
+      <div onclick="switchMainView('graph'); filterGraphByType('Class');" class="flex items-center gap-1.5 cursor-pointer hover:text-amber-400 transition" title="Click to filter classes in graph">
         <span class="text-slate-500">Classes:</span>
         <span id="stat-classes" class="font-bold text-amber-400 font-mono">0</span>
       </div>
-      <div class="flex items-center gap-1.5">
+      <div onclick="switchMainView('graph'); filterGraphByType('Function');" class="flex items-center gap-1.5 cursor-pointer hover:text-emerald-400 transition" title="Click to filter functions in graph">
         <span class="text-slate-500">Functions:</span>
         <span id="stat-functions" class="font-bold text-emerald-400 font-mono">0</span>
       </div>
-      <div class="flex items-center gap-1.5">
+      <div onclick="switchMainView('graph'); filterGraphByType('ALL');" class="flex items-center gap-1.5 cursor-pointer hover:text-indigo-400 transition" title="Click to view all relationships">
         <span class="text-slate-500">Graph Relations:</span>
         <span id="stat-rels" class="font-bold text-indigo-400 font-mono">0</span>
       </div>
@@ -284,31 +293,52 @@
           </button>
         </div>
 
-        <!-- Tab 1: GraphRAG Query -->
-        <div id="sidebar-tab-rag" class="flex-1 flex flex-col p-4 overflow-y-auto custom-scrollbar space-y-4">
-          <div>
-            <label class="block text-xs font-semibold text-slate-300 mb-1.5">Natural Language Code Query</label>
-            <textarea id="rag-query-input" rows="3" placeholder="e.g., How does authentication work? Which functions parse AST?" 
-              class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none custom-scrollbar"></textarea>
-            <button onclick="submitQuery()" class="mt-2 w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md shadow-sky-600/20 transition">
-              <i data-lucide="search" class="w-3.5 h-3.5"></i> Retrieve & Synthesize
+        <!-- Tab 1: GraphRAG Query & Live Mini-Chat -->
+        <div id="sidebar-tab-rag" class="flex-1 flex flex-col p-3 overflow-hidden space-y-3">
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+            <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-sky-400"></i> AI Graph Assistant
+            </span>
+            <button onclick="switchMainView('chat')" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 font-semibold transition" title="Open full chat screen">
+              <span>Full Chat</span> &rarr;
             </button>
           </div>
 
-          <!-- Query Results -->
-          <div id="rag-results-area" class="space-y-3 hidden">
-            <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5">
-              <h4 class="text-xs font-bold text-sky-400 flex items-center gap-1.5 mb-2">
-                <i data-lucide="bot" class="w-3.5 h-3.5"></i> GraphRAG AI Answer
-              </h4>
-              <div id="rag-answer-text" class="text-xs text-slate-300 leading-relaxed whitespace-pre-line"></div>
+          <!-- Mini Chat Messages History -->
+          <div id="drawer-chat-history" class="flex-1 overflow-y-auto space-y-2.5 custom-scrollbar text-xs p-2.5 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div id="drawer-chat-welcome" class="text-center py-6 text-slate-500 space-y-2.5">
+              <div class="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center mx-auto border border-sky-500/30">
+                <i data-lucide="bot" class="w-5 h-5"></i>
+              </div>
+              <p class="text-xs text-slate-400">پرسش‌های خود در مورد معماری، توابع یا روابط گراف را مطرح کنید:</p>
+              <div class="flex flex-col gap-1.5 text-left pt-1">
+                <button onclick="useDrawerPrompt('ساختار کلی و لایه‌بندی این پروژه را توضیح بده.')" class="p-2 bg-slate-900 hover:bg-slate-800 rounded-lg text-[11px] text-slate-300 transition text-left">
+                  🔹 ساختار کلی پروژه چیست؟
+                </button>
+                <button onclick="useDrawerPrompt('توابع پرریسک و دارای تغییرات بالا (Churn) کدامند؟')" class="p-2 bg-slate-900 hover:bg-slate-800 rounded-lg text-[11px] text-slate-300 transition text-left">
+                  ⚠️ توابع پرریسک و با تغییرات بالا
+                </button>
+                <button onclick="useDrawerPrompt('فرآیند احراز هویت و امنیت در این پروژه چگونه است؟')" class="p-2 bg-slate-900 hover:bg-slate-800 rounded-lg text-[11px] text-slate-300 transition text-left">
+                  🔒 فرآیند احراز هویت و امنیت
+                </button>
+              </div>
             </div>
+          </div>
 
-            <div>
-              <h4 class="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
-                <i data-lucide="layers" class="w-3 h-3"></i> Retrieved Structural Nodes
-              </h4>
-              <div id="rag-cited-nodes" class="space-y-2"></div>
+          <!-- Drawer Typing Indicator -->
+          <div id="drawer-typing" class="hidden flex items-center gap-2 text-[11px] text-slate-400 px-2 py-0.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping"></span>
+            <span>در حال تحلیل گراف دانش...</span>
+          </div>
+
+          <!-- Input Box -->
+          <div class="space-y-1 pt-1">
+            <div class="flex gap-1.5">
+              <textarea id="drawer-chat-input" rows="2" placeholder="سؤال خود را بپرسید... (Enter برای ارسال)" 
+                class="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 resize-none font-mono custom-scrollbar"></textarea>
+              <button id="drawer-send-btn" onclick="submitDrawerChat()" class="px-3.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center transition shadow-md shadow-sky-600/20">
+                <i data-lucide="send" class="w-4 h-4"></i>
+              </button>
             </div>
           </div>
         </div>
@@ -508,33 +538,42 @@
         </div>
       </div>
 
-      <!-- Health Overview Cards -->
+      <!-- Health Overview Cards (Clickable) -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
-          <div class="flex items-center justify-between text-xs text-slate-400">
+        <div onclick="document.getElementById('list-cycles').scrollIntoView({ behavior: 'smooth', block: 'center' })" class="bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-rose-500/60 p-4 rounded-xl shadow cursor-pointer transition transform hover:-translate-y-0.5 group">
+          <div class="flex items-center justify-between text-xs text-slate-400 group-hover:text-rose-300">
             <span>Circular Dependencies</span>
             <i data-lucide="repeat" class="w-4 h-4 text-rose-400"></i>
           </div>
           <div id="smell-count-cycles" class="text-2xl font-bold text-slate-100 mt-2 font-mono">0</div>
-          <p class="text-[11px] text-slate-500 mt-1">Direct or indirect recursive call loops</p>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span>Direct or indirect recursive call loops</span>
+            <span class="text-rose-400 opacity-0 group-hover:opacity-100 transition text-[10px]">مشاهده &darr;</span>
+          </p>
         </div>
 
-        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
-          <div class="flex items-center justify-between text-xs text-slate-400">
+        <div onclick="document.getElementById('list-hubs').scrollIntoView({ behavior: 'smooth', block: 'center' })" class="bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/60 p-4 rounded-xl shadow cursor-pointer transition transform hover:-translate-y-0.5 group">
+          <div class="flex items-center justify-between text-xs text-slate-400 group-hover:text-amber-300">
             <span>High-Risk Hubs (God Functions)</span>
             <i data-lucide="cpu" class="w-4 h-4 text-amber-400"></i>
           </div>
           <div id="smell-count-hubs" class="text-2xl font-bold text-slate-100 mt-2 font-mono">0</div>
-          <p class="text-[11px] text-slate-500 mt-1">Functions with high caller / callee fanout</p>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span>Functions with high caller / callee fanout</span>
+            <span class="text-amber-400 opacity-0 group-hover:opacity-100 transition text-[10px]">مشاهده &darr;</span>
+          </p>
         </div>
 
-        <div class="bg-slate-900/80 border border-slate-800 p-4 rounded-xl shadow">
-          <div class="flex items-center justify-between text-xs text-slate-400">
+        <div onclick="document.getElementById('list-dead').scrollIntoView({ behavior: 'smooth', block: 'center' })" class="bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/60 p-4 rounded-xl shadow cursor-pointer transition transform hover:-translate-y-0.5 group">
+          <div class="flex items-center justify-between text-xs text-slate-400 group-hover:text-indigo-300">
             <span>Dead Code Candidates</span>
             <i data-lucide="archive-restore" class="w-4 h-4 text-indigo-400"></i>
           </div>
           <div id="smell-count-dead" class="text-2xl font-bold text-slate-100 mt-2 font-mono">0</div>
-          <p class="text-[11px] text-slate-500 mt-1">Non-entrypoint symbols with 0 incoming callers</p>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span>Non-entrypoint symbols with 0 incoming callers</span>
+            <span class="text-indigo-400 opacity-0 group-hover:opacity-100 transition text-[10px]">مشاهده &darr;</span>
+          </p>
         </div>
       </div>
 
@@ -1286,6 +1325,155 @@
         </div>
         <button onclick="saveLlmConfig()" class="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/20 transition">
           <i data-lucide="save" class="w-4 h-4"></i> Save Configuration
+        </button>
+
+        <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
+          <button onclick="closeLlmConfigModal(); switchMainView('chat');" class="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1.5 font-medium transition">
+            <i data-lucide="message-square" class="w-3.5 h-3.5"></i> ورود به محیط چت هوش مصنوعی (Open AI Chat) &rarr;
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== DEAD CODE INSPECTION MODAL ==================== -->
+  <div id="dead-code-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-3xl rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+            <i data-lucide="ghost" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 id="dead-modal-title" class="text-base font-bold text-slate-100 font-mono">function_name</h3>
+              <span class="text-[10px] bg-rose-950 text-rose-300 border border-rose-800 px-2 py-0.5 rounded-full font-mono font-semibold">0 Inbound Callers</span>
+            </div>
+            <p id="dead-modal-file" class="text-xs text-slate-400 font-mono mt-0.5">path/to/file.py:L10</p>
+          </div>
+        </div>
+        <button onclick="closeDeadCodeModal()" class="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Explanation Banner -->
+      <div class="bg-slate-950 border border-indigo-900/40 rounded-xl p-4 space-y-2 text-xs">
+        <div class="flex items-center gap-2 font-bold text-indigo-300">
+          <i data-lucide="alert-circle" class="w-4 h-4 text-indigo-400"></i>
+          <span>علت شناسایی به عنوان کد مرده (Dead Code Explanation):</span>
+        </div>
+        <p id="dead-modal-reason" class="text-slate-300 leading-relaxed text-xs">
+          در تحلیل گراف وابستگی پروژه، هیچ تابع یا ماژول دیگری این تابع را صدا نمی‌زند (تعداد فراخواننده‌ها: ۰). چنانچه این تابع یک کنترلر بیرونی یا Handler رویداد نباشد، کدی اضافه و کاندیدای حذف جهت سبک‌سازی و پاکسازی پروژه است.
+        </p>
+      </div>
+
+      <!-- Source Code Display -->
+      <div class="flex-1 flex flex-col min-h-0 space-y-1.5">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span class="font-semibold flex items-center gap-1"><i data-lucide="code" class="w-3.5 h-3.5 text-sky-400"></i> سورس کد تابع:</span>
+          <button onclick="copyDeadCode()" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 transition">
+            <i data-lucide="copy" class="w-3 h-3"></i> کپی کد
+          </button>
+        </div>
+        <div class="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 overflow-y-auto custom-scrollbar font-mono text-xs">
+          <pre><code id="dead-modal-code" class="text-emerald-400 leading-relaxed"></code></pre>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+        <div class="flex flex-wrap gap-2">
+          <button onclick="deadCodeViewInGraph()" class="px-3.5 py-2 bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="share-2" class="w-3.5 h-3.5"></i> مشاهده در گراف
+          </button>
+          <button onclick="deadCodeAskAi()" class="px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="bot" class="w-3.5 h-3.5"></i> استعلام و تحلیل با هوش مصنوعی
+          </button>
+          <button onclick="deadCodeBlastRadius()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-400"></i> اثر تغییر (Blast)
+          </button>
+        </div>
+        <button onclick="closeDeadCodeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">
+          بستن
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== HUB / GOD FUNCTION MODAL ==================== -->
+  <div id="hub-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-3xl rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            <i data-lucide="cpu" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 id="hub-modal-title" class="text-base font-bold text-slate-100 font-mono">hub_name</h3>
+              <span class="text-[10px] bg-amber-950 text-amber-300 border border-amber-800 px-2 py-0.5 rounded-full font-mono font-semibold">High-Risk Hub</span>
+            </div>
+            <p id="hub-modal-file" class="text-xs text-slate-400 font-mono mt-0.5">path/to/file.py</p>
+          </div>
+        </div>
+        <button onclick="closeHubModal()" class="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Metrics summary -->
+      <div class="grid grid-cols-3 gap-3 text-center text-xs">
+        <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+          <span class="text-slate-500 text-[10px]">فراخواننده‌ها (In-Degree)</span>
+          <div id="hub-modal-in" class="text-base font-bold text-sky-400 font-mono mt-0.5">0</div>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+          <span class="text-slate-500 text-[10px]">فراخوانی‌ها (Out-Degree)</span>
+          <div id="hub-modal-out" class="text-base font-bold text-emerald-400 font-mono mt-0.5">0</div>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+          <span class="text-slate-500 text-[10px]">شاخص ریسک (Risk Score)</span>
+          <div id="hub-modal-risk" class="text-base font-bold text-amber-400 font-mono mt-0.5">0</div>
+        </div>
+      </div>
+
+      <!-- Explanation -->
+      <div class="bg-slate-950 border border-amber-900/40 rounded-xl p-3.5 space-y-1.5 text-xs">
+        <div class="flex items-center gap-1.5 font-bold text-amber-400">
+          <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+          <span>علت ریسک بالا (Architectural Bottleneck):</span>
+        </div>
+        <p class="text-slate-300 leading-relaxed text-xs">
+          این تابع به دلیل اتصالات زیاد و درهم‌تنیدگی بالا، به عنوان یک نقطه بحرانی (Bottleneck) یا تابع همه‌کاره (God Function) شناخته می‌شود. هرگونه تغییر نسنجیده در این تابع می‌تواند موجب خرابی‌های گسترده در توابع وابسته شود.
+        </p>
+      </div>
+
+      <!-- Code -->
+      <div class="flex-1 flex flex-col min-h-0 space-y-1.5">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span class="font-semibold flex items-center gap-1"><i data-lucide="code" class="w-3.5 h-3.5 text-sky-400"></i> سورس کد تابع:</span>
+          <button onclick="copyHubCode()" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 transition">
+            <i data-lucide="copy" class="w-3 h-3"></i> کپی کد
+          </button>
+        </div>
+        <div class="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 overflow-y-auto custom-scrollbar font-mono text-xs">
+          <pre><code id="hub-modal-code" class="text-amber-300 leading-relaxed"></code></pre>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
+        <div class="flex gap-2">
+          <button onclick="hubViewInGraph()" class="px-3.5 py-2 bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="share-2" class="w-3.5 h-3.5"></i> مشاهده در گراف
+          </button>
+          <button onclick="hubBlastRadius()" class="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> اثر تغییر (Blast)
+          </button>
+        </div>
+        <button onclick="closeHubModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">
+          بستن
         </button>
       </div>
     </div>
@@ -2557,38 +2745,48 @@ asyncio.run(run())`;
         const hubs = data.high_risk_hubs || [];
         const dead = data.dead_code_candidates || [];
 
+        currentCyclesList = cycles;
+        currentHubsList = hubs;
+        currentDeadCodeList = dead;
+
         document.getElementById('smell-count-cycles').innerText = cycles.length;
         document.getElementById('smell-count-hubs').innerText = hubs.length;
         document.getElementById('smell-count-dead').innerText = dead.length;
 
-        // Render Cycles
+        // Render Cycles (Clickable)
         if (cycles.length === 0) {
           cyclesList.innerHTML = '<div class="text-emerald-400 text-center py-8 font-medium">✓ No circular dependency chains detected! Clean architecture.</div>';
         } else {
-          cyclesList.innerHTML = cycles.map(c => `
-            <div class="p-3 bg-slate-950 border border-rose-900/40 rounded-xl space-y-1">
+          cyclesList.innerHTML = cycles.map((c, idx) => `
+            <div onclick="openCycleInspection(${idx})" class="p-3 bg-slate-950/80 hover:bg-slate-900 border border-rose-900/40 hover:border-rose-500/80 rounded-xl space-y-1.5 cursor-pointer transition transform hover:-translate-y-0.5 shadow-md group">
               <div class="flex items-center justify-between text-[11px]">
-                <span class="font-bold text-rose-400 font-mono">Cycle length: ${c.length} hops</span>
+                <span class="font-bold text-rose-400 group-hover:text-rose-300 font-mono flex items-center gap-1">
+                  <i data-lucide="repeat" class="w-3.5 h-3.5"></i> زنجیره بازگشتی: ${c.length} مرحله
+                </span>
+                <span class="text-[10px] text-sky-400 flex items-center gap-1 opacity-80 group-hover:opacity-100 font-sans">مشاهده زنجیره &rarr;</span>
               </div>
-              <div class="text-[11px] text-slate-200 font-mono break-all">${c.cycle.join(' → ')}</div>
+              <div class="text-[11px] text-slate-200 font-mono break-all">${escapeHtml(c.cycle.join(' → '))}</div>
             </div>
           `).join('');
         }
 
-        // Render Hubs
+        // Render Hubs (Clickable)
         if (hubs.length === 0) {
           hubsList.innerHTML = '<div class="text-emerald-400 text-center py-8 font-medium">✓ No high-risk bottleneck god functions detected.</div>';
         } else {
-          hubsList.innerHTML = hubs.map(h => `
-            <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between">
+          hubsList.innerHTML = hubs.map((h, idx) => `
+            <div onclick="openHubInspection(${idx})" class="p-3 bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/80 rounded-xl flex items-center justify-between cursor-pointer transition transform hover:-translate-y-0.5 shadow-md group">
               <div>
                 <div class="flex items-center gap-2">
-                  <span class="font-bold text-amber-400 font-mono">${h.name}</span>
-                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 font-mono">Risk: ${h.risk_score}</span>
+                  <span class="font-bold text-amber-400 group-hover:text-amber-300 font-mono">${escapeHtml(h.name)}</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 font-mono">Risk: ${h.risk_score}</span>
                 </div>
-                <div class="text-[10px] text-slate-500 break-all font-mono mt-0.5">${h.file_path}</div>
+                <div class="text-[10px] text-slate-400 break-all font-mono mt-0.5">${escapeHtml(h.file_path)}</div>
+                <div class="text-[10px] text-sky-400 opacity-80 group-hover:opacity-100 flex items-center gap-1 mt-1 font-sans">
+                  <i data-lucide="code" class="w-3 h-3"></i> مشاهده سورس کد و تحلیل ریسک &rarr;
+                </div>
               </div>
-              <div class="text-right text-[11px] text-slate-400 font-mono space-y-0.5">
+              <div class="text-right text-[11px] text-slate-400 font-mono space-y-0.5 shrink-0 pl-2">
                 <div>In: <strong class="text-sky-400">${h.in_degree}</strong></div>
                 <div>Out: <strong class="text-emerald-400">${h.out_degree}</strong></div>
               </div>
@@ -2596,17 +2794,27 @@ asyncio.run(run())`;
           `).join('');
         }
 
-        // Render Dead Code
+        // Render Dead Code (Clickable)
         if (dead.length === 0) {
           deadList.innerHTML = '<div class="text-emerald-400 text-center py-6 col-span-3 font-medium">✓ No obvious dead code candidates found.</div>';
         } else {
-          deadList.innerHTML = dead.map(d => `
-            <div class="p-2.5 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
-              <div class="font-bold text-indigo-300 font-mono truncate">${d.name}</div>
-              <div class="text-[10px] text-slate-500 break-all font-mono">${d.file_path}:${d.line || 1}</div>
+          deadList.innerHTML = dead.map((d, idx) => `
+            <div onclick="openDeadCodeInspection(${idx})" class="p-3 bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/80 rounded-xl space-y-1.5 cursor-pointer transition transform hover:-translate-y-0.5 shadow-md group">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-indigo-300 group-hover:text-indigo-200 font-mono text-xs truncate flex items-center gap-1.5">
+                  <i data-lucide="ghost" class="w-3.5 h-3.5 text-indigo-400"></i> ${escapeHtml(d.name)}
+                </span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 font-mono">0 Callers</span>
+              </div>
+              <div class="text-[10px] text-slate-400 break-all font-mono">${escapeHtml(d.file_path)}:${d.line || 1}</div>
+              <div class="text-[10px] text-sky-400 opacity-80 group-hover:opacity-100 flex items-center gap-1 pt-1 border-t border-slate-800/60 font-sans">
+                <i data-lucide="code" class="w-3 h-3"></i> مشاهده سورس کد و دلیل شناسایی &rarr;
+              </div>
             </div>
           `).join('');
         }
+
+        if (window.lucide) window.lucide.createIcons();
 
       } catch (err) {
         console.warn('Code smells load error:', err);
@@ -3546,6 +3754,238 @@ asyncio.run(run())`;
           alert(`Error: ${data.detail}`);
         }
       } catch (e) { alert('Connection error.'); }
+    }
+
+    // --- Code Smells & Dead Code Interactive Inspection ---
+    let currentDeadCodeList = [];
+    let currentHubsList = [];
+    let currentCyclesList = [];
+    let currentModalDeadCodeItem = null;
+    let currentModalHubItem = null;
+
+    async function openDeadCodeInspection(idx) {
+      const item = currentDeadCodeList[idx];
+      if (!item) return;
+
+      currentModalDeadCodeItem = item;
+      const modal = document.getElementById('dead-code-modal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+
+      document.getElementById('dead-modal-title').innerText = item.name || 'Dead Code';
+      document.getElementById('dead-modal-file').innerText = `${item.file_path || 'Unknown'}:${item.line || 1}${item.end_line ? ' - L' + item.end_line : ''}`;
+      document.getElementById('dead-modal-reason').innerText = item.reason || 'این تابع در هیچ کجای پروژه توسط توابع دیگر فراخوانی نشده است (تعداد فراخواننده‌ها: ۰).';
+      document.getElementById('dead-modal-code').innerText = item.code || '// در حال استخراج سورس کد...';
+
+      if (!item.code && item.id) {
+        try {
+          const res = await fetch(`${API_BASE}/api/v1/graph/node/${encodeURIComponent(item.id)}`, { headers: getAuthHeaders() });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.code) {
+              document.getElementById('dead-modal-code').innerText = data.code;
+              item.code = data.code;
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function closeDeadCodeModal() {
+      const modal = document.getElementById('dead-code-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function copyDeadCode() {
+      const code = document.getElementById('dead-modal-code')?.innerText || '';
+      if (code) {
+        navigator.clipboard.writeText(code);
+        alert('سورس کد در کلیپ‌بورد کپی شد!');
+      }
+    }
+
+    function deadCodeViewInGraph() {
+      closeDeadCodeModal();
+      if (!currentModalDeadCodeItem) return;
+      switchMainView('graph');
+      setTimeout(() => {
+        searchGraphNodes(currentModalDeadCodeItem.name);
+        openNodeModal(currentModalDeadCodeItem.id || currentModalDeadCodeItem.name);
+      }, 200);
+    }
+
+    function deadCodeAskAi() {
+      closeDeadCodeModal();
+      if (!currentModalDeadCodeItem) return;
+      const q = `تابع '${currentModalDeadCodeItem.name}' در فایل '${currentModalDeadCodeItem.file_path}' به عنوان Dead Code (بدون فراخواننده) شناسایی شده است. لطفاً توضیح بده کارکرد این تابع چیست و آیا می‌توانم با خیال راحت آن را حذف کنم یا ممکن است به صورت غیرمستقیم (مثلاً Event یا API) استفاده شود؟`;
+      switchMainView('chat');
+      setTimeout(() => {
+        const input = document.getElementById('chat-input');
+        if (input) {
+          input.value = q;
+          submitChat();
+        }
+      }, 150);
+    }
+
+    function deadCodeBlastRadius() {
+      closeDeadCodeModal();
+      if (!currentModalDeadCodeItem) return;
+      switchMainView('review');
+      setTimeout(() => {
+        const input = document.getElementById('impact-fn-input');
+        if (input) {
+          input.value = currentModalDeadCodeItem.name;
+          submitImpactSearch();
+        }
+      }, 150);
+    }
+
+    async function openHubInspection(idx) {
+      const item = currentHubsList[idx];
+      if (!item) return;
+
+      currentModalHubItem = item;
+      const modal = document.getElementById('hub-modal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+
+      document.getElementById('hub-modal-title').innerText = item.name || 'Hub Function';
+      document.getElementById('hub-modal-file').innerText = `${item.file_path || ''}:${item.line || 1}`;
+      document.getElementById('hub-modal-in').innerText = item.in_degree || 0;
+      document.getElementById('hub-modal-out').innerText = item.out_degree || 0;
+      document.getElementById('hub-modal-risk').innerText = item.risk_score || 0;
+      document.getElementById('hub-modal-code').innerText = item.code || '// در حال بارگذاری سورس کد...';
+
+      if (!item.code && item.id) {
+        try {
+          const res = await fetch(`${API_BASE}/api/v1/graph/node/${encodeURIComponent(item.id)}`, { headers: getAuthHeaders() });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.code) {
+              document.getElementById('hub-modal-code').innerText = data.code;
+              item.code = data.code;
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function closeHubModal() {
+      const modal = document.getElementById('hub-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function copyHubCode() {
+      const code = document.getElementById('hub-modal-code')?.innerText || '';
+      if (code) {
+        navigator.clipboard.writeText(code);
+        alert('سورس کد در کلیپ‌بورد کپی شد!');
+      }
+    }
+
+    function hubViewInGraph() {
+      closeHubModal();
+      if (!currentModalHubItem) return;
+      switchMainView('graph');
+      setTimeout(() => {
+        searchGraphNodes(currentModalHubItem.name);
+        openNodeModal(currentModalHubItem.id || currentModalHubItem.name);
+      }, 200);
+    }
+
+    function hubBlastRadius() {
+      closeHubModal();
+      if (!currentModalHubItem) return;
+      switchMainView('review');
+      setTimeout(() => {
+        const input = document.getElementById('impact-fn-input');
+        if (input) {
+          input.value = currentModalHubItem.name;
+          submitImpactSearch();
+        }
+      }, 150);
+    }
+
+    function openCycleInspection(idx) {
+      const item = currentCyclesList[idx];
+      if (!item) return;
+      const chainStr = item.cycle.join(' ➔ ');
+      alert(`🔄 زنجیره وابستگی حلقوی:\n\n${chainStr}\n\nفایل‌های درگیر:\n${item.files.join('\n')}\n\nبرای رفع این بو، زنجیره فراخوانی را با استفاده از تزریق وابستگی (Dependency Injection) یا جداسازی لایه‌ها بازآرایی نمایید.`);
+    }
+
+    // --- Drawer Mini-Chat Handlers ---
+    async function submitDrawerChat() {
+      const input = document.getElementById('drawer-chat-input');
+      if (!input) return;
+      const text = input.value.trim();
+      if (!text) return;
+
+      const history = document.getElementById('drawer-chat-history');
+      const welcome = document.getElementById('drawer-chat-welcome');
+      if (welcome) welcome.classList.add('hidden');
+
+      const userMsg = document.createElement('div');
+      userMsg.className = 'p-2 bg-sky-600 text-white rounded-xl text-[11px] leading-relaxed ml-4 shadow-sm';
+      userMsg.innerText = text;
+      history.appendChild(userMsg);
+      input.value = '';
+
+      const typing = document.getElementById('drawer-typing');
+      const sendBtn = document.getElementById('drawer-send-btn');
+      if (typing) typing.classList.remove('hidden');
+      if (sendBtn) sendBtn.disabled = true;
+
+      history.scrollTop = history.scrollHeight;
+
+      const selectedRepo = document.getElementById('repo-filter-select')?.value || null;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/chat`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ message: text, repo_name: selectedRepo, mode: 'graphrag' })
+        });
+        const data = await res.json();
+        if (typing) typing.classList.add('hidden');
+        if (sendBtn) sendBtn.disabled = false;
+
+        const aiMsg = document.createElement('div');
+        aiMsg.className = 'p-2.5 bg-slate-900 border border-slate-800 text-slate-200 rounded-xl text-[11px] leading-relaxed mr-4 space-y-1.5 shadow-sm';
+        aiMsg.innerHTML = formatMarkdownSafe(data.response || 'پاسخی دریافت نشد.');
+        history.appendChild(aiMsg);
+        history.scrollTop = history.scrollHeight;
+        if (window.lucide) window.lucide.createIcons();
+      } catch (err) {
+        if (typing) typing.classList.add('hidden');
+        if (sendBtn) sendBtn.disabled = false;
+        const errMsg = document.createElement('div');
+        errMsg.className = 'p-2 bg-rose-950/60 border border-rose-800 text-rose-300 rounded-xl text-[11px]';
+        errMsg.innerText = 'خطا در ارتباط: ' + err.message;
+        history.appendChild(errMsg);
+      }
+    }
+
+    function useDrawerPrompt(promptText) {
+      const input = document.getElementById('drawer-chat-input');
+      if (input) {
+        input.value = promptText;
+        submitDrawerChat();
+      }
+    }
+
+    const drawerChatInputElem = document.getElementById('drawer-chat-input');
+    if (drawerChatInputElem) {
+      drawerChatInputElem.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          submitDrawerChat();
+        }
+      });
     }
 
     // ADVANCED ANALYTICS (Phase 4)

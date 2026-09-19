@@ -27,7 +27,7 @@ def detect_circular_dependencies(repo_name: Optional[str] = None, max_depth: int
             })
         return cycles
 
-def detect_high_risk_hubs(repo_name: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+def detect_high_risk_hubs(repo_name: Optional[str] = None, limit: int = 15) -> List[Dict[str, Any]]:
     """
     Identifies 'God Functions' or critical bottleneck hubs with very high in-degree
     (many callers) or out-degree (calls too many functions). High risk for refactoring.
@@ -39,11 +39,16 @@ def detect_high_risk_hubs(repo_name: Optional[str] = None, limit: int = 10) -> L
         OPTIONAL MATCH (caller:Function)-[:CALLS]->(fn)
         OPTIONAL MATCH (fn)-[:CALLS]->(callee)
         WITH fn, count(DISTINCT caller) AS in_degree, count(DISTINCT callee) AS out_degree
-        WHERE in_degree > 3 OR out_degree > 5
-        RETURN fn.name AS name,
+        WHERE in_degree > 2 OR out_degree > 4
+        RETURN coalesce(fn.id, elementId(fn)) AS id,
+               fn.name AS name,
                fn.file_path AS file_path,
                fn.repo AS repo,
                fn.language AS language,
+               fn.start_line AS line,
+               fn.end_line AS end_line,
+               fn.code AS code,
+               fn.docstring AS docstring,
                in_degree,
                out_degree,
                (in_degree * 2 + out_degree) AS risk_score
@@ -53,7 +58,7 @@ def detect_high_risk_hubs(repo_name: Optional[str] = None, limit: int = 10) -> L
         records = session.run(query, repo_name=repo_name, limit=limit)
         return [dict(r) for r in records]
 
-def detect_dead_code_candidates(repo_name: Optional[str] = None, limit: int = 15) -> List[Dict[str, Any]]:
+def detect_dead_code_candidates(repo_name: Optional[str] = None, limit: int = 30) -> List[Dict[str, Any]]:
     """
     Finds standalone functions or methods with 0 inbound callers.
     Candidates for dead code or external API entrypoints.
@@ -63,15 +68,21 @@ def detect_dead_code_candidates(repo_name: Optional[str] = None, limit: int = 15
         MATCH (fn:Function)
         WHERE ($repo_name IS NULL OR fn.repo = $repo_name)
           AND NOT (fn.name STARTS WITH '__')
-          AND NOT (fn.name IN ['main', 'init', 'setup', 'run', 'handler', 'app'])
+          AND NOT (fn.name IN ['main', 'init', 'setup', 'run', 'handler', 'app', 'index'])
         OPTIONAL MATCH (caller:Function)-[:CALLS]->(fn)
         WITH fn, count(caller) AS callers_count
         WHERE callers_count = 0
-        RETURN fn.name AS name,
+        RETURN coalesce(fn.id, elementId(fn)) AS id,
+               fn.name AS name,
                fn.file_path AS file_path,
                fn.repo AS repo,
                fn.language AS language,
-               fn.start_line AS line
+               fn.start_line AS line,
+               fn.end_line AS end_line,
+               fn.code AS code,
+               fn.docstring AS docstring,
+               callers_count,
+               'این تابع توسط هیچ تابع یا متد دیگری در سراسر مخزن فراخوانی نشده است (تعداد فراخواننده‌ها: ۰).' AS reason
         LIMIT $limit
         """
         records = session.run(query, repo_name=repo_name, limit=limit)

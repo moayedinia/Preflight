@@ -101,6 +101,13 @@ def scan_and_ingest_directory(repo_path: str, repo_name: str = None, progress_ca
             print(f"[Scanner Warning] Error processing {rel_path}: {e}", flush=True)
             errors.append({"file": rel_path, "error": str(e)})
 
+    # Resolve function calls and cross-entity relationships across the entire repository
+    try:
+        from app.core.graph import resolve_cross_references
+        resolve_cross_references(repo_name)
+    except Exception as e:
+        print(f"[Scanner Warning] resolve_cross_references error: {e}", flush=True)
+
     return {
         "repo_name": repo_name,
         "repo_path": str(path),
