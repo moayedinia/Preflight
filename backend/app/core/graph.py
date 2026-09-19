@@ -1,7 +1,62 @@
 import os
 import time
+import re
 from neo4j import GraphDatabase
 from app.core.embedder import get_embedding, validate_embedding_configuration, EMBEDDING_DIM
+
+KEYWORDS_FN = {
+    'def', 'func', 'fn', 'function', 'sub', 'fun', 'void', 'int', 'string', 'bool',
+    'float', 'double', 'char', 'auto', 'async', 'public', 'private', 'protected',
+    'internal', 'static', 'virtual', 'override', 'abstract', 'sealed', 'inline', 'extern',
+    'return', 'class', 'struct', 'interface', 'let', 'const', 'var', 'val', 'new'
+}
+
+CONTROL_FLOW_FN = {'if', 'while', 'for', 'switch', 'catch', 'sizeof', 'typeof', 'using', 'lock'}
+
+def clean_function_name(name_str: str, node_id: str = None) -> str:
+    """
+    Extracts strictly the clean function/method name from any raw code snippet, signature,
+    or composite ID. Never returns full function code or multiline signatures.
+    """
+    if not name_str:
+        if node_id and ":" in node_id:
+            cand = node_id.split(":")[-1].strip()
+            if cand and cand.lower() not in KEYWORDS_FN:
+                return cand
+        return "Function"
+
+    stripped = str(name_str).strip()
+    if re.match(r'^[A-Za-z0-9_]+$', stripped) and stripped.lower() not in KEYWORDS_FN:
+        return stripped
+
+    first_line = stripped.splitlines()[0].strip()
+
+    # 1. Match function name right before parenthesis: e.g. ProcessOrder(...) or calculate_total(...)
+    m = re.search(r'([A-Za-z0-9_]+)\s*\(', first_line)
+    if m:
+        candidate = m.group(1)
+        if candidate.lower() not in CONTROL_FLOW_FN and candidate.lower() not in KEYWORDS_FN:
+            return candidate
+
+    # 2. Composite ID check: repo:file.py:func_name
+    if ":" in first_line:
+        parts = first_line.split(":")
+        candidate = parts[-1].strip()
+        if candidate and re.match(r'^[A-Za-z0-9_]+$', candidate) and candidate.lower() not in KEYWORDS_FN:
+            return candidate
+
+    # 3. Arrow function or assignment: const myFunc = ... or let foo = ...
+    m = re.search(r'(?:const|let|var|val)\s+([A-Za-z0-9_]+)\s*=', first_line)
+    if m:
+        return m.group(1)
+
+    # 4. Filter words to find first non-keyword identifier
+    words = re.findall(r'[A-Za-z0-9_]+', first_line)
+    non_kw = [w for w in words if w.lower() not in KEYWORDS_FN and w.lower() not in CONTROL_FLOW_FN]
+    if non_kw:
+        return non_kw[0]
+
+    return "Function"
 
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
@@ -189,7 +244,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
 
             # Class methods
             for method in cls.get("methods", []):
-                m_name = method["name"]
+                m_name = clean_function_name(method["name"], method.get("code"))
                 m_id = f"{cls_id}:{m_name}"
                 m_embedding = get_embedding(method.get("code", "") or m_name)
 
@@ -222,7 +277,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
 
         # 4. Top-level standalone functions
         for func in parsed_data.get("functions", []):
-            func_name = func["name"]
+            func_name = clean_function_name(func["name"], func.get("code"))
             func_id = f"{file_id}:{func_name}"
             func_embedding = get_embedding(func.get("code", "") or func_name)
 
@@ -392,6 +447,22 @@ def resolve_cross_references(repo_name: str = None):
                 MERGE (r:Repository {name: f.repo})
                 MERGE (r)-[:CONTAINS]->(f)
             """, repo_name=repo_name)
+
+            # 4. Sanitize legacy/dirty function names containing newlines, spaces, or code
+            dirty_fns = session.run("""
+                MATCH (fn:Function)
+                WHERE ($repo_name IS NULL OR fn.repo = $repo_name)
+                  AND (fn.name CONTAINS '\n' OR fn.name CONTAINS ' ' OR fn.name CONTAINS '(')
+                RETURN coalesce(fn.id, elementId(fn)) AS id, fn.name AS raw_name
+            """, repo_name=repo_name).data()
+            for item in dirty_fns:
+                clean_name = clean_function_name(item.get("raw_name"), item.get("id"))
+                if clean_name and clean_name != item.get("raw_name"):
+                    session.run("""
+                        MATCH (fn:Function)
+                        WHERE fn.id = $id OR elementId(fn) = $id
+                        SET fn.name = $clean_name
+                    """, id=item["id"], clean_name=clean_name)
         except Exception as e:
             print(f"[Graph] resolve_cross_references warning: {e}", flush=True)
 
@@ -435,6 +506,11 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
             if label == "File":
                 file_p = raw_props.get("path") or raw_props.get("file_path") or "file"
                 name = os.path.basename(file_p) or file_p
+            elif label == "Function":
+                name = clean_function_name(raw_props.get("name"), raw_props.get("id"))
+            elif label == "Class":
+                raw_name = raw_props.get("name") or raw_props.get("id") or "Class"
+                name = clean_function_name(raw_name, raw_props.get("id"))
             else:
                 name = raw_props.get("name") or raw_props.get("path") or raw_props.get("id") or "Node"
             
@@ -545,9 +621,18 @@ def get_node_details(node_id: str) -> dict:
         outgoing = [o for o in (result.get("outgoing") or []) if o.get("type")]
         incoming = [i for i in (result.get("incoming") or []) if i.get("type")]
 
+        if primary_label == "Function":
+            clean_label = clean_function_name(props.get("name") or n.get("name"), props.get("id") or n.get("id"))
+        elif primary_label == "File":
+            clean_label = os.path.basename(props.get("path") or props.get("file_path") or "") or "File"
+        elif primary_label == "Class":
+            clean_label = clean_function_name(props.get("name") or n.get("name"), props.get("id") or n.get("id"))
+        else:
+            clean_label = n.get("name") or n.get("path") or n.get("id") or "Node"
+
         return {
             "id": str(n.get("id") or (n.element_id if hasattr(n, "element_id") else n.id)),
-            "label": n.get("name") or n.get("path") or n.get("id") or "Node",
+            "label": clean_label,
             "type": primary_label,
             "labels": labels,
             "properties": props,

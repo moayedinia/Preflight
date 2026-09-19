@@ -184,9 +184,36 @@ def _parse_with_treesitter(p: Parser, lang: str, file_path: str, code_bytes: byt
     ]
 
     def _find_identifier(node) -> str:
+        # Check standard field names first
+        for field in ["name", "declarator", "identifier"]:
+            fn_child = node.child_by_field_name(field)
+            if fn_child:
+                if fn_child.type in ["identifier", "property_identifier", "field_identifier", "type_identifier"]:
+                    text = _get_node_text(fn_child, code_bytes).strip()
+                    if text:
+                        return text
+                # If declarator (e.g. C/C++ function_declarator), inspect its children
+                for sub in fn_child.children:
+                    if sub.type in ["identifier", "property_identifier", "field_identifier", "type_identifier"]:
+                        text = _get_node_text(sub, code_bytes).strip()
+                        if text:
+                            return text
+
+        # Check direct children
         for child in node.children:
-            if child.type in ["identifier", "type_identifier", "name"]:
-                return _get_node_text(child, code_bytes)
+            if child.type in ["identifier", "property_identifier", "field_identifier", "type_identifier", "name"]:
+                text = _get_node_text(child, code_bytes).strip()
+                if text:
+                    return text
+
+        # Check one level deeper for declarators or compound names
+        for child in node.children:
+            for sub in child.children:
+                if sub.type in ["identifier", "property_identifier", "field_identifier"]:
+                    text = _get_node_text(sub, code_bytes).strip()
+                    if text:
+                        return text
+
         return "Anonymous"
 
     def _find_calls(node) -> list[str]:
