@@ -15,26 +15,30 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
         actual_query = query.strip().replace("/cypher ", "").strip()
         return execute_nl2cypher_query(actual_query, repo_name)
 
-    # 1. Query Embedding
-    query_vector = get_embedding(query)
+    # 1. Query Embedding & 2. Vector Search (with graceful fallback if embedding service is offline)
+    hits = []
+    try:
+        query_vector = get_embedding(query)
+        hits = vector_search(query_vector, top_k=top_k, repo_name=repo_name)
+    except Exception as emb_err:
+        print(f"[GraphRAG] Notice: Embedding or vector search unavailable ({emb_err}). Falling back to direct LLM synthesis.")
+        hits = []
 
-    # 2. Vector Search
-    hits = vector_search(query_vector, top_k=top_k, repo_name=repo_name)
     if not hits:
         from app.core.llm import call_llm
         system_prompt = (
             "You are CodeGraph Brain AI Assistant, an expert software engineer and software architect. "
-            "The user is asking a question. Note that no specific code entities matched in the current repository knowledge graph. "
-            "Provide a helpful, accurate, and structured answer. "
-            "If the user asks about specific code in their repository, kindly advise them to ensure their repository has been ingested and indexed."
+            "Help the user with programming, system architecture, debugging, dead code analysis, and code reviews. "
+            "Provide clean, well-formatted code snippets and practical explanations."
         )
         try:
             direct_answer = call_llm(query, system_prompt)
         except Exception as e:
             direct_answer = (
-                "No relevant code entities found in the graph database for this query. "
-                "Please ensure your repository is ingested and indexed.\n\n"
-                f"*(LLM response unavailable: {e})*"
+                "سیستم هوش مصنوعی CodeGraph Brain:\n"
+                "گره‌های متناظری در پایگاه دانش گراف برای این پرسش یافت نشد، و سرویس مدل زبانی (LLM) نیز در دسترس نیست.\n\n"
+                f"جزئیات وضعیت: {e}\n\n"
+                "لطفاً مطمئن شوید سرویس LLM در وضعیت فعال قرار دارد و مخزن کد مورد نظر ایندکس شده است."
             )
         return {
             "answer": direct_answer,

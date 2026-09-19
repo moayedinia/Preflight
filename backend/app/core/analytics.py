@@ -29,8 +29,12 @@ def detect_circular_dependencies(repo_name: Optional[str] = None, max_depth: int
 
 def detect_high_risk_hubs(repo_name: Optional[str] = None, limit: int = 15) -> List[Dict[str, Any]]:
     """
-    Identifies 'God Functions' or critical bottleneck hubs with very high in-degree
-    (many callers) or out-degree (calls too many functions). High risk for refactoring.
+    Identifies high-risk architectural hubs and classifies them into distinct code smell categories:
+    - God Function / God Method (high fan-out + large LOC)
+    - Critical Bottleneck Hub (high fan-in)
+    - Spaghetti Coupling Hub (high bidirectional fan-in and fan-out)
+    - High-Churn Risky Hub (frequent git commits + high degree)
+    - Brain Method / Complex Coordinator (high subsystem orchestration)
     """
     with driver.session() as session:
         query = """
@@ -38,7 +42,8 @@ def detect_high_risk_hubs(repo_name: Optional[str] = None, limit: int = 15) -> L
         WHERE $repo_name IS NULL OR fn.repo = $repo_name
         OPTIONAL MATCH (caller:Function)-[:CALLS]->(fn)
         OPTIONAL MATCH (fn)-[:CALLS]->(callee)
-        WITH fn, count(DISTINCT caller) AS in_degree, count(DISTINCT callee) AS out_degree
+        OPTIONAL MATCH (f:File {path: fn.file_path})
+        WITH fn, count(DISTINCT caller) AS in_degree, count(DISTINCT callee) AS out_degree, max(f.churn) AS churn
         WHERE in_degree > 2 OR out_degree > 4
         RETURN coalesce(fn.id, elementId(fn)) AS id,
                fn.name AS name,
@@ -51,12 +56,76 @@ def detect_high_risk_hubs(repo_name: Optional[str] = None, limit: int = 15) -> L
                fn.docstring AS docstring,
                in_degree,
                out_degree,
+               coalesce(churn, 0) AS churn,
                (in_degree * 2 + out_degree) AS risk_score
         ORDER BY risk_score DESC
         LIMIT $limit
         """
         records = session.run(query, repo_name=repo_name, limit=limit)
-        return [dict(r) for r in records]
+        hubs = []
+        for r in records:
+            item = dict(r)
+            in_deg = item.get("in_degree", 0)
+            out_deg = item.get("out_degree", 0)
+            churn = item.get("churn") or 0
+            line = item.get("line") or 1
+            end_line = item.get("end_line") or line
+            code_lines = len((item.get("code") or "").splitlines())
+            loc = max(end_line - line + 1, code_lines, 1)
+
+            # Categorize into distinct architectural smells
+            if (out_deg >= 5 and loc >= 35) or out_deg >= 7:
+                smell_type = "God Function"
+                smell_type_fa = "تابع همه‌کاره (God Function)"
+                severity = "CRITICAL"
+                badge_color = "rose"
+                desc = f"این تابع با {out_deg} فراخوانی خروجی و {loc} خط کد، اصل تک‌مسئولیتی (SRP) را نقض کرده و وظایف متعددی را در خود جای داده است."
+                rec = "شکستن تابع به متدهای کوچکتر (Extract Method) و تفکیک وظایف با الگوهای طراحی شیءگرا."
+            elif in_deg >= 4 and out_deg <= 3:
+                smell_type = "Critical Bottleneck Hub"
+                smell_type_fa = "نقطه گلوگاه بحرانی (Bottleneck Hub)"
+                severity = "CRITICAL" if in_deg >= 6 else "HIGH"
+                badge_color = "amber"
+                desc = f"این تابع توسط {in_deg} تابع مختلف در پروژه فراخوانی می‌شود و به عنوان یک نقطه اتکای مرکزی و پرریسک عمل می‌کند."
+                rec = "ایجاد لایه اینترفیس (Abstraction Layer) یا الگوی Facade جهت کاهش وابستگی مستقیم سایر توابع."
+            elif in_deg >= 3 and out_deg >= 3:
+                smell_type = "Spaghetti Coupling Hub"
+                smell_type_fa = "کوپلینگ اسپاگتی (Spaghetti Coupling)"
+                severity = "CRITICAL"
+                badge_color = "purple"
+                desc = f"این تابع دارای {in_deg} فراخواننده و {out_deg} فراخوانی خروجی است و در یک شبکه درهم‌تنیده با کوپلینگ دوطرفه قرار دارد."
+                rec = "جداسازی جریان‌های ورودی و خروجی با الگوی Mediator یا معماری رویدادمحور (Event-Driven)."
+            elif churn >= 3 and (in_deg + out_deg) >= 3:
+                smell_type = "High-Churn Risky Hub"
+                smell_type_fa = "هاب ناپایدار و پرتغییر (High Churn)"
+                severity = "HIGH"
+                badge_color = "orange"
+                desc = f"فایل این تابع نرخ تغییرات بالایی در گیت دارد (Churn: {churn}) و همزمان دارای اتصالات ساختاری قابل توجه است."
+                rec = "تثبیت امضای متد و پیاده‌سازی تست‌های رگرسیون قبل از اعمال تغییرات جدید."
+            elif out_deg >= 4:
+                smell_type = "Brain Method / Coordinator"
+                smell_type_fa = "متد هماهنگ‌کننده سنگین (Brain Method)"
+                severity = "HIGH"
+                badge_color = "sky"
+                desc = f"این متد با فراخوانی {out_deg} زیرسیستم، جریان کنترلی پیچیده‌ای را در پروژه مدیریت می‌کند."
+                rec = "استفاده از الگوی Chain of Responsibility یا State جهت تفکیک سناریوهای شرطی."
+            else:
+                smell_type = "High-Fanout Hub"
+                smell_type_fa = "هاب با اتصالات بالا (High Fan-Out)"
+                severity = "MEDIUM"
+                badge_color = "yellow"
+                desc = f"این تابع دارای اتصالات بالایی در گراف کد است (In: {in_deg}, Out: {out_deg})."
+                rec = "بررسی مجدد مرزهای معماری و کاهش اتصالات غیرضروری."
+
+            item["smell_type"] = smell_type
+            item["smell_type_fa"] = smell_type_fa
+            item["smell_severity"] = severity
+            item["smell_badge_color"] = badge_color
+            item["smell_description"] = desc
+            item["recommendation"] = rec
+            item["loc"] = loc
+            hubs.append(item)
+        return hubs
 
 def detect_dead_code_candidates(repo_name: Optional[str] = None, limit: int = 30) -> List[Dict[str, Any]]:
     """

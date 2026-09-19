@@ -514,12 +514,18 @@
           </h2>
           <p class="text-xs text-slate-400 mt-0.5">Automated detection of circular dependencies, god functions, and dead code candidates.</p>
         </div>
-        <button onclick="triggerAutoDoc()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
-          <i data-lucide="book-open" class="w-3.5 h-3.5"></i> Run Auto-Doc
-        </button>
-        <button onclick="loadCodeSmells()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition">
-          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Run Audit
-        </button>
+        <div class="flex items-center gap-2">
+          <button onclick="exportArchitectureReportMarkdown()" class="px-3.5 py-1.5 bg-gradient-to-r from-sky-700 to-indigo-700 hover:from-sky-600 hover:to-indigo-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-900/30 transition" title="دریافت گزارش جامع سلامت معماری به فرمت Markdown">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>Export Report (.md)</span>
+          </button>
+          <button onclick="triggerAutoDoc()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+            <i data-lucide="book-open" class="w-3.5 h-3.5"></i> Run Auto-Doc
+          </button>
+          <button onclick="loadCodeSmells()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Run Audit
+          </button>
+        </div>
       </div>
       
       <!-- Clones & Hotspots Box -->
@@ -554,12 +560,12 @@
 
         <div onclick="document.getElementById('list-hubs').scrollIntoView({ behavior: 'smooth', block: 'center' })" class="bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/60 p-4 rounded-xl shadow cursor-pointer transition transform hover:-translate-y-0.5 group">
           <div class="flex items-center justify-between text-xs text-slate-400 group-hover:text-amber-300">
-            <span>High-Risk Hubs (God Functions)</span>
+            <span>Critical Hubs & Architectural Smells</span>
             <i data-lucide="cpu" class="w-4 h-4 text-amber-400"></i>
           </div>
           <div id="smell-count-hubs" class="text-2xl font-bold text-slate-100 mt-2 font-mono">0</div>
           <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
-            <span>Functions with high caller / callee fanout</span>
+            <span>God functions, bottlenecks, and high-coupling hubs</span>
             <span class="text-amber-400 opacity-0 group-hover:opacity-100 transition text-[10px]">مشاهده &darr;</span>
           </p>
         </div>
@@ -593,7 +599,7 @@
         <!-- Panel 2: High-Risk Hubs -->
         <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex flex-col">
           <h3 class="text-xs font-bold text-amber-400 flex items-center gap-1.5 mb-3">
-            <i data-lucide="zap" class="w-4 h-4"></i> Critical Hubs & Bottlenecks
+            <i data-lucide="zap" class="w-4 h-4"></i> Critical Hubs & Architectural Smells
           </h3>
           <div id="list-hubs" class="flex-1 space-y-2 overflow-y-auto max-h-80 custom-scrollbar text-xs">
             <div class="text-slate-500 text-center py-8">Loading hub functions...</div>
@@ -1402,7 +1408,7 @@
     </div>
   </div>
 
-  <!-- ==================== HUB / GOD FUNCTION MODAL ==================== -->
+  <!-- ==================== HUB / ARCHITECTURAL SMELL MODAL ==================== -->
   <div id="hub-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-slate-900 border border-slate-800 w-full max-w-3xl rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -1411,9 +1417,10 @@
             <i data-lucide="cpu" class="w-5 h-5"></i>
           </div>
           <div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <h3 id="hub-modal-title" class="text-base font-bold text-slate-100 font-mono">hub_name</h3>
-              <span class="text-[10px] bg-amber-950 text-amber-300 border border-amber-800 px-2 py-0.5 rounded-full font-mono font-semibold">High-Risk Hub</span>
+              <span id="hub-modal-badge" class="text-[10px] bg-amber-950 text-amber-300 border border-amber-800 px-2 py-0.5 rounded-full font-mono font-semibold">High-Risk Hub</span>
+              <span id="hub-modal-severity" class="text-[10px] bg-rose-950 text-rose-300 border border-rose-800 px-2 py-0.5 rounded-full font-mono font-semibold">CRITICAL</span>
             </div>
             <p id="hub-modal-file" class="text-xs text-slate-400 font-mono mt-0.5">path/to/file.py</p>
           </div>
@@ -1424,30 +1431,38 @@
       </div>
 
       <!-- Metrics summary -->
-      <div class="grid grid-cols-3 gap-3 text-center text-xs">
-        <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
-          <span class="text-slate-500 text-[10px]">فراخواننده‌ها (In-Degree)</span>
-          <div id="hub-modal-in" class="text-base font-bold text-sky-400 font-mono mt-0.5">0</div>
+      <div class="grid grid-cols-4 gap-2 text-center text-xs">
+        <div class="bg-slate-950 border border-slate-800 p-2 rounded-xl">
+          <span class="text-slate-500 text-[10px]">فراخواننده‌ها (In)</span>
+          <div id="hub-modal-in" class="text-sm font-bold text-sky-400 font-mono mt-0.5">0</div>
         </div>
-        <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
-          <span class="text-slate-500 text-[10px]">فراخوانی‌ها (Out-Degree)</span>
-          <div id="hub-modal-out" class="text-base font-bold text-emerald-400 font-mono mt-0.5">0</div>
+        <div class="bg-slate-950 border border-slate-800 p-2 rounded-xl">
+          <span class="text-slate-500 text-[10px]">فراخوانی‌ها (Out)</span>
+          <div id="hub-modal-out" class="text-sm font-bold text-emerald-400 font-mono mt-0.5">0</div>
         </div>
-        <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
-          <span class="text-slate-500 text-[10px]">شاخص ریسک (Risk Score)</span>
-          <div id="hub-modal-risk" class="text-base font-bold text-amber-400 font-mono mt-0.5">0</div>
+        <div class="bg-slate-950 border border-slate-800 p-2 rounded-xl">
+          <span class="text-slate-500 text-[10px]">خطوط کد (LOC)</span>
+          <div id="hub-modal-loc" class="text-sm font-bold text-indigo-400 font-mono mt-0.5">-</div>
+        </div>
+        <div class="bg-slate-950 border border-slate-800 p-2 rounded-xl">
+          <span class="text-slate-500 text-[10px]">شاخص ریسک</span>
+          <div id="hub-modal-risk" class="text-sm font-bold text-amber-400 font-mono mt-0.5">0</div>
         </div>
       </div>
 
-      <!-- Explanation -->
-      <div class="bg-slate-950 border border-amber-900/40 rounded-xl p-3.5 space-y-1.5 text-xs">
+      <!-- Dynamic Smell Explanation & Recommendation -->
+      <div class="bg-slate-950 border border-amber-900/40 rounded-xl p-3.5 space-y-2 text-xs">
         <div class="flex items-center gap-1.5 font-bold text-amber-400">
           <i data-lucide="alert-triangle" class="w-4 h-4"></i>
-          <span>علت ریسک بالا (Architectural Bottleneck):</span>
+          <span>تحلیل آنتی‌پترن معماری (Architectural Diagnosis):</span>
         </div>
-        <p class="text-slate-300 leading-relaxed text-xs">
-          این تابع به دلیل اتصالات زیاد و درهم‌تنیدگی بالا، به عنوان یک نقطه بحرانی (Bottleneck) یا تابع همه‌کاره (God Function) شناخته می‌شود. هرگونه تغییر نسنجیده در این تابع می‌تواند موجب خرابی‌های گسترده در توابع وابسته شود.
+        <p id="hub-modal-desc" class="text-slate-300 leading-relaxed text-xs">
+          در حال بارگذاری تحلیل آنتی‌پترن...
         </p>
+        <div class="pt-2 border-t border-slate-800/80 flex items-start gap-1.5 text-slate-300">
+          <span class="text-emerald-400 font-semibold shrink-0">💡 راهکار پیشنهادی ریفکتور:</span>
+          <span id="hub-modal-rec" class="text-[11px] leading-relaxed text-slate-300">در حال دریافت توصیه‌های معماری...</span>
+        </div>
       </div>
 
       <!-- Code -->
@@ -1464,12 +1479,15 @@
       </div>
 
       <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
-        <div class="flex gap-2">
-          <button onclick="hubViewInGraph()" class="px-3.5 py-2 bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="hubViewInGraph()" class="px-3 py-1.5 bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
             <i data-lucide="share-2" class="w-3.5 h-3.5"></i> مشاهده در گراف
           </button>
-          <button onclick="hubBlastRadius()" class="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+          <button onclick="hubBlastRadius()" class="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
             <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> اثر تغییر (Blast)
+          </button>
+          <button onclick="hubAskAi()" class="px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> تحلیل و ریفکتور با AI
           </button>
         </div>
         <button onclick="closeHubModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition">
@@ -1547,7 +1565,8 @@
 
       if (viewName === 'graph') {
         if (network) {
-          setTimeout(() => { network.fit({ animation: true }); }, 60);
+          network.setSize('100%', '100%');
+          network.redraw();
         }
       } else if (viewName === 'vectordb') {
         loadVectorDbData();
@@ -1559,6 +1578,7 @@
         checkLlmStatus();
         const chatInput = document.getElementById('chat-input');
         if (chatInput) setTimeout(() => chatInput.focus(), 100);
+        if (window.lucide) window.lucide.createIcons();
       } else if (viewName === 'mcp') {
         initMcpView();
       }
@@ -1865,18 +1885,21 @@ asyncio.run(run())`;
           enabled: true,
           solver: 'forceAtlas2Based',
           forceAtlas2Based: {
-            gravitationalConstant: -50,
-            centralGravity: 0.01,
-            springLength: 100,
+            gravitationalConstant: -60,
+            centralGravity: 0.025,
+            springLength: 90,
             springConstant: 0.08,
-            damping: 0.4,
-            avoidOverlap: 0.5
+            damping: 0.45,
+            avoidOverlap: 0.6
           },
-          maxVelocity: 40,
-          minVelocity: 0.75,
+          maxVelocity: 30,
+          minVelocity: 0.1,
           timestep: 0.35,
           stabilization: {
-            enabled: false
+            enabled: true,
+            iterations: 120,
+            updateInterval: 25,
+            fit: true
           }
         },
         interaction: {
@@ -1890,6 +1913,25 @@ asyncio.run(run())`;
 
       try {
         network = new vis.Network(container, data, options);
+
+        // Auto-freeze physics once layout is stabilized to eliminate camera bouncing, auto-zoom, and jitter
+        network.on('stabilized', function () {
+          network.setOptions({ physics: { enabled: false } });
+          physicsEnabled = false;
+          const btn = document.getElementById('btn-toggle-physics');
+          if (btn) {
+            btn.innerHTML = '<i data-lucide="zap-off" class="w-4 h-4 text-slate-500"></i>';
+            btn.title = 'Physics: Frozen (Click to Resume)';
+            if (window.lucide) window.lucide.createIcons();
+          }
+        });
+
+        // When user drags a node, freeze physics so the rest of the graph remains fixed in place
+        network.on('dragStart', function () {
+          if (physicsEnabled) {
+            network.setOptions({ physics: { enabled: false } });
+          }
+        });
 
         // Node Click Handler -> Open Detailed Interactive Popup Modal
         network.on('click', function(params) {
@@ -2318,9 +2360,11 @@ asyncio.run(run())`;
             if (network) {
               network.setSize('100%', '100%');
               network.redraw();
+              network.setOptions({ physics: { enabled: true } });
+              network.stabilize(80);
               setTimeout(() => {
-                network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
-              }, 120);
+                network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+              }, 150);
             }
           } else {
             const countBadge = document.getElementById('node-count-badge');
@@ -2856,26 +2900,34 @@ asyncio.run(run())`;
 
         // Render Hubs (Clickable)
         if (hubs.length === 0) {
-          hubsList.innerHTML = '<div class="text-emerald-400 text-center py-8 font-medium">✓ No high-risk bottleneck god functions detected.</div>';
+          hubsList.innerHTML = '<div class="text-emerald-400 text-center py-8 font-medium">✓ No high-risk architectural hubs detected.</div>';
         } else {
-          hubsList.innerHTML = hubs.map((h, idx) => `
+          hubsList.innerHTML = hubs.map((h, idx) => {
+            const badgeColor = h.smell_badge_color || 'amber';
+            const badgeLabel = h.smell_type_fa || h.smell_type || 'High-Risk Hub';
+            const sevLabel = h.smell_severity || 'HIGH';
+            const sevBg = sevLabel === 'CRITICAL' ? 'bg-rose-950 text-rose-300 border-rose-800' : (sevLabel === 'HIGH' ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-slate-900 text-slate-300 border-slate-700');
+
+            return `
             <div onclick="openHubInspection(${idx})" class="p-3 bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/80 rounded-xl flex items-center justify-between cursor-pointer transition transform hover:-translate-y-0.5 shadow-md group">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="font-bold text-amber-400 group-hover:text-amber-300 font-mono">${escapeHtml(h.name)}</span>
-                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 font-mono">Risk: ${h.risk_score}</span>
+              <div class="min-w-0 flex-1 pr-2">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="font-bold text-amber-400 group-hover:text-amber-300 font-mono text-xs truncate">${escapeHtml(h.name)}</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium ${sevBg} border">${escapeHtml(badgeLabel)}</span>
+                  <span class="text-[9px] px-1 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 font-mono">Risk: ${h.risk_score}</span>
                 </div>
-                <div class="text-[10px] text-slate-400 break-all font-mono mt-0.5">${escapeHtml(h.file_path)}</div>
+                <div class="text-[10px] text-slate-400 break-all font-mono mt-0.5">${escapeHtml(h.file_path)}${h.loc ? ` (${h.loc} LOC)` : ''}</div>
                 <div class="text-[10px] text-sky-400 opacity-80 group-hover:opacity-100 flex items-center gap-1 mt-1 font-sans">
-                  <i data-lucide="code" class="w-3 h-3"></i> مشاهده سورس کد و تحلیل ریسک &rarr;
+                  <i data-lucide="code" class="w-3 h-3"></i> مشاهده سورس کد، تحلیل آنتی‌پترن و ریفکتور &rarr;
                 </div>
               </div>
-              <div class="text-right text-[11px] text-slate-400 font-mono space-y-0.5 shrink-0 pl-2">
+              <div class="text-right text-[11px] text-slate-400 font-mono space-y-0.5 shrink-0 pl-2 border-l border-slate-800/80">
                 <div>In: <strong class="text-sky-400">${h.in_degree}</strong></div>
                 <div>Out: <strong class="text-emerald-400">${h.out_degree}</strong></div>
               </div>
             </div>
-          `).join('');
+          `;
+          }).join('');
         }
 
         // Render Dead Code (Clickable)
@@ -3649,7 +3701,13 @@ asyncio.run(run())`;
           })
         });
 
-        const data = await res.json();
+        let data = {};
+        try {
+          data = await res.json();
+        } catch (parseErr) {
+          const rawText = await res.text().catch(() => '');
+          data = { response: rawText || res.statusText || 'No response from server.' };
+        }
 
         if (indicator) indicator.classList.add('hidden');
         if (sendBtn) {
@@ -3903,8 +3961,18 @@ asyncio.run(run())`;
     function deadCodeAskAi() {
       closeDeadCodeModal();
       if (!currentModalDeadCodeItem) return;
-      const q = `تابع '${currentModalDeadCodeItem.name}' در فایل '${currentModalDeadCodeItem.file_path}' به عنوان Dead Code (بدون فراخواننده) شناسایی شده است. لطفاً توضیح بده کارکرد این تابع چیست و آیا می‌توانم با خیال راحت آن را حذف کنم یا ممکن است به صورت غیرمستقیم (مثلاً Event یا API) استفاده شود؟`;
+      const d = currentModalDeadCodeItem;
+      const q = `تابع '${d.name}' در فایل '${d.file_path}' (خط ${d.line || 1}) به عنوان Dead Code (بدون هیچ فراخواننده‌ای در کل پروژه) شناسایی شده است. لطفاً سورس کد زیر را تحلیل کن و مشخص نما:
+1. کارکرد دقیق این تابع چیست؟
+2. آیا واقعاً کد مرده و قابل حذف است، یا نقطه ورود خارجی، رویداد (Event)، روت API یا متد آزمایشی (Test) است؟
+3. راهکار پیشنهادی برای پاکسازی، بازنویسی یا ایزوله‌سازی آن چیست؟
+
+سورس کد:
+\`\`\`${d.language || ''}
+${d.code || ''}
+\`\`\``;
       switchMainView('chat');
+      setChatMode('direct');
       setTimeout(() => {
         const input = document.getElementById('chat-input');
         if (input) {
@@ -3941,6 +4009,32 @@ asyncio.run(run())`;
       document.getElementById('hub-modal-in').innerText = item.in_degree || 0;
       document.getElementById('hub-modal-out').innerText = item.out_degree || 0;
       document.getElementById('hub-modal-risk').innerText = item.risk_score || 0;
+
+      const locEl = document.getElementById('hub-modal-loc');
+      if (locEl) locEl.innerText = item.loc || '-';
+
+      const badgeEl = document.getElementById('hub-modal-badge');
+      if (badgeEl) {
+        badgeEl.innerText = item.smell_type_fa || item.smell_type || 'High-Risk Hub';
+      }
+
+      const sevEl = document.getElementById('hub-modal-severity');
+      if (sevEl) {
+        const sev = item.smell_severity || 'HIGH';
+        sevEl.innerText = sev;
+        sevEl.className = `text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold border ${sev === 'CRITICAL' ? 'bg-rose-950 text-rose-300 border-rose-800' : (sev === 'HIGH' ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-slate-900 text-slate-300 border-slate-700')}`;
+      }
+
+      const descEl = document.getElementById('hub-modal-desc');
+      if (descEl) {
+        descEl.innerText = item.smell_description || 'این تابع به دلیل اتصالات زیاد و درهم‌تنیدگی بالا، به عنوان یک نقطه بحرانی در معماری شناسایی شده است.';
+      }
+
+      const recEl = document.getElementById('hub-modal-rec');
+      if (recEl) {
+        recEl.innerText = item.recommendation || 'شکستن متد به توابع کوچکتر و کاهش وابستگی‌های مستقیم.';
+      }
+
       document.getElementById('hub-modal-code').innerText = item.code || '// در حال بارگذاری سورس کد...';
 
       if (!item.code && item.id) {
@@ -3957,6 +4051,125 @@ asyncio.run(run())`;
       }
 
       if (window.lucide) window.lucide.createIcons();
+    }
+
+    function hubAskAi() {
+      closeHubModal();
+      if (!currentModalHubItem) return;
+      const h = currentModalHubItem;
+      const q = `متد/تابع '${h.name}' در فایل '${h.file_path}' به عنوان آنتی‌پترن '${h.smell_type_fa || h.smell_type}' با ریسک ${h.risk_score} (فراخواننده‌ها: ${h.in_degree}، فراخوانی‌ها: ${h.out_degree}) شناسایی شده است.
+علت شناسایی: ${h.smell_description || ''}
+
+لطفاً این تابع را تحلیل معماری نموده و با ارائه نمونه کد بازنویسی شده، راهکار دقیق ریفکتور، تفکیک وظایف بر اساس SRP و کاهش کوپلینگ آن را تشریح کن:
+
+سورس کد:
+\`\`\`${h.language || ''}
+${h.code || ''}
+\`\`\``;
+      switchMainView('chat');
+      setChatMode('direct');
+      setTimeout(() => {
+        const input = document.getElementById('chat-input');
+        if (input) {
+          input.value = q;
+          submitChat();
+        }
+      }, 150);
+    }
+
+    function exportArchitectureReportMarkdown() {
+      const selectedRepo = document.getElementById('repo-filter-select')?.value || 'All Repositories';
+      const now = new Date();
+      const dateStr = now.toISOString().replace('T', ' ').substring(0, 19);
+
+      const cycles = currentCyclesList || [];
+      const hubs = currentHubsList || [];
+      const dead = currentDeadCodeList || [];
+      const clones = currentClonesList || [];
+      const hotspots = currentHotspotsList || [];
+
+      let md = `# CodeGraph Brain - گزارش جامع سلامت معماری و آنتی‌پترن‌ها (Architecture Health Report)\n\n`;
+      md += `> **مخزن هدف:** \`${selectedRepo}\`  \n`;
+      md += `> **تاریخ و زمان گزارش:** \`${dateStr}\`  \n`;
+      md += `> **موتور تحلیل:** CodeGraph Brain v2.0 Enterprise AST & Graph Intelligence  \n\n`;
+      md += `---\n\n`;
+
+      md += `## ۱. خلاصه شاخص‌های سلامت سیستم (Executive Summary)\n\n`;
+      md += `| شاخص ارزیابی | تعداد موارد شناسایی شده | وضعیت ریسک |\n`;
+      md += `| :--- | :--- | :--- |\n`;
+      md += `| **وابستگی‌های حلقوی (Circular Dependencies)** | ${cycles.length} | ${cycles.length > 0 ? '🔴 CRITICAL' : '🟢 HEALTHY'} |\n`;
+      md += `| **هاب‌های بحرانی و آنتی‌پترن‌ها (Critical Hubs & Smells)** | ${hubs.length} | ${hubs.length > 5 ? '🔴 CRITICAL' : (hubs.length > 0 ? '🟡 HIGH' : '🟢 HEALTHY')} |\n`;
+      md += `| **کدهای مرده / بدون فراخواننده (Dead Code Candidates)** | ${dead.length} | ${dead.length > 10 ? '🟡 MEDIUM' : '🟢 LOW'} |\n`;
+      md += `| **کدهای تکراری (Code Clones)** | ${clones.length} | ${clones.length > 0 ? '🟡 REFACTOR' : '🟢 CLEAN'} |\n`;
+      md += `| **نقاط داغ تغییرات (Git Hotspots)** | ${hotspots.length} | ℹ️ TRACKED |\n\n`;
+      md += `---\n\n`;
+
+      md += `## ۲. هاب‌های بحرانی و الگوهای نامناسب معماری (Critical Hubs & Architectural Smells)\n\n`;
+      if (hubs.length === 0) {
+        md += `*هیچ نقطه گلوگاه یا تابع همه‌کاره پرریسکی شناسایی نشد.*\n\n`;
+      } else {
+        md += `در این بخش، توابعی که دارای اتصالات متراکم، عدم رعایت اصل تک‌مسئولیتی (SRP) یا کوپلینگ شدید هستند فهرست شده‌اند:\n\n`;
+        md += `| ردیف | نام تابع / متد | دسته‌بندی آنتی‌پترن | سطح ریسک | فراخواننده (In) | فراخوانی (Out) | خطوط کد (LOC) | فایل سورس |\n`;
+        md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+        hubs.forEach((h, idx) => {
+          md += `| ${idx + 1} | \`${h.name}\` | **${h.smell_type_fa || h.smell_type}** | \`${h.smell_severity || 'HIGH'}\` (Risk: ${h.risk_score}) | ${h.in_degree} | ${h.out_degree} | ${h.loc || '-'} | \`${h.file_path}\` |\n`;
+        });
+        md += `\n### شرح تفصیلی و راهکارهای ریفکتور هاب‌ها:\n\n`;
+        hubs.forEach((h, idx) => {
+          md += `#### ${idx + 1}. تابع \`${h.name}\` (${h.smell_type_fa || h.smell_type})\n`;
+          md += `- **مسیر فایل:** \`${h.file_path}:${h.line || 1}\`\n`;
+          md += `- **شاخص ریسک:** \`${h.risk_score}\` (فراخواننده‌ها: ${h.in_degree}، فراخوانی‌ها: ${h.out_degree})\n`;
+          md += `- **علت شناسایی:** ${h.smell_description || 'عدم رعایت مرزهای پیمانه‌ای و تجمع وابستگی‌ها.'}\n`;
+          md += `- **راهکار معماری پیشنهادی:** ${h.recommendation || 'تجزیه متد به اجزای مستقل‌تر.'}\n\n`;
+        });
+      }
+      md += `---\n\n`;
+
+      md += `## ۳. وابستگی‌های حلقوی شناسایی شده (Circular Call Chains)\n\n`;
+      if (cycles.length === 0) {
+        md += `*هیچ چرخه فراخوانی بازگشتی (Circular Dependency) در گراف کد شناسایی نشد.*\n\n`;
+      } else {
+        md += `توابع زیر در یک حلقه بازگشتی متقابل گرفتار شده‌اند که می‌تواند منجر به بن‌بست، سربار حافظه یا مشکلات تست‌پذیری گردد:\n\n`;
+        cycles.forEach((c, idx) => {
+          md += `### چرخه ${idx + 1} (طول زنجیره: ${c.length || (c.cycle && c.cycle.length) || 0})\n`;
+          md += `\`\`\`text\n${(c.cycle || []).join(' ➔ ')}\n\`\`\`\n`;
+          if (c.files && c.files.length) {
+            md += `- **فایل‌های درگیر:** ${c.files.map(f => `\`${f}\``).join(', ')}\n`;
+          }
+          md += `\n`;
+        });
+      }
+      md += `---\n\n`;
+
+      md += `## ۴. کاندیداهای کد مرده (Dead Code Candidates)\n\n`;
+      if (dead.length === 0) {
+        md += `*هیچ کد مرده بارزی شناسایی نشد.*\n\n`;
+      } else {
+        md += `توابع زیر در هیچ کجای مخزن توسط توابع دیگر فراخوانی نشده‌اند (Callers = 0):\n\n`;
+        md += `| ردیف | نام نماد | فایل سورس | خط | علت شناسایی |\n`;
+        md += `| :--- | :--- | :--- | :--- | :--- |\n`;
+        dead.forEach((d, idx) => {
+          md += `| ${idx + 1} | \`${d.name}\` | \`${d.file_path}\` | ${d.line || 1} | ${d.reason || 'بدون فراخواننده ورودی'} |\n`;
+        });
+        md += `\n`;
+      }
+      md += `---\n\n`;
+
+      md += `## ۵. نقشه راه و توصیه‌های اصلاحی (Action Plan)\n\n`;
+      md += `1. **رفع وابستگی‌های حلقوی:** اولویت اول ریفکتورینگ را به شکستن چرخه‌های فراخوانی بازگشتی اختصاص دهید (با استفاده از Eventها یا اینترفیس مشترک).\n`;
+      md += `2. **ایزوله‌سازی گلوگاه‌ها:** برای توابعی با In-Degree بالا، قرارداد (Contract) تست خودکار ایجاد کنید تا تغییرات ناخواسته موجب شکست کل سیستم نشود.\n`;
+      md += `3. **پاکسازی کدهای بی‌استفاده:** متدهای Dead Code را بررسی کرده و در صورت عدم استفاده در APIهای خارجی یا تست‌ها، آنها را حذف نمایید تا پیچیدگی پروژه کاهش یابد.\n\n`;
+
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      const safeRepo = selectedRepo.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `architecture-health-${safeRepo}-${Date.now()}.md`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
 
     function closeHubModal() {

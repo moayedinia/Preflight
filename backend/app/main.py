@@ -389,14 +389,19 @@ def chat_rag_endpoint(payload: ChatRequest):
         from app.core.llm import call_llm
         system_prompt = (
             "You are CodeGraph Brain AI Assistant, an expert software engineer and software architect. "
-            "Help the user with programming, system architecture, debugging, and code reviews. "
-            "Provide clean, well-formatted code snippets and practical explanations."
+            "Help the user with programming, system architecture, debugging, dead code analysis, and code reviews. "
+            "Provide clean, well-formatted code snippets and practical explanations in Persian or the user's language."
         )
         try:
             answer = call_llm(payload.message, system_prompt)
             return {"response": answer, "sources": [], "mode": "direct"}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Direct LLM chat failed: {str(e)}")
+            fallback_msg = (
+                "⚠️ **سرویس مدل زبانی (LLM) در حال حاضر در دسترس نیست.**\n\n"
+                f"جزئیات ارتباط: `{str(e)}`\n\n"
+                "💡 **راهنما:** لطفاً بررسی کنید که آیا Ollama یا سرور LLM محلی در حال اجراست و در بخش **LLM Config** آدرس و نام مدل به درستی تنظیم شده است."
+            )
+            return {"response": fallback_msg, "sources": [], "mode": "direct", "warning": str(e)}
 
     elif mode == "nl2cypher" or payload.message.strip().startswith("/cypher "):
         from app.core.rag import execute_nl2cypher_query
@@ -405,7 +410,12 @@ def chat_rag_endpoint(payload: ChatRequest):
             result = execute_nl2cypher_query(actual_query, clean_repo)
             return {"response": result["answer"], "sources": result.get("retrieved_nodes", []), "mode": "nl2cypher"}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"NL2Cypher query failed: {str(e)}")
+            fallback_msg = (
+                "⚠️ **خطا در تبدیل و اجرای کوئری گراف (NL2Cypher):**\n\n"
+                f"جزئیات: `{str(e)}`\n\n"
+                "💡 لطفاً کوئری خود را مجدداً به صورت شفاف‌تر بنویسید یا وضعیت سرور پایگاه داده Neo4j را بررسی کنید."
+            )
+            return {"response": fallback_msg, "sources": [], "mode": "nl2cypher", "warning": str(e)}
 
     else:  # graphrag
         try:
@@ -416,7 +426,12 @@ def chat_rag_endpoint(payload: ChatRequest):
             )
             return {"response": result["answer"], "sources": result.get("retrieved_nodes", []), "mode": "graphrag"}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"GraphRAG query failed: {str(e)}")
+            fallback_msg = (
+                "⚠️ **خطا در اجرای جستجوی ترکیبی GraphRAG:**\n\n"
+                f"جزئیات: `{str(e)}`\n\n"
+                "💡 وضعیت ایندکس شدن مخزن، اتصال Neo4j و سرویس مدل زبانی را بررسی نمایید."
+            )
+            return {"response": fallback_msg, "sources": [], "mode": "graphrag", "warning": str(e)}
 
 # 7. Graph Statistics & Visual Elements
 @app.get("/api/v1/graph/stats", dependencies=[Depends(verify_api_key)])
