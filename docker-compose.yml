@@ -141,7 +141,6 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-RedisSecurePass2026!}@redis:6379/0
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jina-embeddings-v2-code:latest}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
