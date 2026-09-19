@@ -4,6 +4,7 @@ services:
   neo4j:
     image: dockerhub.ime.co.ir/neo4j:5.11
     container_name: neo4j_graph
+    entrypoint: ["/bin/bash", "-c", "rm -rf /var/lib/neo4j/run/*.pid /data/*.pid /data/run/*.pid 2>/dev/null || true; exec /startup/docker-entrypoint.sh neo4j console"]
     environment:
       - NEO4J_AUTH=${NEO4J_AUTH:-none}
     ports:
