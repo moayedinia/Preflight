@@ -3896,11 +3896,13 @@ asyncio.run(run())`;
         });
         const data = await res.json();
         if (res.ok) {
-          alert(`Auto-Documentation Engine started! Task ID: ${data.task_id}`);
+          pollTaskProgress(data.task_id);
         } else {
-          alert(`Error: ${data.detail}`);
+          showTaskStatus(`خطا در اجرای Auto-Doc: ${data.detail}`, 'FAILURE', 0, data.detail);
         }
-      } catch (e) { alert('Connection error.'); }
+      } catch (err) { 
+        showTaskStatus(`خطای شبکه در ارسال درخواست: ${err.message}`, 'FAILURE', 0, err.message);
+      }
     }
 
     // --- Code Smells & Dead Code Interactive Inspection ---
