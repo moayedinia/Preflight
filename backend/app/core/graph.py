@@ -478,10 +478,11 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
     with driver.session() as session:
         query = """
         MATCH (n)
-        WHERE $repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name
+        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
+          AND (n:Function OR n:File OR n:Class OR n:Repository)
         WITH n LIMIT $limit
-        OPTIONAL MATCH (n)-[r]-(m)
-        WHERE ($repo_name IS NULL OR m.repo = $repo_name OR m.name = $repo_name OR m:Repository OR m:Module OR m:FunctionReference)
+        OPTIONAL MATCH (n)-[r:CONTAINS|CALLS|DEFINES]->(m)
+        WHERE ($repo_name IS NULL OR m.repo = $repo_name OR m.name = $repo_name)
         RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
         """
         result = session.run(query, repo_name=repo_name, limit=limit)

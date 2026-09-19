@@ -1555,9 +1555,14 @@
         if (el) {
           if (v === viewName) {
             el.classList.remove('hidden');
+            // Re-add flex if it's supposed to be a flex container
+            if (v === 'chat' || v === 'graph' || v === 'mcp') {
+                el.classList.add('flex');
+            }
             if (btn) btn.className = 'px-3.5 py-1.5 rounded-lg flex items-center gap-2 bg-sky-600 text-white font-semibold shadow-sm transition';
           } else {
             el.classList.add('hidden');
+            el.classList.remove('flex');
             if (btn) btn.className = 'px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-slate-400 hover:text-slate-200 transition';
           }
         }
@@ -1785,7 +1790,7 @@ asyncio.run(run())`;
       if (!container) return;
 
       // If vis-network library is not available, fallback to Cytoscape
-      if (typeof vis === 'undefined' || !vis.Network) {
+      if (typeof vis === 'undefined') {
         console.warn('Vis.js (Graphify) not detected in environment. Initializing Cytoscape fallback.');
         initCytoscape();
         return;
@@ -1885,20 +1890,20 @@ asyncio.run(run())`;
           enabled: true,
           solver: 'forceAtlas2Based',
           forceAtlas2Based: {
-            gravitationalConstant: -60,
-            centralGravity: 0.025,
-            springLength: 90,
+            gravitationalConstant: -50,
+            centralGravity: 0.01,
+            springLength: 100,
             springConstant: 0.08,
-            damping: 0.45,
-            avoidOverlap: 0.6
+            damping: 0.4,
+            avoidOverlap: 0.5
           },
-          maxVelocity: 30,
+          maxVelocity: 50,
           minVelocity: 0.1,
-          timestep: 0.35,
+          timestep: 0.5,
           stabilization: {
             enabled: true,
-            iterations: 120,
-            updateInterval: 25,
+            iterations: 150,
+            updateInterval: 150,
             fit: true
           }
         },
