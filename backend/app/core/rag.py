@@ -21,8 +21,23 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
     # 2. Vector Search
     hits = vector_search(query_vector, top_k=top_k, repo_name=repo_name)
     if not hits:
+        from app.core.llm import call_llm
+        system_prompt = (
+            "You are CodeGraph Brain AI Assistant, an expert software engineer and software architect. "
+            "The user is asking a question. Note that no specific code entities matched in the current repository knowledge graph. "
+            "Provide a helpful, accurate, and structured answer. "
+            "If the user asks about specific code in their repository, kindly advise them to ensure their repository has been ingested and indexed."
+        )
+        try:
+            direct_answer = call_llm(query, system_prompt)
+        except Exception as e:
+            direct_answer = (
+                "No relevant code entities found in the graph database for this query. "
+                "Please ensure your repository is ingested and indexed.\n\n"
+                f"*(LLM response unavailable: {e})*"
+            )
         return {
-            "answer": "No relevant code entities found in the graph database. Please index your repository first.",
+            "answer": direct_answer,
             "retrieved_nodes": [],
             "graph_context": []
         }

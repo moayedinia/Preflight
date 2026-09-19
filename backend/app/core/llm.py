@@ -13,12 +13,18 @@ except Exception:
 
 def get_llm_config() -> dict:
     if r_client:
-        config = r_client.get("codegraph_llm_config")
-        if config:
-            return json.loads(config)
+        try:
+            config = r_client.get("codegraph_llm_config")
+            if config:
+                cfg = json.loads(config)
+                if not cfg.get("model"):
+                    cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or "llama3"
+                return cfg
+        except Exception:
+            pass
     return {
         "base_url": os.getenv("LLM_BASE_URL", "http://localhost:11434/v1"),
-        "model": os.getenv("LLM_MODEL", "llama3"),
+        "model": (os.getenv("LLM_MODEL") or "").strip() or "llama3",
         "api_key": os.getenv("LLM_API_KEY", "")
     }
 

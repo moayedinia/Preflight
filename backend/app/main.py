@@ -370,25 +370,53 @@ def graphrag_query(payload: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=2, max_length=2000)
+    message: str = Field(..., min_length=1, max_length=10000)
     repo_name: Optional[str] = Field(None, max_length=100)
+    mode: Optional[str] = Field("graphrag", description="Mode: 'graphrag', 'direct', or 'nl2cypher'")
 
 @app.post("/api/v1/chat", dependencies=[Depends(verify_api_key)])
 def chat_rag_endpoint(payload: ChatRequest):
     """
-    Built-in RAG Chat: Conversational interface for the knowledge graph.
-    Currently returns structured graph traversal since LLM is offline.
+    Built-in RAG Chat & Conversational AI:
+    - 'graphrag': Retrieves AST nodes and call graph, then synthesizes with LLM.
+    - 'direct': Direct conversational LLM chat for coding & architecture questions.
+    - 'nl2cypher': Converts natural language to Neo4j Cypher and runs it.
     """
     clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
-    try:
-        result = execute_graphrag_query(
-            query=payload.message,
-            repo_name=clean_repo,
-            top_k=4
+    mode = (payload.mode or "graphrag").strip().lower()
+
+    if mode == "direct":
+        from app.core.llm import call_llm
+        system_prompt = (
+            "You are CodeGraph Brain AI Assistant, an expert software engineer and software architect. "
+            "Help the user with programming, system architecture, debugging, and code reviews. "
+            "Provide clean, well-formatted code snippets and practical explanations."
         )
-        return {"response": result["answer"], "sources": result["retrieved_nodes"]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+        try:
+            answer = call_llm(payload.message, system_prompt)
+            return {"response": answer, "sources": [], "mode": "direct"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Direct LLM chat failed: {str(e)}")
+
+    elif mode == "nl2cypher" or payload.message.strip().startswith("/cypher "):
+        from app.core.rag import execute_nl2cypher_query
+        actual_query = payload.message.replace("/cypher ", "").strip()
+        try:
+            result = execute_nl2cypher_query(actual_query, clean_repo)
+            return {"response": result["answer"], "sources": result.get("retrieved_nodes", []), "mode": "nl2cypher"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"NL2Cypher query failed: {str(e)}")
+
+    else:  # graphrag
+        try:
+            result = execute_graphrag_query(
+                query=payload.message,
+                repo_name=clean_repo,
+                top_k=5
+            )
+            return {"response": result["answer"], "sources": result.get("retrieved_nodes", []), "mode": "graphrag"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"GraphRAG query failed: {str(e)}")
 
 # 7. Graph Statistics & Visual Elements
 @app.get("/api/v1/graph/stats", dependencies=[Depends(verify_api_key)])
@@ -572,13 +600,61 @@ def update_llm_settings(payload: LLMConfigRequest):
     set_llm_config(payload.base_url, payload.model, payload.api_key)
     return {"status": "success", "message": "LLM configuration updated successfully."}
 
-@app.post("/api/v1/tasks/autodoc", dependencies=[Depends(verify_api_key)])
-def trigger_auto_doc(payload: AutoDocRequest):
-    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
-    task = generate_missing_docs_task.delay(repo_name=clean_repo)
-    return {
-        "status": "queued",
-        "task_id": task.id,
-        "message": "Auto-Documentation engine started in background worker."
+@app.get("/api/v1/llm/status", dependencies=[Depends(verify_api_key)])
+def check_llm_status():
+    """
+    Checks the status of the configured LLM endpoint and retrieves available models.
+    """
+    from app.core.llm import get_llm_config, normalize_llm_base_url
+    import requests
+    config = get_llm_config()
+    base_url = config.get("base_url", "")
+    target_model = config.get("model", "")
+    
+    status_info = {
+        "status": "unknown",
+        "base_url": base_url,
+        "model": target_model,
+        "available_models": [],
+        "message": ""
     }
+    
+    if not base_url:
+        status_info["status"] = "not_configured"
+        status_info["message"] = "LLM base URL is not configured."
+        return status_info
+
+    try:
+        norm_base = normalize_llm_base_url(base_url)
+        models = []
+        headers = {}
+        if config.get("api_key"):
+            headers["Authorization"] = f"Bearer {config['api_key']}"
+        try:
+            resp = requests.get(f"{norm_base}/models", headers=headers, timeout=5)
+            if resp.ok:
+                data = resp.json()
+                models = [m.get("id") for m in data.get("data", []) if m.get("id")]
+        except Exception:
+            pass
+            
+        if not models:
+            try:
+                root_url = base_url.replace("/v1", "").rstrip("/")
+                resp2 = requests.get(f"{root_url}/api/tags", timeout=5)
+                if resp2.ok:
+                    data2 = resp2.json()
+                    models = [m.get("name") for m in data2.get("models", []) if m.get("name")]
+            except Exception:
+                pass
+
+        status_info["available_models"] = models
+        status_info["status"] = "connected"
+        status_info["message"] = f"Connected to {base_url}. Active Model: {target_model}"
+    except Exception as e:
+        status_info["status"] = "error"
+        status_info["message"] = str(e)
+
+    return status_info
+
 

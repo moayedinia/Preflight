@@ -34,10 +34,25 @@
     #vis-network-container, #cy {
       width: 100%;
       height: 100%;
+      min-height: 500px;
       position: absolute;
       left: 0;
       top: 0;
       z-index: 1;
+    }
+    .vis-network {
+      width: 100% !important;
+      height: 100% !important;
+      position: relative !important;
+      overflow: hidden !important;
+      outline: none !important;
+    }
+    .vis-network canvas {
+      position: absolute !important;
+      left: 0 !important;
+      top: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
     }
     pre code, code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -56,9 +71,18 @@
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {
       background: #334155;
     }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+    .typing-dot {
+      animation: pulse-dot 1.2s infinite ease-in-out;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans overflow-hidden">
+<body class="bg-slate-950 text-slate-100 h-screen min-h-screen flex flex-col font-sans overflow-hidden">
 
   <!-- Top Enterprise Navbar -->
   <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 px-6 py-2.5 flex items-center justify-between z-30">
@@ -177,11 +201,11 @@
     <!-- ================= VIEW 1: GRAPH & GRAPHRAG (FULL SCREEN VIS-NETWORK) ================= -->
     <div id="view-graph" class="flex-1 flex w-full h-full relative overflow-hidden bg-slate-950">
       <!-- Vis-Network Full Screen Canvas Area -->
-      <div class="flex-1 relative w-full h-full bg-slate-950">
+      <div class="flex-1 relative w-full h-full bg-slate-950 min-h-[500px]">
         <!-- Vis-Network Canvas -->
         <div id="vis-network-container" class="w-full h-full absolute inset-0"></div>
-        <!-- Fallback hidden cytoscape container -->
-        <div id="cy" class="hidden"></div>
+        <!-- Fallback Cytoscape container -->
+        <div id="cy" class="w-full h-full absolute inset-0 hidden"></div>
 
         <!-- Floating Controls (Top Left) -->
         <div class="absolute top-4 left-4 z-10 flex items-center gap-2">
@@ -656,22 +680,114 @@
       </div>
     </div>
 
-    <!-- ================= VIEW CHAT: BUILT-IN RAG UI ================= -->
+    <!-- ================= VIEW CHAT: ENTERPRISE AI & GRAPHRAG CHAT ================= -->
     <div id="view-chat" class="flex-1 flex flex-col w-full h-full bg-slate-950 overflow-hidden hidden">
-      <div class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar" id="chat-history">
-        <div class="flex flex-col items-center justify-center h-full text-slate-500 opacity-60">
-          <i data-lucide="bot" class="w-16 h-16 mb-4"></i>
-          <p class="text-sm">Welcome to CodeGraph Brain AI Chat.</p>
-          <p class="text-xs mt-1">Ask questions about your codebase, architecture, or specific functions.</p>
+      <!-- Chat Sub-Header Bar -->
+      <div class="px-6 py-3 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 z-10">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2">
+            <span class="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30">
+              <i data-lucide="message-square" class="w-4 h-4"></i>
+            </span>
+            <span class="font-bold text-sm text-slate-100">AI Code Assistant</span>
+          </div>
+
+          <!-- Active LLM Model Badge -->
+          <div id="chat-model-badge" onclick="openLlmConfigModal()" class="cursor-pointer px-2.5 py-1 rounded-lg text-xs font-mono bg-purple-950/80 border border-purple-800/80 text-purple-300 hover:bg-purple-900/80 flex items-center gap-1.5 transition" title="Click to configure LLM settings">
+            <span id="chat-model-dot" class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+            <span id="chat-model-name">Ollama LLM</span>
+            <i data-lucide="settings" class="w-3 h-3 text-purple-400 opacity-60"></i>
+          </div>
+        </div>
+
+        <!-- Chat Mode Switcher Tabs -->
+        <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-medium">
+          <button id="chat-mode-btn-graphrag" onclick="setChatMode('graphrag')" class="px-3 py-1 rounded-lg bg-sky-600 text-white font-semibold shadow-sm transition flex items-center gap-1.5">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> <span>GraphRAG (کد و گراف)</span>
+          </button>
+          <button id="chat-mode-btn-direct" onclick="setChatMode('direct')" class="px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+            <i data-lucide="bot" class="w-3.5 h-3.5"></i> <span>Direct LLM (چت مستقیم)</span>
+          </button>
+          <button id="chat-mode-btn-nl2cypher" onclick="setChatMode('nl2cypher')" class="px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+            <i data-lucide="database" class="w-3.5 h-3.5 text-emerald-400"></i> <span>NL2Cypher (کوئری دیتابیس)</span>
+          </button>
+        </div>
+
+        <!-- Controls: Repo Scope & Clear -->
+        <div class="flex items-center gap-2">
+          <select id="chat-repo-scope" class="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:border-sky-500">
+            <option value="">All Repositories</option>
+          </select>
+          <button onclick="clearChatHistory()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition" title="Clear conversation history">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear
+          </button>
         </div>
       </div>
-      <div class="p-4 bg-slate-900 border-t border-slate-800">
-        <div class="flex gap-2 max-w-4xl mx-auto">
-          <input id="chat-input" type="text" placeholder="Type a question, or use '/cypher' to run NL2Cypher..." 
-            class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
-          <button onclick="submitChat()" class="px-6 py-3 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-sky-600/20 transition">
-            <i data-lucide="send" class="w-4 h-4"></i>
-          </button>
+
+      <!-- Chat History Area -->
+      <div class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar" id="chat-history">
+        <!-- Welcome Hero Card -->
+        <div id="chat-welcome-card" class="max-w-2xl mx-auto my-8 p-6 bg-slate-900/60 border border-slate-800 rounded-2xl text-center space-y-4 shadow-xl">
+          <div class="w-12 h-12 rounded-2xl bg-sky-500/20 border border-sky-500/30 text-sky-400 flex items-center justify-center mx-auto shadow-inner">
+            <i data-lucide="bot" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-100">Welcome to CodeGraph Brain AI Assistant</h3>
+            <p class="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              با استفاده از دانش ساختاری گراف (AST) و مدل‌های زبانی محلی، در مورد معماری، امنیت، وابستگی‌ها و کدهای پروژه‌تان گفتگو کنید.
+            </p>
+          </div>
+
+          <!-- Quick Suggestion Prompts -->
+          <div class="pt-2 text-left space-y-2">
+            <div class="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+              <i data-lucide="help-circle" class="w-3.5 h-3.5 text-sky-400"></i> پرسش‌های نمونه (کلیک کنید):
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <button onclick="useQuickPrompt('معماری کلی و لایه‌بندی این پروژه را توضیح بده.')" class="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition text-left flex items-start gap-2">
+                <span class="text-sky-400 mt-0.5">🔹</span> <span>معماری کلی و ساختار پروژه</span>
+              </button>
+              <button onclick="useQuickPrompt('توابع پرریسک و با تغییرات مکرر (High Churn) کدامند؟')" class="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition text-left flex items-start gap-2">
+                <span class="text-amber-400 mt-0.5">⚠️</span> <span>توابع پرریسک و با نرخ تغییر بالا</span>
+              </button>
+              <button onclick="useQuickPrompt('جریان احراز هویت (Authentication & Security) چگونه پیاده‌سازی شده؟')" class="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition text-left flex items-start gap-2">
+                <span class="text-emerald-400 mt-0.5">🔒</span> <span>فرآیند احراز هویت و امنیت</span>
+              </button>
+              <button onclick="useQuickPrompt('چه وابستگی‌های حلقوی یا Dead Code در پروژه وجود دارد؟')" class="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition text-left flex items-start gap-2">
+                <span class="text-rose-400 mt-0.5">🔄</span> <span>وابستگی‌های حلقوی و کدهای بی‌استفاده</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Typing / Loading Indicator -->
+      <div id="chat-typing-indicator" class="hidden px-6 py-2.5 bg-slate-900/40 border-t border-slate-800 flex items-center gap-3 text-xs text-slate-400">
+        <div class="flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-sky-400 typing-dot"></span>
+          <span class="w-2 h-2 rounded-full bg-sky-400 typing-dot"></span>
+          <span class="w-2 h-2 rounded-full bg-sky-400 typing-dot"></span>
+        </div>
+        <span id="chat-typing-text">در حال تحلیل گراف دانش و استخراج اطلاعات از مدل زبانی...</span>
+      </div>
+
+      <!-- Chat Input Area -->
+      <div class="p-4 bg-slate-900/90 backdrop-blur border-t border-slate-800">
+        <div class="max-w-4xl mx-auto space-y-2">
+          <div class="flex items-end gap-2">
+            <div class="flex-1 relative">
+              <textarea id="chat-input" rows="2" placeholder="سؤال خود را بنویسید... (Enter برای ارسال، Shift+Enter برای خط جدید)" 
+                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono resize-none custom-scrollbar"></textarea>
+            </div>
+            <button id="chat-send-btn" onclick="submitChat()" class="px-5 py-3.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-xl text-sm font-semibold shadow-lg shadow-sky-600/25 flex items-center justify-center gap-2 transition">
+              <i data-lucide="send" class="w-4 h-4"></i>
+              <span class="hidden sm:inline">Send</span>
+            </button>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-slate-500 px-1">
+            <span id="chat-mode-hint">حالت فعلی: جستجوی کد بر مبنای گراف دانش (GraphRAG)</span>
+            <span>کلید میانبر: Enter</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1251,6 +1367,10 @@
         loadCodeSmells();
       } else if (viewName === 'repos') {
         loadRepositoriesHub();
+      } else if (viewName === 'chat') {
+        checkLlmStatus();
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput) setTimeout(() => chatInput.focus(), 100);
       } else if (viewName === 'mcp') {
         initMcpView();
       }
@@ -1454,21 +1574,27 @@ asyncio.run(run())`;
     // --- Vis.js Force-Directed Knowledge Graph Setup (Graphify Engine) ---
     function initVisNetwork() {
       const container = document.getElementById('vis-network-container');
-      if (!container || typeof vis === 'undefined') return;
+      if (!container) return;
+
+      // If vis-network library is not available, fallback to Cytoscape
+      if (typeof vis === 'undefined' || !vis.Network) {
+        console.warn('Vis.js (Graphify) not detected in environment. Initializing Cytoscape fallback.');
+        initCytoscape();
+        return;
+      }
 
       visNodes = new vis.DataSet([]);
       visEdges = new vis.DataSet([]);
-      visNodesView = new vis.DataView(visNodes);
 
       const data = {
-        nodes: visNodesView,
+        nodes: visNodes,
         edges: visEdges
       };
 
       const options = {
         nodes: {
           shape: 'dot',
-          size: 16,
+          size: 18,
           font: {
             size: 11,
             color: '#cbd5e1',
@@ -1551,20 +1677,18 @@ asyncio.run(run())`;
           enabled: true,
           solver: 'forceAtlas2Based',
           forceAtlas2Based: {
-            gravitationalConstant: -75,
-            centralGravity: 0.008,
-            springLength: 95,
-            springConstant: 0.07,
-            damping: 0.45,
-            avoidOverlap: 0.85
+            gravitationalConstant: -50,
+            centralGravity: 0.01,
+            springLength: 100,
+            springConstant: 0.08,
+            damping: 0.4,
+            avoidOverlap: 0.5
           },
-          maxVelocity: 45,
+          maxVelocity: 40,
           minVelocity: 0.75,
           timestep: 0.35,
           stabilization: {
-            enabled: true,
-            iterations: 120,
-            updateInterval: 25
+            enabled: false
           }
         },
         interaction: {
@@ -1576,27 +1700,122 @@ asyncio.run(run())`;
         }
       };
 
-      network = new vis.Network(container, data, options);
+      try {
+        network = new vis.Network(container, data, options);
 
-      // Node Click Handler -> Open Detailed Interactive Popup Modal
-      network.on('click', function(params) {
-        if (params.nodes && params.nodes.length > 0) {
-          const nodeId = params.nodes[0];
-          openNodeModal(nodeId);
-        }
+        // Node Click Handler -> Open Detailed Interactive Popup Modal
+        network.on('click', function(params) {
+          if (params.nodes && params.nodes.length > 0) {
+            const nodeId = params.nodes[0];
+            openNodeModal(nodeId);
+          }
+        });
+
+        // Double Click -> Focus
+        network.on('doubleClick', function(params) {
+          if (params.nodes && params.nodes.length > 0) {
+            const nodeId = params.nodes[0];
+            network.focus(nodeId, { scale: 1.3, animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+          }
+        });
+      } catch (err) {
+        console.error('Vis.js Network initialization failed, falling back to Cytoscape:', err);
+        initCytoscape();
+      }
+    }
+
+    // --- Cytoscape Fallback Engine ---
+    function initCytoscape() {
+      const cyEl = document.getElementById('cy');
+      const visEl = document.getElementById('vis-network-container');
+      if (visEl) visEl.classList.add('hidden');
+      if (cyEl) cyEl.classList.remove('hidden');
+
+      if (typeof cytoscape === 'undefined') return;
+
+      cy = cytoscape({
+        container: cyEl,
+        elements: [],
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'label': 'data(label)',
+              'color': '#cbd5e1',
+              'font-size': '11px',
+              'text-valign': 'bottom',
+              'text-margin-y': 4,
+              'background-color': '#0284c7',
+              'border-width': 2,
+              'border-color': '#38bdf8'
+            }
+          },
+          { selector: 'node[type = "Repository"]', style: { 'background-color': '#9333ea', 'border-color': '#c084fc', 'shape': 'diamond', 'width': 30, 'height': 30 } },
+          { selector: 'node[type = "File"]', style: { 'background-color': '#0284c7', 'border-color': '#38bdf8', 'shape': 'ellipse', 'width': 20, 'height': 20 } },
+          { selector: 'node[type = "Class"]', style: { 'background-color': '#d97706', 'border-color': '#fbbf24', 'shape': 'ellipse', 'width': 18, 'height': 18 } },
+          { selector: 'node[type = "Function"]', style: { 'background-color': '#059669', 'border-color': '#34d399', 'shape': 'ellipse', 'width': 16, 'height': 16 } },
+          { selector: 'node[type = "Module"]', style: { 'background-color': '#e11d48', 'border-color': '#fb7185', 'shape': 'ellipse', 'width': 16, 'height': 16 } },
+          { selector: 'node[type = "Developer"]', style: { 'background-color': '#0d9488', 'border-color': '#2dd4bf', 'shape': 'hexagon', 'width': 22, 'height': 22 } },
+          {
+            selector: 'edge',
+            style: {
+              'width': 1.5,
+              'line-color': '#334155',
+              'target-arrow-color': '#38bdf8',
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier',
+              'arrow-scale': 0.8
+            }
+          }
+        ],
+        layout: { name: 'cose', animate: false }
       });
 
-      // Double Click -> Focus
-      network.on('doubleClick', function(params) {
-        if (params.nodes && params.nodes.length > 0) {
-          const nodeId = params.nodes[0];
-          network.focus(nodeId, { scale: 1.3, animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
-        }
+      cy.on('tap', 'node', function(evt) {
+        const node = evt.target;
+        openNodeModal(node.id());
       });
     }
 
+    function renderCytoscape(nodes, edges) {
+      if (!cy) return;
+      cy.elements().remove();
+      const cyNodes = (nodes || []).map(n => ({
+        data: {
+          id: n.id,
+          label: n.label,
+          type: n.type || n.group || 'Node',
+          properties: n.properties || {}
+        }
+      }));
+      const cyNodeIds = new Set(cyNodes.map(n => n.data.id));
+      const cyEdges = (edges || [])
+        .filter(e => {
+          const s = e.from || e.source;
+          const t = e.to || e.target;
+          return s && t && cyNodeIds.has(s) && cyNodeIds.has(t);
+        })
+        .map(e => ({
+          data: {
+            id: e.id || `${e.from || e.source}-${e.to || e.target}`,
+            source: e.from || e.source,
+            target: e.to || e.target,
+            label: e.label || ''
+          }
+        }));
+
+      cy.add(cyNodes);
+      cy.add(cyEdges);
+      cy.layout({ name: 'cose', animate: true, animationDuration: 500 }).run();
+      cy.fit();
+    }
+
     function fitGraph() {
-      if (network) network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+      if (network) {
+        network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+      } else if (cy) {
+        cy.fit();
+      }
     }
 
     function togglePhysics() {
@@ -1633,6 +1852,8 @@ asyncio.run(run())`;
     document.addEventListener('fullscreenchange', () => {
       if (network) {
         setTimeout(() => { network.fit({ animation: true }); }, 150);
+      } else if (cy) {
+        setTimeout(() => { cy.fit(); }, 150);
       }
     });
 
@@ -1661,22 +1882,34 @@ asyncio.run(run())`;
     }
 
     function searchGraphNodes(query) {
-      if (!network || !visNodes) return;
       const q = (query || '').trim().toLowerCase();
-      if (!q) {
-        network.unselectAll();
-        return;
-      }
-      const matches = visNodes.get({
-        filter: n => (n.label && n.label.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))
-      });
-      if (matches.length > 0) {
-        const target = matches[0];
-        network.focus(target.id, {
-          scale: 1.4,
-          animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+      if (network && visNodes) {
+        if (!q) {
+          network.unselectAll();
+          return;
+        }
+        const matches = visNodes.get({
+          filter: n => (n.label && n.label.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))
         });
-        network.selectNodes([target.id]);
+        if (matches.length > 0) {
+          const target = matches[0];
+          network.focus(target.id, {
+            scale: 1.4,
+            animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+          });
+          network.selectNodes([target.id]);
+        }
+      } else if (cy) {
+        if (!q) {
+          cy.nodes().unselect();
+          return;
+        }
+        const found = cy.nodes().filter(n => n.data('label') && n.data('label').toLowerCase().includes(q));
+        if (found.length > 0) {
+          cy.center(found[0]);
+          cy.zoom({ level: 1.5, position: found[0].position() });
+          found[0].select();
+        }
       }
     }
 
@@ -1693,14 +1926,26 @@ asyncio.run(run())`;
         }
       });
 
-      if (!visNodesView) return;
-      if (type === 'ALL') {
-        visNodesView.setFilter(() => true);
-      } else {
-        visNodesView.setFilter(item => item.group === type || item.type === type);
-      }
-      if (network) {
-        setTimeout(() => { network.fit({ animation: true }); }, 100);
+      if (visNodes) {
+        const allNodes = visNodes.get();
+        const updates = allNodes.map(n => ({
+          id: n.id,
+          hidden: type !== 'ALL' && n.group !== type && n.type !== type
+        }));
+        visNodes.update(updates);
+        if (network) {
+          setTimeout(() => { network.fit({ animation: true }); }, 100);
+        }
+      } else if (cy) {
+        if (type === 'ALL') {
+          cy.nodes().show();
+        } else {
+          cy.nodes().forEach(n => {
+            if (n.data('type') === type) n.show();
+            else n.hide();
+          });
+        }
+        cy.fit();
       }
     }
 
@@ -1709,6 +1954,7 @@ asyncio.run(run())`;
       await loadStats();
       await loadRepoFilter();
       await loadGraph();
+      await checkLlmStatus();
     }
 
     async function loadStats() {
@@ -1732,9 +1978,14 @@ asyncio.run(run())`;
         if (!res.ok) return;
         const repos = await res.json();
         const select = document.getElementById('repo-filter-select');
-        const current = select.value;
-        select.innerHTML = '<option value="">All Repositories</option>' + 
+        const chatScope = document.getElementById('chat-repo-scope');
+        const current = select ? select.value : '';
+
+        const optionsHtml = '<option value="">All Repositories</option>' + 
           repos.map(r => `<option value="${r.name}" ${r.name === current ? 'selected' : ''}>${r.name}</option>`).join('');
+
+        if (select) select.innerHTML = optionsHtml;
+        if (chatScope) chatScope.innerHTML = optionsHtml;
       } catch (e) {
         console.warn('Repos load error:', e);
       }
@@ -1752,46 +2003,65 @@ asyncio.run(run())`;
 
     async function loadGraph() {
       const selectedRepo = document.getElementById('repo-filter-select').value;
-      let url = `${API_BASE}/api/v1/graph/elements?limit=350`;
+      let url = `${API_BASE}/api/v1/graph/elements?limit=450`;
       if (selectedRepo) url += `&repo_name=${encodeURIComponent(selectedRepo)}`;
 
       try {
         const res = await fetch(url, { headers: getAuthHeaders() });
         if (!res.ok) return;
         const data = await res.json();
+        const rawNodes = data.nodes || [];
+        const rawEdges = data.edges || [];
 
         if (visNodes && visEdges) {
           visNodes.clear();
           visEdges.clear();
 
-          if (data.nodes && data.nodes.length > 0) {
-            const formattedNodes = data.nodes.map(n => ({
+          if (rawNodes.length > 0) {
+            const formattedNodes = rawNodes.map(n => ({
               id: n.id,
               label: n.label,
-              title: `${n.type}: ${n.label} (${(n.properties && n.properties.file_path) || n.label})`,
-              group: n.group || n.type,
+              title: `${n.type || n.group || 'Node'}: ${n.label} (${(n.properties && n.properties.file_path) || n.label})`,
+              group: n.group || n.type || 'Node',
+              type: n.type || n.group || 'Node',
               properties: n.properties || {}
             }));
 
-            const formattedEdges = (data.edges || []).map(e => ({
-              id: e.id,
-              from: e.from || e.source,
-              to: e.to || e.target,
-              label: e.label || '',
-              title: e.label || ''
-            }));
+            // Filter edges: Only keep edges where BOTH source and target exist in formattedNodes
+            const nodeIds = new Set(formattedNodes.map(n => n.id));
+            const validEdges = rawEdges
+              .filter(e => {
+                const s = e.from || e.source;
+                const t = e.to || e.target;
+                return s && t && nodeIds.has(s) && nodeIds.has(t);
+              })
+              .map(e => ({
+                id: e.id || `${e.from || e.source}-${e.to || e.target}`,
+                from: e.from || e.source,
+                to: e.to || e.target,
+                label: e.label || '',
+                title: e.label || ''
+              }));
 
             visNodes.add(formattedNodes);
-            visEdges.add(formattedEdges);
+            visEdges.add(validEdges);
 
-            document.getElementById('node-count-badge').innerText = `${formattedNodes.length} nodes / ${formattedEdges.length} edges`;
+            const countBadge = document.getElementById('node-count-badge');
+            if (countBadge) countBadge.innerText = `${formattedNodes.length} nodes / ${validEdges.length} edges`;
             
             if (network) {
-              network.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+              network.setSize('100%', '100%');
+              network.redraw();
+              setTimeout(() => {
+                network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+              }, 120);
             }
           } else {
-            document.getElementById('node-count-badge').innerText = '0 nodes';
+            const countBadge = document.getElementById('node-count-badge');
+            if (countBadge) countBadge.innerText = '0 nodes';
           }
+        } else if (cy) {
+          renderCytoscape(rawNodes, rawEdges);
         }
       } catch (err) {
         console.warn('Graph load error:', err);
@@ -2818,43 +3088,409 @@ asyncio.run(run())`;
         closeLlmConfigModal();
       }
     });
-    // CHAT LOGIC
+    // ==========================================
+    // ENTERPRISE AI CHAT & GRAPHRAG ENGINE
+    // ==========================================
+    let currentChatMode = 'graphrag';
+
+    function setChatMode(mode) {
+      currentChatMode = mode;
+      const modes = ['graphrag', 'direct', 'nl2cypher'];
+      modes.forEach(m => {
+        const btn = document.getElementById(`chat-mode-btn-${m}`);
+        if (btn) {
+          if (m === mode) {
+            btn.className = 'px-3 py-1 rounded-lg bg-sky-600 text-white font-semibold shadow-sm transition flex items-center gap-1.5';
+          } else {
+            btn.className = 'px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5';
+          }
+        }
+      });
+
+      const hint = document.getElementById('chat-mode-hint');
+      const input = document.getElementById('chat-input');
+      if (mode === 'graphrag') {
+        if (hint) hint.innerText = 'حالت فعلی: جستجوی کد بر مبنای گراف دانش (GraphRAG)';
+        if (input) input.placeholder = 'سؤال ساختاری یا معنایی در مورد کدها بپرسید... (Enter برای ارسال)';
+      } else if (mode === 'direct') {
+        if (hint) hint.innerText = 'حالت فعلی: چت مستقیم با مدل هوش مصنوعی (Direct Coding / Architecture)';
+        if (input) input.placeholder = 'هر پرسش عمومی برنامه‌نویسی، طراحی یا بازبینی کد را مطرح کنید... (Enter برای ارسال)';
+      } else if (mode === 'nl2cypher') {
+        if (hint) hint.innerText = 'حالت فعلی: تولید و اجرای خودکار کوئری گراف به زبان طبیعی (NL2Cypher)';
+        if (input) input.placeholder = 'درخواست خود را بنویسید (مثلاً: پیدا کردن توابعی با بیش از ۳ فراخواننده)...';
+      }
+    }
+
+    function clearChatHistory() {
+      const history = document.getElementById('chat-history');
+      if (!history) return;
+      history.innerHTML = `
+        <div id="chat-welcome-card" class="max-w-2xl mx-auto my-8 p-6 bg-slate-900/60 border border-slate-800 rounded-2xl text-center space-y-4 shadow-xl">
+          <div class="w-12 h-12 rounded-2xl bg-sky-500/20 border border-sky-500/30 text-sky-400 flex items-center justify-center mx-auto shadow-inner">
+            <i data-lucide="bot" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-100">Welcome to CodeGraph Brain AI Assistant</h3>
+            <p class="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              با استفاده از دانش ساختاری گراف (AST) و مدل‌های زبانی محلی، در مورد معماری، امنیت، وابستگی‌ها و کدهای پروژه‌تان گفتگو کنید.
+            </p>
+          </div>
+
+          <div class="pt-2 text-left space-y-2">
+            <div class="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+              <i data-lucide="help-circle" class="w-3.5 h-3.5 text-sky-400"></i> پرسش‌های نمونه (کلیک کنید):
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <button onclick="useQuickPrompt('معماری کلی و لایه‌بندی این پروژه را توضیح بده.')" class="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition text-left flex items-start gap-2">
+                <span class="text-sky-400 mt-0.5">🔹</span> <span>معماری کلی و ساختار پروژه</span>
+              </button>
+              <button onclick="useQuickPrompt('توابع پرریسک و با تغییرات مکرر (High Churn) کدامند؟')" class="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition text-left flex items-start gap-2">
+                <span class="text-amber-400 mt-0.5">⚠️</span> <span>توابع پرریسک و با نرخ تغییر بالا</span>
+              </button>
+              <button onclick="useQuickPrompt('جریان احراز هویت (Authentication & Security) چگونه پیاده‌سازی شده؟')" class="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition text-left flex items-start gap-2">
+                <span class="text-emerald-400 mt-0.5">🔒</span> <span>فرآیند احراز هویت و امنیت</span>
+              </button>
+              <button onclick="useQuickPrompt('چه وابستگی‌های حلقوی یا Dead Code در پروژه وجود دارد؟')" class="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition text-left flex items-start gap-2">
+                <span class="text-rose-400 mt-0.5">🔄</span> <span>وابستگی‌های حلقوی و کدهای بی‌استفاده</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function useQuickPrompt(promptText) {
+      const input = document.getElementById('chat-input');
+      if (input) {
+        input.value = promptText;
+        submitChat();
+      }
+    }
+
+    async function checkLlmStatus() {
+      const dot = document.getElementById('chat-model-dot');
+      const name = document.getElementById('chat-model-name');
+      const badge = document.getElementById('chat-model-badge');
+      if (!dot || !name) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/llm/status`, { headers: getAuthHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'connected') {
+            dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+            name.innerText = data.model ? `LLM: ${data.model}` : 'LLM: Online';
+            if (badge) {
+              badge.title = `Connected to ${data.base_url}\nModel: ${data.model}\nAvailable: ${(data.available_models || []).join(', ') || 'Default'}\nClick to configure.`;
+            }
+          } else if (data.status === 'not_configured') {
+            dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+            name.innerText = 'LLM: Not Configured';
+            if (badge) badge.title = 'LLM Base URL is not set. Click to configure.';
+          } else {
+            dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+            name.innerText = 'LLM: Offline';
+            if (badge) badge.title = data.message || 'Error connecting to LLM';
+          }
+        }
+      } catch (e) {
+        dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+        name.innerText = 'LLM: Unreachable';
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatMarkdownSafe(content) {
+      if (!content) return '';
+
+      // Handle code fences ```lang ... ```
+      let formatted = content.replace(/```([a-zA-Z0-9_\-#+]*)\n([\s\S]*?)```/g, function(match, lang, code) {
+        const safeCode = escapeHtml(code.trim());
+        const langLabel = lang ? lang.toUpperCase() : 'CODE';
+        return `
+          <div class="my-3 rounded-xl border border-slate-800 bg-slate-950 overflow-hidden font-mono text-xs shadow-lg">
+            <div class="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 text-[11px] text-slate-400 font-semibold">
+              <span>${langLabel}</span>
+              <button onclick="copyCodeFromChat(this)" class="hover:text-sky-300 flex items-center gap-1 transition text-[11px] px-2 py-0.5 rounded bg-slate-800/80">
+                <i data-lucide="copy" class="w-3 h-3"></i> Copy
+              </button>
+            </div>
+            <pre class="p-3 overflow-x-auto custom-scrollbar text-slate-200 leading-relaxed"><code>${safeCode}</code></pre>
+          </div>
+        `;
+      });
+
+      // Headers
+      formatted = formatted.replace(/^### (.*$)/gim, '<h4 class="text-sm font-bold text-slate-100 mt-3 mb-1">$1</h4>');
+      formatted = formatted.replace(/^## (.*$)/gim, '<h3 class="text-base font-bold text-sky-300 mt-4 mb-1.5 pb-1 border-b border-slate-800">$1</h3>');
+      formatted = formatted.replace(/^# (.*$)/gim, '<h2 class="text-lg font-extrabold text-slate-100 mt-4 mb-2">$1</h2>');
+
+      // Bold & Italic
+      formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-100 font-semibold">$1</strong>');
+      formatted = formatted.replace(/\*(.*?)\*/g, '<em class="text-slate-300">$1</em>');
+
+      // Inline code
+      formatted = formatted.replace(/`([^`]+)`/g, '<code class="bg-slate-950 border border-slate-800 text-sky-300 px-1.5 py-0.5 rounded text-xs font-mono">$1</code>');
+
+      // Bullet points
+      formatted = formatted.replace(/^\s*[-*]\s+(.*$)/gim, '<li class="ml-4 list-disc text-slate-300 my-0.5">$1</li>');
+
+      // Numbered lists
+      formatted = formatted.replace(/^\s*(\d+)\.\s+(.*$)/gim, '<li class="ml-4 list-decimal text-slate-300 my-0.5">$2</li>');
+
+      // Line breaks (convert remaining \n to <br> if not inside pre)
+      const parts = formatted.split(/(<div class="my-3 rounded-xl[\s\S]*?<\/div>)/g);
+      for (let i = 0; i < parts.length; i++) {
+        if (!parts[i].startsWith('<div class="my-3 rounded-xl')) {
+          parts[i] = parts[i].replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>');
+        }
+      }
+      return parts.join('');
+    }
+
+    function copyCodeFromChat(btn) {
+      const pre = btn.closest('.rounded-xl')?.querySelector('pre code');
+      if (pre) {
+        navigator.clipboard.writeText(pre.innerText).then(() => {
+          btn.innerHTML = '<i data-lucide="check" class="w-3 h-3 text-emerald-400"></i> Copied!';
+          if (window.lucide) window.lucide.createIcons();
+          setTimeout(() => {
+            btn.innerHTML = '<i data-lucide="copy" class="w-3 h-3"></i> Copy';
+            if (window.lucide) window.lucide.createIcons();
+          }, 2000);
+        });
+      }
+    }
+
+    function focusNodeInGraph(nodeId) {
+      switchMainView('graph');
+      setTimeout(() => {
+        searchGraphNodes(nodeId);
+        openNodeModal(nodeId);
+      }, 200);
+    }
+
     async function submitChat() {
       const input = document.getElementById('chat-input');
+      if (!input) return;
       const text = input.value.trim();
       if (!text) return;
-      
+
       const history = document.getElementById('chat-history');
-      if (history.querySelector('.opacity-60')) history.innerHTML = '';
-      
-      // Add user message
-      history.innerHTML += `<div class="flex justify-end"><div class="bg-sky-600 text-white p-3 rounded-l-xl rounded-tr-xl max-w-2xl text-sm">${text}</div></div>`;
+      const welcomeCard = document.getElementById('chat-welcome-card');
+      if (welcomeCard) welcomeCard.classList.add('hidden');
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      // Append User message bubble
+      const userBubble = document.createElement('div');
+      userBubble.className = 'flex items-start justify-end gap-3';
+      userBubble.innerHTML = `
+        <div class="space-y-1 max-w-2xl">
+          <div class="flex items-center justify-end gap-2 text-[10px] text-slate-400">
+            <span>You</span>
+            <span>•</span>
+            <span>${timeStr}</span>
+          </div>
+          <div class="bg-sky-600 text-white px-4 py-3 rounded-2xl rounded-tr-none text-sm leading-relaxed whitespace-pre-wrap break-words shadow-md">
+            ${escapeHtml(text)}
+          </div>
+        </div>
+        <div class="w-8 h-8 rounded-xl bg-sky-500/20 border border-sky-500/40 text-sky-300 flex items-center justify-center shrink-0 text-xs font-bold shadow-sm">
+          U
+        </div>
+      `;
+      history.appendChild(userBubble);
+
+      // Clear input and reset height
       input.value = '';
+      input.style.height = 'auto';
+
+      // Show typing indicator with contextual message
+      const indicator = document.getElementById('chat-typing-indicator');
+      const indicatorText = document.getElementById('chat-typing-text');
+      const sendBtn = document.getElementById('chat-send-btn');
       
+      if (indicator) {
+        indicator.classList.remove('hidden');
+        if (indicatorText) {
+          if (currentChatMode === 'direct') {
+            indicatorText.innerText = 'در حال دریافت پاسخ از مدل زبانی هوش مصنوعی...';
+          } else if (currentChatMode === 'nl2cypher') {
+            indicatorText.innerText = 'در حال تحلیل کوئری پایگاه داده گراف و استخراج اطلاعات...';
+          } else {
+            indicatorText.innerText = 'در حال جستجوی برداری و پیمایش روابط گراف برای پاسخ‌دهی دقیق...';
+          }
+        }
+      }
+      if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.classList.add('opacity-50', 'pointer-events-none');
+      }
+
+      history.scrollTop = history.scrollHeight;
+
+      // Determine repository scope
+      const repoScopeEl = document.getElementById('chat-repo-scope');
+      const repoGlobalEl = document.getElementById('repo-filter-select');
+      const selectedRepo = (repoScopeEl && repoScopeEl.value) || (repoGlobalEl && repoGlobalEl.value) || null;
+
       try {
-        const repo = document.getElementById('repo-filter-select').value || undefined;
         const res = await fetch(`${API_BASE}/api/v1/chat`, {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ message: text, repo_name: repo })
+          body: JSON.stringify({
+            message: text,
+            repo_name: selectedRepo,
+            mode: currentChatMode
+          })
         });
+
         const data = await res.json();
-        
-        if (res.ok) {
-          const formattedResponse = (data.response || '').replace(/\n/g, '<br>');
-          history.innerHTML += `<div class="flex justify-start"><div class="bg-slate-800 text-slate-200 p-3 rounded-r-xl rounded-tl-xl max-w-3xl text-sm border border-slate-700">${formattedResponse}</div></div>`;
-        } else {
-          history.innerHTML += `<div class="flex justify-start"><div class="bg-rose-900/50 text-rose-200 p-3 rounded-r-xl rounded-tl-xl max-w-3xl text-sm border border-rose-800">Error: ${data.detail || 'Unknown error'}</div></div>`;
+
+        if (indicator) indicator.classList.add('hidden');
+        if (sendBtn) {
+          sendBtn.disabled = false;
+          sendBtn.classList.remove('opacity-50', 'pointer-events-none');
         }
+
+        const aiBubble = document.createElement('div');
+        aiBubble.className = 'flex items-start justify-start gap-3';
+
+        const modeBadgeLabel = currentChatMode === 'direct' ? 'Direct LLM' : (currentChatMode === 'nl2cypher' ? 'NL2Cypher' : 'GraphRAG');
+        const modeBadgeClass = currentChatMode === 'direct' ? 'bg-purple-950 text-purple-300 border border-purple-800' : (currentChatMode === 'nl2cypher' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-sky-950 text-sky-300 border border-sky-800');
+
+        if (res.ok) {
+          const formattedResponse = formatMarkdownSafe(data.response || 'No response generated.');
+          
+          let citationsHtml = '';
+          if (data.sources && data.sources.length > 0) {
+            const citeCards = data.sources.map(s => {
+              const nodeName = escapeHtml(s.name || s.id || 'Node');
+              const nodeFile = escapeHtml(s.file_path || '');
+              const lineRange = s.start_line ? `L${s.start_line}-${s.end_line || s.start_line}` : '';
+              const scoreText = s.score ? `Score: ${s.score.toFixed(2)}` : '';
+              return `
+                <div class="p-2 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="font-bold text-emerald-400 font-mono truncate">${nodeName}</span>
+                      ${scoreText ? `<span class="text-[10px] text-slate-500 font-mono">(${scoreText})</span>` : ''}
+                    </div>
+                    <div class="text-[10px] text-slate-400 truncate font-mono">${nodeFile} ${lineRange}</div>
+                  </div>
+                  <button onclick="focusNodeInGraph('${escapeHtml(s.id || s.name)}')" class="shrink-0 px-2 py-1 bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/30 text-sky-300 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition">
+                    <i data-lucide="crosshair" class="w-3 h-3"></i> View
+                  </button>
+                </div>
+              `;
+            }).join('');
+
+            citationsHtml = `
+              <div class="mt-3 pt-3 border-t border-slate-800 space-y-2">
+                <div class="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+                  <i data-lucide="layers" class="w-3.5 h-3.5 text-sky-400"></i> مراجع کد و گره‌های مرتبط در گراف:
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  ${citeCards}
+                </div>
+              </div>
+            `;
+          }
+
+          aiBubble.innerHTML = `
+            <div class="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-300 flex items-center justify-center shrink-0 shadow-sm">
+              <i data-lucide="bot" class="w-4 h-4"></i>
+            </div>
+            <div class="space-y-1.5 max-w-3xl flex-1">
+              <div class="flex items-center gap-2 text-[10px] text-slate-400">
+                <span class="font-bold text-slate-200">CodeGraph Brain AI</span>
+                <span class="px-1.5 py-0.5 rounded text-[9px] font-mono ${modeBadgeClass}">${modeBadgeLabel}</span>
+                <span>•</span>
+                <span>${timeStr}</span>
+              </div>
+              <div class="bg-slate-900/90 border border-slate-800 text-slate-200 px-4 py-3.5 rounded-2xl rounded-tl-none text-sm leading-relaxed space-y-2 shadow-md">
+                <div class="prose prose-invert max-w-none text-xs leading-relaxed space-y-2">
+                  ${formattedResponse}
+                </div>
+                ${citationsHtml}
+              </div>
+            </div>
+          `;
+        } else {
+          aiBubble.innerHTML = `
+            <div class="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 flex items-center justify-center shrink-0 shadow-sm">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+            </div>
+            <div class="space-y-1.5 max-w-2xl flex-1">
+              <div class="flex items-center gap-2 text-[10px] text-slate-400">
+                <span class="font-bold text-rose-400">Error</span>
+                <span>•</span>
+                <span>${timeStr}</span>
+              </div>
+              <div class="bg-rose-950/40 border border-rose-800/60 text-rose-200 px-4 py-3 rounded-2xl rounded-tl-none text-xs leading-relaxed space-y-1 shadow-md">
+                <p class="font-semibold">خطا در دریافت پاسخ:</p>
+                <p class="font-mono text-[11px] text-rose-300">${escapeHtml(data.detail || res.statusText)}</p>
+                <p class="text-[10px] text-slate-400 mt-2">نکته: وضعیت مدل زبانی و آدرس LLM را در بالای صفحه بررسی نمایید.</p>
+              </div>
+            </div>
+          `;
+        }
+
+        history.appendChild(aiBubble);
+        if (window.lucide) window.lucide.createIcons();
+        history.scrollTop = history.scrollHeight;
+
       } catch (err) {
-        history.innerHTML += `<div class="flex justify-start"><div class="bg-rose-900/50 text-rose-200 p-3 rounded-r-xl rounded-tl-xl max-w-3xl text-sm border border-rose-800">Connection Error</div></div>`;
+        if (indicator) indicator.classList.add('hidden');
+        if (sendBtn) {
+          sendBtn.disabled = false;
+          sendBtn.classList.remove('opacity-50', 'pointer-events-none');
+        }
+
+        const errBubble = document.createElement('div');
+        errBubble.className = 'flex items-start justify-start gap-3';
+        errBubble.innerHTML = `
+          <div class="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 flex items-center justify-center shrink-0">
+            <i data-lucide="wifi-off" class="w-4 h-4"></i>
+          </div>
+          <div class="space-y-1 max-w-2xl flex-1">
+            <div class="bg-rose-950/40 border border-rose-800/60 text-rose-200 px-4 py-3 rounded-2xl rounded-tl-none text-xs">
+              <span class="font-semibold">خطای ارتباط با سرور:</span> ${escapeHtml(err.message)}
+            </div>
+          </div>
+        `;
+        history.appendChild(errBubble);
+        if (window.lucide) window.lucide.createIcons();
+        history.scrollTop = history.scrollHeight;
       }
-      history.scrollTop = history.scrollHeight;
     }
-    
-    document.getElementById('chat-input')?.addEventListener('keypress', function (e) {
-      if (e.key === 'Enter') submitChat();
-    });
+
+    // Auto-resize textarea & Enter/Shift+Enter key handling
+    const chatInputElem = document.getElementById('chat-input');
+    if (chatInputElem) {
+      chatInputElem.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          submitChat();
+        }
+      });
+      chatInputElem.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 180) + 'px';
+      });
+    }
 
     // LLM CONFIG & AUTODOC LOGIC
     async function openLlmConfigModal() {
