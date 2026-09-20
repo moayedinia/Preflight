@@ -417,35 +417,37 @@ def get_graph_stats() -> dict:
 def resolve_cross_references(repo_name: str = None):
     """
     Resolves function call references into direct Function->Function relationships,
-    and ensures all methods and functions are linked to their parent File and Repository.
+    and ensures all files, classes, methods, and functions are linked hierarchically.
     """
     with driver.session() as session:
         try:
-            # 1. Resolve Function -> Function calls within repository
-            session.run("""
-                MATCH (caller:Function)
-                WHERE $repo_name IS NULL OR caller.repo = $repo_name
-                MATCH (caller)-[:CALLS]->(ref:FunctionReference)
-                MATCH (target:Function {name: ref.name})
-                WHERE ($repo_name IS NULL OR target.repo = $repo_name)
-                  AND caller <> target
-                MERGE (caller)-[:CALLS]->(target)
-            """, repo_name=repo_name)
-
-            # 2. Ensure class methods are also directly connected to their File (CONTAINS)
-            session.run("""
-                MATCH (f:File)-[:CONTAINS]->(c:Class)-[:HAS_METHOD]->(fn:Function)
-                WHERE $repo_name IS NULL OR f.repo = $repo_name
-                MERGE (f)-[:CONTAINS]->(fn)
-                SET fn.repo = f.repo, fn.file_path = f.path
-            """, repo_name=repo_name)
-
-            # 3. Ensure all Files are linked to their Repository
+            # 1. Ensure all Files are linked to their Repository
             session.run("""
                 MATCH (f:File)
                 WHERE f.repo IS NOT NULL AND ($repo_name IS NULL OR f.repo = $repo_name)
                 MERGE (r:Repository {name: f.repo})
                 MERGE (r)-[:CONTAINS]->(f)
+            """, repo_name=repo_name)
+
+            # 2. Ensure Class methods have repo and file_path properties, and are linked
+            session.run("""
+                MATCH (f:File)-[:CONTAINS]->(c:Class)-[:HAS_METHOD]->(fn:Function)
+                WHERE $repo_name IS NULL OR f.repo = $repo_name
+                SET fn.repo = f.repo, fn.file_path = f.path, c.repo = f.repo
+                MERGE (f)-[:CONTAINS]->(fn)
+            """, repo_name=repo_name)
+
+            # 3. Resolve Function -> Function calls (match exact name or short name from dotted calls like self.func)
+            session.run("""
+                MATCH (caller:Function)
+                WHERE $repo_name IS NULL OR caller.repo = $repo_name
+                MATCH (caller)-[:CALLS]->(ref:FunctionReference)
+                WITH caller, ref, split(ref.name, '.')[-1] AS short_call_name
+                MATCH (target:Function)
+                WHERE ($repo_name IS NULL OR target.repo = $repo_name)
+                  AND (target.name = ref.name OR target.name = short_call_name)
+                  AND caller <> target
+                MERGE (caller)-[:CALLS]->(target)
             """, repo_name=repo_name)
 
             # 4. Sanitize legacy/dirty function names containing newlines, spaces, or code
@@ -470,24 +472,33 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
     """
     Exports nodes and edges formatted for Vis.js Network and Cytoscape.js visual rendering.
     Strips large 768-dim float embeddings to maintain light network payloads and high FPS.
-    Uses bidirectional relationship traversal and exact startNode/endNode tracking.
+    Traverses true semantic relationships (CONTAINS, HAS_METHOD, CALLS, IMPORTS, AUTHORED).
     """
     # Fast resolution of calls and links
     resolve_cross_references(repo_name)
 
     with driver.session() as session:
-        # Prioritize returning connected subgraphs to prevent disconnected ring structures, but fallback to single nodes if edges are missing
+        # Query connected relationships directly so the graph forms cohesive trees and clusters instead of isolated rings
         query = """
-        MATCH (n)
-        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
-          AND (n:Function OR n:File OR n:Class OR n:Repository)
-        OPTIONAL MATCH (n)-[r:CONTAINS|CALLS|DEFINES]->(m)
-        WITH n, r, m
-        ORDER BY r IS NOT NULL DESC
-        LIMIT $limit
+        MATCH (n)-[r:CONTAINS|HAS_METHOD|CALLS|IMPORTS|AUTHORED|EXPOSES_API]->(m)
+        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
+          AND (n:Function OR n:File OR n:Class OR n:Repository OR n:Developer OR n:Module)
+          AND (m:Function OR m:File OR m:Class OR m:Repository OR m:Developer OR m:Module OR m:ApiRoute)
         RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
+        LIMIT $limit
         """
-        result = session.run(query, repo_name=repo_name, limit=limit)
+        records = list(session.run(query, repo_name=repo_name, limit=limit))
+
+        # Fallback if repository has nodes without relationships yet
+        if not records:
+            fallback_query = """
+            MATCH (n)
+            WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
+              AND (n:Function OR n:File OR n:Class OR n:Repository)
+            RETURN n, null AS r, null AS m, null AS r_start, null AS r_end
+            LIMIT $limit
+            """
+            records = list(session.run(fallback_query, repo_name=repo_name, limit=limit))
         
         nodes = {}
         edges = []
@@ -505,7 +516,7 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
             raw_props["has_embedding"] = has_embedding
             raw_props["embedding_dim"] = embedding_dim
 
-            # Label formatting: for File, display clean filename instead of full long path
+            # Label formatting: clean identifiers only
             if label == "File":
                 file_p = raw_props.get("path") or raw_props.get("file_path") or "file"
                 name = os.path.basename(file_p) or file_p
@@ -514,6 +525,8 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
             elif label == "Class":
                 raw_name = raw_props.get("name") or raw_props.get("id") or "Class"
                 name = clean_function_name(raw_name, raw_props.get("id"))
+            elif label == "Repository":
+                name = raw_props.get("name") or "Repository"
             else:
                 name = raw_props.get("name") or raw_props.get("path") or raw_props.get("id") or "Node"
             
@@ -533,7 +546,7 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
                 }
             }
 
-        for record in result:
+        for record in records:
             n = record.get("n")
             r = record.get("r")
             m = record.get("m")

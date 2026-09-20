@@ -654,8 +654,6 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div class="lg:col-span-5 space-y-4">
-
-        <div class="col-span-1 md:col-span-2 lg:col-span-3">
           <!-- Mode A: Single Function Blast Radius -->
           <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
             <h3 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
@@ -1900,22 +1898,22 @@ asyncio.run(run())`;
         },
         physics: {
           enabled: true,
-          solver: 'barnesHut',
-          barnesHut: {
-            gravitationalConstant: -2000,
-            centralGravity: 0.3,
-            springLength: 95,
-            springConstant: 0.04,
-            damping: 0.09,
-            avoidOverlap: 0.1
+          solver: 'forceAtlas2Based',
+          forceAtlas2Based: {
+            gravitationalConstant: -50,
+            centralGravity: 0.01,
+            springLength: 85,
+            springConstant: 0.06,
+            damping: 0.5,
+            avoidOverlap: 0.8
           },
           maxVelocity: 50,
           minVelocity: 0.1,
           timestep: 0.5,
           stabilization: {
             enabled: true,
-            iterations: 150,
-            updateInterval: 150,
+            iterations: 250,
+            updateInterval: 25,
             fit: true
           }
         },
@@ -2032,7 +2030,7 @@ asyncio.run(run())`;
       }
       if (!name) return 'Function';
 
-      const stripped = String(name).trim();
+      const s = String(name).trim();
       const KEYWORDS = new Set([
         'def', 'func', 'fn', 'function', 'sub', 'fun', 'void', 'int', 'string', 'bool',
         'float', 'double', 'char', 'auto', 'async', 'public', 'private', 'protected',
@@ -2041,14 +2039,22 @@ asyncio.run(run())`;
       ]);
       const CONTROL_FLOW = new Set(['if', 'while', 'for', 'switch', 'catch', 'sizeof', 'typeof', 'using', 'lock']);
 
-      if (/^[A-Za-z0-9_]+$/.test(stripped) && !KEYWORDS.has(stripped.toLowerCase())) {
-        return stripped;
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(s) && !KEYWORDS.has(s.toLowerCase())) {
+        return s;
       }
 
-      const firstLine = stripped.split('\n')[0].trim();
+      const firstLine = s.split('\n')[0].trim();
 
-      // 1. Function name before '('
-      const parenMatch = firstLine.match(/([A-Za-z0-9_]+)\s*\(/);
+      // Check def foo( or function foo(
+      const defMatch = firstLine.match(/(?:def|function|func|fn)\s+([A-Za-z_][A-Za-z0-9_]*)/);
+      if (defMatch && defMatch[1]) return defMatch[1];
+
+      // Check const foo =
+      const assignMatch = firstLine.match(/(?:const|let|var|val)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+      if (assignMatch && assignMatch[1]) return assignMatch[1];
+
+      // Function name before '('
+      const parenMatch = firstLine.match(/([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
       if (parenMatch && parenMatch[1]) {
         const cand = parenMatch[1];
         if (!CONTROL_FLOW.has(cand.toLowerCase()) && !KEYWORDS.has(cand.toLowerCase())) {
@@ -2056,23 +2062,16 @@ asyncio.run(run())`;
         }
       }
 
-      // 2. Composite ID: repo:file.py:func_name
-      if (firstLine.includes(':')) {
-        const parts = firstLine.split(':');
+      // Composite ID: repo:file.py:func_name
+      if (id && String(id).includes(':')) {
+        const parts = String(id).split(':');
         const cand = parts[parts.length - 1].trim();
-        if (/^[A-Za-z0-9_]+$/.test(cand) && !KEYWORDS.has(cand.toLowerCase())) {
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(cand) && !KEYWORDS.has(cand.toLowerCase())) {
           return cand;
         }
       }
 
-      // 3. Arrow function / variable: const myFunc = ...
-      const arrowMatch = firstLine.match(/(?:const|let|var|val)\s+([A-Za-z0-9_]+)\s*=/);
-      if (arrowMatch && arrowMatch[1]) {
-        return arrowMatch[1];
-      }
-
-      // 4. Non-keyword word
-      const words = firstLine.match(/[A-Za-z0-9_]+/g) || [];
+      const words = firstLine.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
       const nonKw = words.filter(w => !KEYWORDS.has(w.toLowerCase()) && !CONTROL_FLOW.has(w.toLowerCase()));
       if (nonKw.length > 0) {
         return nonKw[0];
