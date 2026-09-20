@@ -1886,16 +1886,28 @@ asyncio.run(run())`;
             font: { color: '#ccfbf1', size: 11 }
           }
         },
+        edges: {
+          width: 1,
+          color: { color: '#475569', highlight: '#94a3b8', hover: '#64748b' },
+          arrows: {
+            to: { enabled: true, scaleFactor: 0.5, type: 'arrow' }
+          },
+          smooth: {
+            enabled: true,
+            type: 'continuous',
+            roundness: 0.5
+          }
+        },
         physics: {
           enabled: true,
-          solver: 'forceAtlas2Based',
-          forceAtlas2Based: {
-            gravitationalConstant: -50,
-            centralGravity: 0.01,
-            springLength: 100,
-            springConstant: 0.08,
-            damping: 0.4,
-            avoidOverlap: 0.5
+          solver: 'barnesHut',
+          barnesHut: {
+            gravitationalConstant: -2000,
+            centralGravity: 0.3,
+            springLength: 95,
+            springConstant: 0.04,
+            damping: 0.09,
+            avoidOverlap: 0.1
           },
           maxVelocity: 50,
           minVelocity: 0.1,

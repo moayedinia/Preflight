@@ -476,13 +476,15 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
     resolve_cross_references(repo_name)
 
     with driver.session() as session:
+        # Prioritize returning connected subgraphs to prevent disconnected ring structures, but fallback to single nodes if edges are missing
         query = """
         MATCH (n)
         WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
           AND (n:Function OR n:File OR n:Class OR n:Repository)
-        WITH n LIMIT $limit
         OPTIONAL MATCH (n)-[r:CONTAINS|CALLS|DEFINES]->(m)
-        WHERE ($repo_name IS NULL OR m.repo = $repo_name OR m.name = $repo_name)
+        WITH n, r, m
+        ORDER BY r IS NOT NULL DESC
+        LIMIT $limit
         RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
         """
         result = session.run(query, repo_name=repo_name, limit=limit)
