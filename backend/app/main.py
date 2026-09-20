@@ -370,7 +370,7 @@ def graphrag_query(payload: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=10000)
+    message: str = Field(..., min_length=1, max_length=500_000)
     repo_name: Optional[str] = Field(None, max_length=100)
     mode: Optional[str] = Field("graphrag", description="Mode: 'graphrag', 'direct', or 'nl2cypher'")
 

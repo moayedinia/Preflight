@@ -52,11 +52,12 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
 
     # Build context string for the LLM
     context_blocks = []
-    for hit in hits:
+    for hit in hits[:3]:
         name = hit.get("name")
         file_path = hit.get("file_path")
-        code = hit.get("code") or ""
-        doc = hit.get("docstring") or ""
+        raw_code = (hit.get("code") or "").strip()
+        code = raw_code[:500] + ("\n... [سورس کد خلاصه شده]" if len(raw_code) > 500 else "")
+        doc = (hit.get("docstring") or "").strip()
         score = hit.get("score", 0.0)
 
         # Match relational context
@@ -68,8 +69,7 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
         block = f"""
 Entity: {name} (File: {file_path})
 Parent Class: {parent_class}
-Relevance Score: {score:.4f}
-Docstring: {doc}
+Docstring: {doc or 'ندارد'}
 Called By: {callers}
 Calls: {callees}
 Code:
@@ -83,9 +83,8 @@ Code:
 
     system_prompt = (
         "You are an expert Enterprise Software Architect and Code Reviewer. "
-        "Use the provided Code Graph context (including function code, classes, and call relationships) "
-        "to answer the user's inquiry accurately. "
-        "Reference exact file paths, class/function names, and explain call graphs when relevant."
+        "Use the provided Code Graph context to answer the user's inquiry accurately and professionally in Persian. "
+        "Reference exact file paths and function names when relevant."
     )
 
     user_prompt = f"""
@@ -95,14 +94,20 @@ User Question:
 Retrieved Code Graph Context:
 {full_context}
 
-Please provide a detailed, well-structured explanation:
+Please provide a clear and structured answer:
 """
 
     from app.core.llm import call_llm
     try:
         answer = call_llm(user_prompt, system_prompt)
     except Exception as e:
-        answer = f"*(Notice: LLM response unavailable: {e})*\n\n### Retrieved Code Graph Context:\n\n{full_context}"
+        print(f"[GraphRAG] Full context query failed ({e}). Retrying with lightweight prompt...")
+        try:
+            fn_names = ", ".join([h.get("name", "") for h in hits if h.get("name")])
+            light_prompt = f"{query}\n\n(Context functions found in repo: {fn_names})"
+            answer = call_llm(light_prompt, system_prompt)
+        except Exception as e2:
+            answer = f"⚠️ خطا در ارتباط با مدل زبانی: {e2}\n\n### اطلاعات استخراج‌شده از گراف کد:\n\n{full_context}"
 
     return {
         "answer": answer,

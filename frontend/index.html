@@ -4100,21 +4100,56 @@ ${h.code || ''}
     async function exportArchitectureReportMarkdown() {
       const selectedRepo = document.getElementById('repo-filter-select')?.value || 'All Repositories';
       const btn = document.querySelector('button[onclick="exportArchitectureReportMarkdown()"]');
-      const originalText = btn.innerHTML;
-      btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generating AI Report...';
-      btn.disabled = true;
+      const originalText = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generating Report...';
+        btn.disabled = true;
+      }
 
+      const cycles = currentCyclesList || [];
+      const hubs = currentHubsList || [];
+      const dead = currentDeadCodeList || [];
+      const clones = currentClonesList || [];
+      const hotspots = currentHotspotsList || [];
+
+      // Build compact summary without huge source code dumps so it never exceeds token or payload limits
+      const summaryPayload = {
+        repository: selectedRepo,
+        metrics: {
+          circular_dependencies: cycles.length,
+          critical_hubs: hubs.length,
+          dead_code_candidates: dead.length,
+          code_clones: clones.length,
+          git_hotspots: hotspots.length
+        },
+        critical_hubs: hubs.slice(0, 10).map(h => ({
+          name: h.name,
+          file: h.file_path,
+          risk: h.risk_score,
+          in_degree: h.in_degree,
+          out_degree: h.out_degree,
+          type: h.smell_type_fa || h.smell_type
+        })),
+        circular_dependency_chains: cycles.slice(0, 5).map(c => (c.cycle || []).join(' -> ')),
+        dead_code_functions: dead.slice(0, 15).map(d => ({ name: d.name, file: d.file_path, line: d.line })),
+        git_hotspots: hotspots.slice(0, 5).map(h => ({ file: h.file_path, churn: h.churn }))
+      };
+
+      let md = '';
       try {
-        const payloadStr = JSON.stringify({
-          repo: selectedRepo,
-          cycles: currentCyclesList || [],
-          hubs: currentHubsList || [],
-          dead: currentDeadCodeList || [],
-          clones: currentClonesList || [],
-          hotspots: currentHotspotsList || []
-        }, null, 2);
-
-        const prompt = 'شما یک مهندس نرم افزار و معمار ارشد هستید. من اطلاعات و متغیرهای تحلیلی مربوط به کیفیت و سلامت کدهای پروژه را (شامل وابستگی‌های حلقوی، توابع خدا، کدهای مرده و نقاط داغ) به صورت جیسون به شما می‌دهم. لطفاً یک گزارش بسیار جامع، حرفه‌ای و دقیق با فرمت Markdown به زبان فارسی تولید کنید. این گزارش فقط شامل کد خروجی مارک داون باشد و هیچ متن اضافه‌ای نداشته باشد. دیتا:\n' + payloadStr;
+        const prompt = `شما یک معمار ارشد سیستم و مهندس نرم‌افزار هستید. بر اساس دیتای تحلیلی زیر از وضعیت معماری و کد مخزن، یک گزارش جامع و حرفه‌ای به زبان فارسی در قالب Markdown تولید کنید.
+بخش‌های گزارش:
+۱. خلاصه وضعیت ریسک و شاخص‌های سلامت (Executive Summary)
+۲. تحلیل گلوگاه‌ها و توابع همه‌کاره (Critical Hubs)
+۳. توابع مرده و کدهای بی‌استفاده (Dead Code Candidates)
+۴. وابستگی‌های چرخشی (Circular Dependencies)
+۵. نقشه راه و پیشنهادات اصلاحی (Action Plan)
+تنها خروجی باید کد مارک‌داون بدون مقدمه باشد.
+اطلاعات:
+\`\`\`json
+${JSON.stringify(summaryPayload, null, 2)}
+\`\`\`
+`;
         
         const res = await fetch(`${API_BASE}/api/v1/chat`, {
           method: 'POST',
@@ -4122,32 +4157,60 @@ ${h.code || ''}
           body: JSON.stringify({ message: prompt, mode: 'direct', repo_name: selectedRepo })
         });
         
-        let md = '';
         if (res.ok) {
           const data = await res.json();
-          md = data.response;
+          md = data.response || '';
           if (md.startsWith('```markdown')) {
              md = md.replace(/^```markdown\n/, '').replace(/\n```$/, '');
           }
-        } else {
-          throw new Error('Failed to generate with AI.');
         }
-
-        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        const safeRepo = selectedRepo.replace(/[^a-zA-Z0-9_\-]/g, '_');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `architecture-health-ai-${safeRepo}-${Date.now()}.md`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        
       } catch (e) {
-        alert('خطا در ارتباط با هوش مصنوعی برای تولید گزارش.');
-        console.error(e);
-      } finally {
+        console.warn('AI report generation error, using fallback template:', e);
+      }
+
+      // If AI output was empty or failed, generate structured comprehensive fallback report
+      if (!md || md.length < 50 || md.includes('⚠️')) {
+        const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        md = `# CodeGraph Brain - گزارش جامع سلامت معماری و آنتی‌پترن‌ها\n\n`;
+        md += `> **مخزن هدف:** \`${selectedRepo}\`  \n`;
+        md += `> **تاریخ تهیه:** \`${nowStr}\`  \n\n---\n\n`;
+        md += `## ۱. خلاصه وضعیت سلامت کد (Executive Summary)\n\n`;
+        md += `| شاخص ارزیابی | تعداد شناسایی شده | سطح ریسک |\n| :--- | :--- | :--- |\n`;
+        md += `| وابستگی‌های حلقوی | ${cycles.length} | ${cycles.length > 0 ? '🔴 بحرانی' : '🟢 مطلوب'} |\n`;
+        md += `| هاب‌های بحرانی (God Functions) | ${hubs.length} | ${hubs.length > 5 ? '🔴 بالا' : '🟢 مطلوب'} |\n`;
+        md += `| کدهای مرده و ایزوله | ${dead.length} | ${dead.length > 10 ? '🟡 متوسط' : '🟢 کم'} |\n`;
+        md += `| کدهای تکراری (Clones) | ${clones.length} | ${clones.length > 0 ? '🟡 ریفکتور' : '🟢 تمیز'} |\n\n---\n\n`;
+        md += `## ۲. هاب‌های بحرانی و توابع پرریسک\n\n`;
+        if (hubs.length === 0) {
+          md += `*هیچ نقطه گلوگاه پرریسکی شناسایی نشد.*\n\n`;
+        } else {
+          hubs.forEach((h, i) => {
+            md += `### ${i + 1}. تابع \`${h.name}\` (${h.smell_type_fa || h.smell_type || 'Hub'})\n`;
+            md += `- **فایل:** \`${h.file_path}\`\n`;
+            md += `- **فراخواننده‌ها:** ${h.in_degree} | **فراخوانی‌ها:** ${h.out_degree} | **ریسک:** \`${h.risk_score}\`\n\n`;
+          });
+        }
+        if (dead.length > 0) {
+          md += `---\n\n## ۳. کدهای مرده و بدون فراخواننده (Dead Code)\n\n`;
+          dead.slice(0, 25).forEach((d, i) => {
+            md += `- **${d.name}** در \`${d.file_path}:${d.line || 1}\` (بدون هیچ فراخواننده‌ای در سیستم)\n`;
+          });
+          md += `\n`;
+        }
+      }
+
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      const safeRepo = (selectedRepo || 'repo').replace(/[^a-zA-Z0-9_\-]/g, '_');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `architecture-report-${safeRepo}-${Date.now()}.md`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      if (btn) {
         btn.innerHTML = originalText;
         btn.disabled = false;
         if (window.lucide) window.lucide.createIcons();
