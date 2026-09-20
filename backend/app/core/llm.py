@@ -63,8 +63,15 @@ def call_llm(prompt: str, system_prompt: str = "") -> str:
     """Calls any OpenAI-compatible endpoint (Ollama, vLLM, LMStudio, LocalAI, OpenAI) with auto-fallbacks."""
     config = get_llm_config()
     headers = {"Content-Type": "application/json"}
-    if config.get("api_key"):
-        headers["Authorization"] = f"Bearer {config['api_key']}"
+    api_key = (config.get("api_key") or os.getenv("LLM_API_KEY") or "").strip()
+    if api_key:
+        # Strip accidental leading 'Bearer ' or enclosing quotes
+        clean_key = re.sub(r'^(?:Bearer\s+|["\'])', '', api_key, flags=re.IGNORECASE)
+        clean_key = re.sub(r'["\']$', '', clean_key).strip()
+        headers["Authorization"] = f"Bearer {clean_key}"
+        headers["api-key"] = clean_key
+        headers["x-api-key"] = clean_key
+        headers["X-API-KEY"] = clean_key
     
     payload = {
         "model": config.get("model", ""),

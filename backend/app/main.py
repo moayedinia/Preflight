@@ -116,7 +116,7 @@ class DiffReviewRequest(BaseModel):
 class LLMConfigRequest(BaseModel):
     base_url: str = Field(..., max_length=500)
     model: str = Field(..., max_length=100)
-    api_key: Optional[str] = Field("", max_length=200)
+    api_key: Optional[str] = Field("", max_length=2000)
 
 class AutoDocRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
