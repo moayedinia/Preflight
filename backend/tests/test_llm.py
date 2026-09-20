@@ -7,7 +7,7 @@ with patch.dict(
     sys.modules,
     {"app.core.celery": SimpleNamespace(CELERY_BROKER_URL="redis://localhost:6379/0")},
 ):
-    from app.core.llm import normalize_llm_base_url
+    from app.core.llm import normalize_llm_base_url, _clean_slashes
 
 
 class LlmConfigurationTests(unittest.TestCase):
@@ -21,6 +21,16 @@ class LlmConfigurationTests(unittest.TestCase):
         self.assertEqual(
             normalize_llm_base_url("http://ollama.example:11434/v1/"),
             "http://ollama.example:11434/v1",
+        )
+
+    def test_cleans_double_slashes(self):
+        self.assertEqual(
+            normalize_llm_base_url("http://172.25.47.2:8080//v1/"),
+            "http://172.25.47.2:8080/v1",
+        )
+        self.assertEqual(
+            normalize_llm_base_url("http://172.25.47.2:8080//"),
+            "http://172.25.47.2:8080/v1",
         )
 
     def test_rejects_relative_url(self):
