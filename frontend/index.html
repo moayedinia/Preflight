@@ -3704,7 +3704,8 @@ asyncio.run(run())`;
       // Determine repository scope
       const repoScopeEl = document.getElementById('chat-repo-scope');
       const repoGlobalEl = document.getElementById('repo-filter-select');
-      const selectedRepo = (repoScopeEl && repoScopeEl.value) || (repoGlobalEl && repoGlobalEl.value) || null;
+      const rawRepo = (repoScopeEl && repoScopeEl.value) || (repoGlobalEl && repoGlobalEl.value) || null;
+      const selectedRepo = (rawRepo && rawRepo !== 'All Repositories' && rawRepo !== 'ALL') ? rawRepo : null;
 
       try {
         const res = await fetch(`${API_BASE}/api/v1/chat`, {
@@ -4098,7 +4099,9 @@ ${h.code || ''}
     }
 
     async function exportArchitectureReportMarkdown() {
-      const selectedRepo = document.getElementById('repo-filter-select')?.value || 'All Repositories';
+      const rawRepo = document.getElementById('repo-filter-select')?.value || '';
+      const selectedRepo = (rawRepo && rawRepo !== 'All Repositories' && rawRepo !== 'ALL') ? rawRepo : null;
+      const displayRepoName = selectedRepo || 'All Repositories';
       const btn = document.querySelector('button[onclick="exportArchitectureReportMarkdown()"]');
       const originalText = btn ? btn.innerHTML : '';
       if (btn) {
@@ -4114,7 +4117,7 @@ ${h.code || ''}
 
       // Build compact summary without huge source code dumps so it never exceeds token or payload limits
       const summaryPayload = {
-        repository: selectedRepo,
+        repository: displayRepoName,
         metrics: {
           circular_dependencies: cycles.length,
           critical_hubs: hubs.length,
@@ -4172,7 +4175,7 @@ ${JSON.stringify(summaryPayload, null, 2)}
       if (!md || md.length < 50 || md.includes('⚠️')) {
         const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
         md = `# CodeGraph Brain - گزارش جامع سلامت معماری و آنتی‌پترن‌ها\n\n`;
-        md += `> **مخزن هدف:** \`${selectedRepo}\`  \n`;
+        md += `> **مخزن هدف:** \`${displayRepoName}\`  \n`;
         md += `> **تاریخ تهیه:** \`${nowStr}\`  \n\n---\n\n`;
         md += `## ۱. خلاصه وضعیت سلامت کد (Executive Summary)\n\n`;
         md += `| شاخص ارزیابی | تعداد شناسایی شده | سطح ریسک |\n| :--- | :--- | :--- |\n`;

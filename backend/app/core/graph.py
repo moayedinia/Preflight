@@ -336,35 +336,73 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     MERGE (test)-[:TESTS]->(target)
                 """, file_id=file_id, repo_name=repo_name, base_name=base_name)
 
-def vector_search(query_embedding: list[float], top_k: int = 5, repo_name: str = None) -> list[dict]:
+def vector_search(query_embedding: list[float] = None, top_k: int = 5, repo_name: str = None, query_text: str = None) -> list[dict]:
     """
-    Finds nearest functions/code elements using Neo4j Vector Index or similarity fallback.
+    Finds nearest functions/code elements using Neo4j Vector Index or symbolic graph fallback.
+    If query_embedding is None or vector index query fails, falls back to keyword matching
+    or topological connectivity (caller degree) ranking in Neo4j.
     """
     with driver.session() as session:
-        try:
-            # Query Neo4j vector index
-            query = """
-            CALL db.index.vector.queryNodes('function_embeddings', $top_k, $embedding)
-            YIELD node, score
-            WHERE $repo_name IS NULL OR node.repo = $repo_name
-            RETURN node.id AS id, node.name AS name, node.file_path AS file_path,
-                   node.repo AS repo, node.code AS code, node.docstring AS docstring,
-                   node.start_line AS start_line, node.end_line AS end_line, score
-            """
-            result = session.run(query, top_k=top_k, embedding=query_embedding, repo_name=repo_name)
-            hits = [dict(record) for record in result]
-            if hits:
-                return hits
-        except Exception as e:
-            print(f"Vector index query error: {e}. Falling back to node traversal.")
+        if query_embedding:
+            try:
+                # Query Neo4j vector index
+                query = """
+                CALL db.index.vector.queryNodes('function_embeddings', $top_k, $embedding)
+                YIELD node, score
+                WHERE $repo_name IS NULL OR node.repo = $repo_name
+                RETURN node.id AS id, node.name AS name, node.file_path AS file_path,
+                       node.repo AS repo, node.code AS code, node.docstring AS docstring,
+                       node.start_line AS start_line, node.end_line AS end_line, score
+                """
+                result = session.run(query, top_k=top_k, embedding=query_embedding, repo_name=repo_name)
+                hits = [dict(record) for record in result]
+                if hits:
+                    return hits
+            except Exception as e:
+                print(f"Vector index query error: {e}. Falling back to node traversal.")
 
-        # Fallback if vector index is not populated/available
+        # Symbolic Fallback: Try extracting significant identifiers/keywords from query_text
+        keyword = None
+        if query_text:
+            # Extract identifier-like tokens
+            tokens = [w for w in re.findall(r"[A-Za-z0-9_\u0600-\u06FF]{3,}", query_text) if len(w) >= 3]
+            # Ignore general Persian or English chat words
+            stop_words = {"what", "where", "which", "function", "class", "tell", "show", "code", "file", "repo", "چطور", "کجا", "توابع", "کلاس", "کد", "مخزن", "معماری", "توضیح"}
+            meaningful = [t for t in tokens if t.lower() not in stop_words]
+            if meaningful:
+                keyword = meaningful[0]
+
+        if keyword:
+            try:
+                kw_query = """
+                MATCH (fn:Function)
+                WHERE ($repo_name IS NULL OR fn.repo = $repo_name)
+                  AND (toLower(fn.name) CONTAINS toLower($keyword) OR toLower(fn.file_path) CONTAINS toLower($keyword))
+                OPTIONAL MATCH (caller:Function)-[:CALLS]->(fn)
+                WITH fn, COUNT(caller) AS degree
+                RETURN fn.id AS id, fn.name AS name, fn.file_path AS file_path,
+                       fn.repo AS repo, fn.code AS code, fn.docstring AS docstring,
+                       fn.start_line AS start_line, fn.end_line AS end_line, 1.0 AS score
+                ORDER BY degree DESC
+                LIMIT $top_k
+                """
+                result = session.run(kw_query, top_k=top_k, repo_name=repo_name, keyword=keyword)
+                hits = [dict(record) for record in result]
+                if hits:
+                    return hits
+            except Exception as kw_err:
+                print(f"Keyword search fallback error: {kw_err}")
+
+        # Final Fallback: Return the top architectural functions ranked by caller degree (most connected)
         fallback_query = """
         MATCH (fn:Function)
         WHERE $repo_name IS NULL OR fn.repo = $repo_name
+        OPTIONAL MATCH (caller:Function)-[:CALLS]->(fn)
+        WITH fn, COUNT(caller) AS degree
         RETURN fn.id AS id, fn.name AS name, fn.file_path AS file_path,
                fn.repo AS repo, fn.code AS code, fn.docstring AS docstring,
                fn.start_line AS start_line, fn.end_line AS end_line, 1.0 AS score
+        ORDER BY degree DESC
         LIMIT $top_k
         """
         result = session.run(fallback_query, top_k=top_k, repo_name=repo_name)

@@ -133,16 +133,20 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
         actual_query = query.strip().replace("/cypher ", "").strip()
         return execute_nl2cypher_query(actual_query, repo_name)
 
-    # 1. Query Embedding & Vector Search
+    # 1. Query Embedding & Vector Search (with automatic symbolic fallback)
     hits = []
     try:
         query_vector = get_embedding(query)
-        hits = vector_search(query_vector, top_k=top_k, repo_name=repo_name)
+        hits = vector_search(query_vector, top_k=top_k, repo_name=repo_name, query_text=query)
     except Exception as emb_err:
-        print(f"[GraphRAG] Vector search note ({emb_err}). Continuing with graph fallback.")
-        hits = []
+        print(f"[GraphRAG] Vector embedding notice ({emb_err}). Using symbolic graph retrieval fallback.")
+        try:
+            hits = vector_search(None, top_k=top_k, repo_name=repo_name, query_text=query)
+        except Exception as fallback_err:
+            print(f"[GraphRAG] Symbolic fallback error: {fallback_err}")
+            hits = []
 
-    # If no semantic nodes retrieved, fallback to direct synthesis
+    # If no nodes retrieved from graph, fallback to direct synthesis
     if not hits:
         from app.core.llm import call_llm
         system_prompt = (
@@ -153,8 +157,9 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
             direct_answer = call_llm(query, system_prompt)
         except Exception as e:
             direct_answer = (
-                "سیستم هوش مصنوعی CodeGraph Brain:\n"
-                f"گره‌های متناظری در پایگاه دانش گراف یافت نشد و سرویس LLM در دسترس نیست: {e}"
+                "⚠️ **سیستم هوش مصنوعی CodeGraph Brain:**\n\n"
+                f"گره‌های متناظری در پایگاه دانش گراف یافت نشد و ارتباط با مدل زبانی برقرار نشد: `{e}`\n\n"
+                "💡 **راهنما:** لطفاً بررسی کنید که آیا مخزن ایندکس شده است و تنظیمات LLM معتبر می‌باشد."
             )
         return {
             "answer": direct_answer,
