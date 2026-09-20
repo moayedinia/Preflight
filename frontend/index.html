@@ -4096,101 +4096,62 @@ ${h.code || ''}
       }, 150);
     }
 
-    function exportArchitectureReportMarkdown() {
+    async function exportArchitectureReportMarkdown() {
       const selectedRepo = document.getElementById('repo-filter-select')?.value || 'All Repositories';
-      const now = new Date();
-      const dateStr = now.toISOString().replace('T', ' ').substring(0, 19);
+      const btn = document.querySelector('button[onclick="exportArchitectureReportMarkdown()"]');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generating AI Report...';
+      btn.disabled = true;
 
-      const cycles = currentCyclesList || [];
-      const hubs = currentHubsList || [];
-      const dead = currentDeadCodeList || [];
-      const clones = currentClonesList || [];
-      const hotspots = currentHotspotsList || [];
+      try {
+        const payloadStr = JSON.stringify({
+          repo: selectedRepo,
+          cycles: currentCyclesList || [],
+          hubs: currentHubsList || [],
+          dead: currentDeadCodeList || [],
+          clones: currentClonesList || [],
+          hotspots: currentHotspotsList || []
+        }, null, 2);
 
-      let md = `# CodeGraph Brain - گزارش جامع سلامت معماری و آنتی‌پترن‌ها (Architecture Health Report)\n\n`;
-      md += `> **مخزن هدف:** \`${selectedRepo}\`  \n`;
-      md += `> **تاریخ و زمان گزارش:** \`${dateStr}\`  \n`;
-      md += `> **موتور تحلیل:** CodeGraph Brain v2.0 Enterprise AST & Graph Intelligence  \n\n`;
-      md += `---\n\n`;
-
-      md += `## ۱. خلاصه شاخص‌های سلامت سیستم (Executive Summary)\n\n`;
-      md += `| شاخص ارزیابی | تعداد موارد شناسایی شده | وضعیت ریسک |\n`;
-      md += `| :--- | :--- | :--- |\n`;
-      md += `| **وابستگی‌های حلقوی (Circular Dependencies)** | ${cycles.length} | ${cycles.length > 0 ? '🔴 CRITICAL' : '🟢 HEALTHY'} |\n`;
-      md += `| **هاب‌های بحرانی و آنتی‌پترن‌ها (Critical Hubs & Smells)** | ${hubs.length} | ${hubs.length > 5 ? '🔴 CRITICAL' : (hubs.length > 0 ? '🟡 HIGH' : '🟢 HEALTHY')} |\n`;
-      md += `| **کدهای مرده / بدون فراخواننده (Dead Code Candidates)** | ${dead.length} | ${dead.length > 10 ? '🟡 MEDIUM' : '🟢 LOW'} |\n`;
-      md += `| **کدهای تکراری (Code Clones)** | ${clones.length} | ${clones.length > 0 ? '🟡 REFACTOR' : '🟢 CLEAN'} |\n`;
-      md += `| **نقاط داغ تغییرات (Git Hotspots)** | ${hotspots.length} | ℹ️ TRACKED |\n\n`;
-      md += `---\n\n`;
-
-      md += `## ۲. هاب‌های بحرانی و الگوهای نامناسب معماری (Critical Hubs & Architectural Smells)\n\n`;
-      if (hubs.length === 0) {
-        md += `*هیچ نقطه گلوگاه یا تابع همه‌کاره پرریسکی شناسایی نشد.*\n\n`;
-      } else {
-        md += `در این بخش، توابعی که دارای اتصالات متراکم، عدم رعایت اصل تک‌مسئولیتی (SRP) یا کوپلینگ شدید هستند فهرست شده‌اند:\n\n`;
-        md += `| ردیف | نام تابع / متد | دسته‌بندی آنتی‌پترن | سطح ریسک | فراخواننده (In) | فراخوانی (Out) | خطوط کد (LOC) | فایل سورس |\n`;
-        md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
-        hubs.forEach((h, idx) => {
-          md += `| ${idx + 1} | \`${h.name}\` | **${h.smell_type_fa || h.smell_type}** | \`${h.smell_severity || 'HIGH'}\` (Risk: ${h.risk_score}) | ${h.in_degree} | ${h.out_degree} | ${h.loc || '-'} | \`${h.file_path}\` |\n`;
+        const prompt = 'شما یک مهندس نرم افزار و معمار ارشد هستید. من اطلاعات و متغیرهای تحلیلی مربوط به کیفیت و سلامت کدهای پروژه را (شامل وابستگی‌های حلقوی، توابع خدا، کدهای مرده و نقاط داغ) به صورت جیسون به شما می‌دهم. لطفاً یک گزارش بسیار جامع، حرفه‌ای و دقیق با فرمت Markdown به زبان فارسی تولید کنید. این گزارش فقط شامل کد خروجی مارک داون باشد و هیچ متن اضافه‌ای نداشته باشد. دیتا:\n' + payloadStr;
+        
+        const res = await fetch(`${API_BASE}/api/v1/chat`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ message: prompt, mode: 'direct', repo_name: selectedRepo })
         });
-        md += `\n### شرح تفصیلی و راهکارهای ریفکتور هاب‌ها:\n\n`;
-        hubs.forEach((h, idx) => {
-          md += `#### ${idx + 1}. تابع \`${h.name}\` (${h.smell_type_fa || h.smell_type})\n`;
-          md += `- **مسیر فایل:** \`${h.file_path}:${h.line || 1}\`\n`;
-          md += `- **شاخص ریسک:** \`${h.risk_score}\` (فراخواننده‌ها: ${h.in_degree}، فراخوانی‌ها: ${h.out_degree})\n`;
-          md += `- **علت شناسایی:** ${h.smell_description || 'عدم رعایت مرزهای پیمانه‌ای و تجمع وابستگی‌ها.'}\n`;
-          md += `- **راهکار معماری پیشنهادی:** ${h.recommendation || 'تجزیه متد به اجزای مستقل‌تر.'}\n\n`;
-        });
-      }
-      md += `---\n\n`;
-
-      md += `## ۳. وابستگی‌های حلقوی شناسایی شده (Circular Call Chains)\n\n`;
-      if (cycles.length === 0) {
-        md += `*هیچ چرخه فراخوانی بازگشتی (Circular Dependency) در گراف کد شناسایی نشد.*\n\n`;
-      } else {
-        md += `توابع زیر در یک حلقه بازگشتی متقابل گرفتار شده‌اند که می‌تواند منجر به بن‌بست، سربار حافظه یا مشکلات تست‌پذیری گردد:\n\n`;
-        cycles.forEach((c, idx) => {
-          md += `### چرخه ${idx + 1} (طول زنجیره: ${c.length || (c.cycle && c.cycle.length) || 0})\n`;
-          md += `\`\`\`text\n${(c.cycle || []).join(' ➔ ')}\n\`\`\`\n`;
-          if (c.files && c.files.length) {
-            md += `- **فایل‌های درگیر:** ${c.files.map(f => `\`${f}\``).join(', ')}\n`;
+        
+        let md = '';
+        if (res.ok) {
+          const data = await res.json();
+          md = data.response;
+          if (md.startsWith('```markdown')) {
+             md = md.replace(/^```markdown\n/, '').replace(/\n```$/, '');
           }
-          md += `\n`;
-        });
+        } else {
+          throw new Error('Failed to generate with AI.');
+        }
+
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        const safeRepo = selectedRepo.replace(/[^a-zA-Z0-9_\-]/g, '_');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `architecture-health-ai-${safeRepo}-${Date.now()}.md`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+      } catch (e) {
+        alert('خطا در ارتباط با هوش مصنوعی برای تولید گزارش.');
+        console.error(e);
+      } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        if (window.lucide) window.lucide.createIcons();
       }
-      md += `---\n\n`;
-
-      md += `## ۴. کاندیداهای کد مرده (Dead Code Candidates)\n\n`;
-      if (dead.length === 0) {
-        md += `*هیچ کد مرده بارزی شناسایی نشد.*\n\n`;
-      } else {
-        md += `توابع زیر در هیچ کجای مخزن توسط توابع دیگر فراخوانی نشده‌اند (Callers = 0):\n\n`;
-        md += `| ردیف | نام نماد | فایل سورس | خط | علت شناسایی |\n`;
-        md += `| :--- | :--- | :--- | :--- | :--- |\n`;
-        dead.forEach((d, idx) => {
-          md += `| ${idx + 1} | \`${d.name}\` | \`${d.file_path}\` | ${d.line || 1} | ${d.reason || 'بدون فراخواننده ورودی'} |\n`;
-        });
-        md += `\n`;
-      }
-      md += `---\n\n`;
-
-      md += `## ۵. نقشه راه و توصیه‌های اصلاحی (Action Plan)\n\n`;
-      md += `1. **رفع وابستگی‌های حلقوی:** اولویت اول ریفکتورینگ را به شکستن چرخه‌های فراخوانی بازگشتی اختصاص دهید (با استفاده از Eventها یا اینترفیس مشترک).\n`;
-      md += `2. **ایزوله‌سازی گلوگاه‌ها:** برای توابعی با In-Degree بالا، قرارداد (Contract) تست خودکار ایجاد کنید تا تغییرات ناخواسته موجب شکست کل سیستم نشود.\n`;
-      md += `3. **پاکسازی کدهای بی‌استفاده:** متدهای Dead Code را بررسی کرده و در صورت عدم استفاده در APIهای خارجی یا تست‌ها، آنها را حذف نمایید تا پیچیدگی پروژه کاهش یابد.\n\n`;
-
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      const safeRepo = selectedRepo.replace(/[^a-zA-Z0-9_\-]/g, '_');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `architecture-health-${safeRepo}-${Date.now()}.md`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
     }
-
     function closeHubModal() {
       const modal = document.getElementById('hub-modal');
       if (modal) modal.classList.add('hidden');
