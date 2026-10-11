@@ -218,11 +218,15 @@ def _parse_with_treesitter(p: Parser, lang: str, file_path: str, code_bytes: byt
 
     def _find_calls(node) -> list[str]:
         calls = set()
+        CALL_IGNORE = {"if", "for", "while", "switch", "catch", "try", "return", "print", "println", "console", "len", "range", "str", "int", "float", "bool", "list", "dict", "set"}
         def _scan(curr):
             if curr.type in ["call", "call_expression", "method_invocation"]:
                 fn_child = curr.child_by_field_name("function") or curr.child_by_field_name("name")
                 if fn_child:
-                    calls.add(_get_node_text(fn_child, code_bytes).split(".")[-1].split("->")[-1])
+                    raw_name = _get_node_text(fn_child, code_bytes).split(".")[-1].split("->")[-1].strip()
+                    clean = re.sub(r'[^A-Za-z0-9_]', '', raw_name)
+                    if clean and len(clean) >= 2 and clean.lower() not in CALL_IGNORE:
+                        calls.add(clean)
             for ch in curr.children:
                 _scan(ch)
         _scan(node)
@@ -232,12 +236,23 @@ def _parse_with_treesitter(p: Parser, lang: str, file_path: str, code_bytes: byt
         if node.type in class_types:
             cls_name = _find_identifier(node)
             raw_code = _get_node_text(node, code_bytes)
+            # Extract base classes / superclasses
+            bases = []
+            for ch in node.children:
+                if ch.type in ["argument_list", "class_heritage", "superclasses", "base_class_clause", "type_parameters"]:
+                    for sub in ch.children:
+                        if sub.type in ["identifier", "type_identifier", "property_identifier"]:
+                            b_text = _get_node_text(sub, code_bytes).strip()
+                            if b_text and b_text not in ["extends", "implements", "public", "private", "protected"]:
+                                bases.append(b_text)
+
             cls_obj = {
                 "name": cls_name,
                 "start_line": node.start_point[0] + 1,
                 "end_line": node.end_point[0] + 1,
                 "code": raw_code[:4000],
                 "docstring": "",
+                "bases": bases,
                 "methods": []
             }
             entities["classes"].append(cls_obj)
@@ -282,7 +297,7 @@ def _parse_with_treesitter(p: Parser, lang: str, file_path: str, code_bytes: byt
 
 RE_CLASS = re.compile(
     r'^\s*(?:export\s+|public\s+|private\s+|protected\s+|open\s+|abstract\s+|final\s+)*'
-    r'(?:class|struct|interface|trait|type|enum|record)\s+([A-Za-z0-9_]+)',
+    r'(?:class|struct|interface|trait|type)\s+([A-Za-z0-9_]+)(?:\s*(?:\(|extends\s+|:\s*)([A-Za-z0-9_,\s\.]+))?',
     re.MULTILINE
 )
 
@@ -318,6 +333,11 @@ def _parse_with_universal_engine(file_path: str, lang: str, code_text: str) -> d
     # Extract Classes
     for match in RE_CLASS.finditer(code_text):
         cls_name = match.group(1)
+        raw_bases = match.group(2) if match.lastindex and match.lastindex >= 2 else None
+        bases = []
+        if raw_bases:
+            bases = [b.strip().split(".")[-1] for b in re.split(r'[,:\s]+', raw_bases) if b.strip() and b.strip() not in ['{', 'extends', 'implements', 'public', 'private', 'protected']]
+
         start_idx = match.start()
         start_line = code_text[:start_idx].count("\n") + 1
         # Approximate chunk up to 80 lines
@@ -330,6 +350,7 @@ def _parse_with_universal_engine(file_path: str, lang: str, code_text: str) -> d
             "end_line": end_line,
             "code": chunk[:4000],
             "docstring": "",
+            "bases": bases,
             "methods": []
         })
 

@@ -272,7 +272,17 @@
             <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Function</div>
             <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Module</div>
             <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-pink-500"></span> ApiRoute</div>
-            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-teal-500"></span> Developer</div>
+          </div>
+          <div class="font-semibold text-slate-300 pt-1.5 pb-1 border-t border-slate-800 flex items-center justify-between text-[11px]">
+            <span class="flex items-center gap-1.5"><i data-lucide="git-commit" class="w-3.5 h-3.5 text-emerald-400"></i> Connection Legend</span>
+          </div>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 text-[11px]">
+            <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-emerald-500"></span> <strong>CALLS</strong> (فراخوانی)</div>
+            <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-indigo-400"></span> <strong>IMPORTS</strong> (وابستگی)</div>
+            <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-amber-500"></span> <strong>HAS_METHOD</strong></div>
+            <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-pink-500"></span> <strong>EXTENDS</strong> (وراثت)</div>
+            <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-sky-400"></span> <strong>CONTAINS</strong> (ساختار)</div>
+            <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-cyan-400"></span> <strong>API</strong> (مسیرها)</div>
           </div>
         </div>
       </div>
@@ -1885,15 +1895,22 @@ asyncio.run(run())`;
           }
         },
         edges: {
-          width: 1,
-          color: { color: '#475569', highlight: '#94a3b8', hover: '#64748b' },
+          width: 1.8,
+          color: { color: '#64748b', highlight: '#38bdf8', hover: '#94a3b8' },
           arrows: {
-            to: { enabled: true, scaleFactor: 0.5, type: 'arrow' }
+            to: { enabled: true, scaleFactor: 0.75, type: 'arrow' }
+          },
+          font: {
+            color: '#94a3b8',
+            size: 9,
+            align: 'middle',
+            background: '#090d16',
+            strokeWidth: 0
           },
           smooth: {
             enabled: true,
             type: 'continuous',
-            roundness: 0.5
+            roundness: 0.4
           }
         },
         physics: {
@@ -1948,19 +1965,23 @@ asyncio.run(run())`;
           }
         });
 
-        // Node Click Handler -> Open Detailed Interactive Popup Modal
+        // Node Click Handler -> Update sidebar inspector and highlight connected edges
         network.on('click', function(params) {
           if (params.nodes && params.nodes.length > 0) {
             const nodeId = params.nodes[0];
-            openNodeModal(nodeId);
+            const nodeData = visNodes.get(nodeId);
+            if (nodeData) {
+              inspectNode(nodeData);
+            }
           }
         });
 
-        // Double Click -> Focus
+        // Double Click -> Focus and Open Detailed Interactive Popup Modal
         network.on('doubleClick', function(params) {
           if (params.nodes && params.nodes.length > 0) {
             const nodeId = params.nodes[0];
-            network.focus(nodeId, { scale: 1.3, animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+            network.focus(nodeId, { scale: 1.3, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+            openNodeModal(nodeId);
           }
         });
       } catch (err) {
@@ -2359,13 +2380,48 @@ asyncio.run(run())`;
                 const t = e.to || e.target;
                 return s && t && nodeIds.has(s) && nodeIds.has(t);
               })
-              .map(e => ({
-                id: e.id || `${e.from || e.source}-${e.to || e.target}`,
-                from: e.from || e.source,
-                to: e.to || e.target,
-                label: e.label || '',
-                title: e.label || ''
-              }));
+              .map(e => {
+                const edgeType = e.label || e.type || '';
+                let edgeColor = '#64748b';
+                let edgeWidth = 1.6;
+                let dashes = false;
+                let arrowScale = 0.75;
+
+                if (edgeType === 'CALLS') {
+                  edgeColor = '#10b981'; // Bright emerald green for function calls
+                  edgeWidth = 2.4;
+                  arrowScale = 0.9;
+                } else if (edgeType === 'DEPENDS_ON') {
+                  edgeColor = '#818cf8'; // Indigo for file-to-file imports
+                  edgeWidth = 2.0;
+                  dashes = [5, 4];
+                } else if (edgeType === 'HAS_METHOD') {
+                  edgeColor = '#f59e0b'; // Warm amber for class methods
+                  edgeWidth = 1.8;
+                } else if (edgeType === 'INHERITS_FROM') {
+                  edgeColor = '#ec4899'; // Vibrant pink for class inheritance
+                  edgeWidth = 2.2;
+                } else if (edgeType === 'CONTAINS') {
+                  edgeColor = '#38bdf8'; // Sky blue for containment
+                  edgeWidth = 1.4;
+                } else if (edgeType === 'EXPOSES_API' || edgeType === 'CALLS_API') {
+                  edgeColor = '#06b6d4'; // Cyan for API endpoints
+                  edgeWidth = 2.0;
+                }
+
+                return {
+                  id: e.id || `${e.from || e.source}-${e.to || e.target}`,
+                  from: e.from || e.source,
+                  to: e.to || e.target,
+                  label: edgeType,
+                  title: `${edgeType}: ${(e.from || e.source).split(':').pop()} → ${(e.to || e.target).split(':').pop()}`,
+                  color: { color: edgeColor, highlight: '#ffffff', hover: edgeColor },
+                  width: edgeWidth,
+                  dashes: dashes,
+                  arrows: { to: { enabled: true, scaleFactor: arrowScale, type: 'arrow' } },
+                  font: { color: edgeColor, size: 9, align: 'middle', background: '#0b1120', strokeWidth: 0 }
+                };
+              });
 
             visNodes.add(formattedNodes);
             visEdges.add(validEdges);

@@ -107,7 +107,15 @@ def init_graph_schema(max_retries: int = 30, retry_delay: float = 2.0):
             session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (c:Class) REQUIRE c.id IS UNIQUE")
             session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (fn:Function) REQUIRE fn.id IS UNIQUE")
             session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (d:Developer) REQUIRE d.email IS UNIQUE")
-        print("[Neo4j] Unique constraints verified successfully.", flush=True)
+
+            # Property indexes to accelerate cross-reference and relationship resolution
+            session.run("CREATE INDEX IF NOT EXISTS FOR (fn:Function) ON (fn.name)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (fn:Function) ON (fn.repo)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.repo)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (c:Class) ON (c.name)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (ref:FunctionReference) ON (ref.name)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (m:Module) ON (m.name)")
+        print("[Neo4j] Unique constraints and property indexes verified successfully.", flush=True)
     except Exception as const_err:
         print(f"[Neo4j Warning] Could not ensure constraints: {const_err}", flush=True)
 
@@ -241,6 +249,16 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                start_line=cls["start_line"], end_line=cls["end_line"],
                docstring=cls.get("docstring", ""), code=cls.get("code", "")[:4000],
                embedding=cls_embedding)
+
+            # Class inheritance (extends / implements / superclass)
+            for base_name in cls.get("bases", []):
+                clean_base = clean_function_name(base_name)
+                if clean_base:
+                    session.run("""
+                        MATCH (c:Class {id: $cls_id})
+                        MERGE (base:ClassReference {name: $clean_base})
+                        MERGE (c)-[:INHERITS_FROM]->(base)
+                    """, cls_id=cls_id, clean_base=clean_base)
 
             # Class methods
             for method in cls.get("methods", []):
@@ -454,41 +472,17 @@ def get_graph_stats() -> dict:
 
 def resolve_cross_references(repo_name: str = None):
     """
-    Resolves function call references into direct Function->Function relationships,
-    and ensures all files, classes, methods, and functions are linked hierarchically.
+    Resolves cross-references and extracts explicit architectural relationships:
+    1. Sanitizes legacy/dirty function names first.
+    2. Ensures all files belong to their Repository via CONTAINS.
+    3. Ensures Class methods are connected to their containing File and have repo set.
+    4. Resolves Function -> Function direct CALLS across the codebase.
+    5. Resolves File -> File internal module import dependencies (DEPENDS_ON).
+    6. Resolves Class -> Class inheritance hierarchies (INHERITS_FROM).
     """
     with driver.session() as session:
         try:
-            # 1. Ensure all Files are linked to their Repository
-            session.run("""
-                MATCH (f:File)
-                WHERE f.repo IS NOT NULL AND ($repo_name IS NULL OR f.repo = $repo_name)
-                MERGE (r:Repository {name: f.repo})
-                MERGE (r)-[:CONTAINS]->(f)
-            """, repo_name=repo_name)
-
-            # 2. Ensure Class methods have repo and file_path properties, and are linked
-            session.run("""
-                MATCH (f:File)-[:CONTAINS]->(c:Class)-[:HAS_METHOD]->(fn:Function)
-                WHERE $repo_name IS NULL OR f.repo = $repo_name
-                SET fn.repo = f.repo, fn.file_path = f.path, c.repo = f.repo
-                MERGE (f)-[:CONTAINS]->(fn)
-            """, repo_name=repo_name)
-
-            # 3. Resolve Function -> Function calls (match exact name or short name from dotted calls like self.func)
-            session.run("""
-                MATCH (caller:Function)
-                WHERE $repo_name IS NULL OR caller.repo = $repo_name
-                MATCH (caller)-[:CALLS]->(ref:FunctionReference)
-                WITH caller, ref, split(ref.name, '.')[-1] AS short_call_name
-                MATCH (target:Function)
-                WHERE ($repo_name IS NULL OR target.repo = $repo_name)
-                  AND (target.name = ref.name OR target.name = short_call_name)
-                  AND caller <> target
-                MERGE (caller)-[:CALLS]->(target)
-            """, repo_name=repo_name)
-
-            # 4. Sanitize legacy/dirty function names containing newlines, spaces, or code
+            # 1. Sanitize dirty/legacy function names first so subsequent matches succeed
             dirty_fns = session.run("""
                 MATCH (fn:Function)
                 WHERE ($repo_name IS NULL OR fn.repo = $repo_name)
@@ -503,26 +497,103 @@ def resolve_cross_references(repo_name: str = None):
                         WHERE fn.id = $id OR elementId(fn) = $id
                         SET fn.name = $clean_name
                     """, id=item["id"], clean_name=clean_name)
+
+            # 2. Ensure all Files are linked to their Repository
+            session.run("""
+                MATCH (f:File)
+                WHERE f.repo IS NOT NULL AND ($repo_name IS NULL OR f.repo = $repo_name)
+                MERGE (r:Repository {name: f.repo})
+                MERGE (r)-[:CONTAINS]->(f)
+            """, repo_name=repo_name)
+
+            # 3. Ensure Class methods have repo and file_path properties, and are linked
+            session.run("""
+                MATCH (f:File)-[:CONTAINS]->(c:Class)-[:HAS_METHOD]->(fn:Function)
+                WHERE $repo_name IS NULL OR f.repo = $repo_name
+                SET fn.repo = f.repo, fn.file_path = f.path, c.repo = f.repo
+                MERGE (f)-[:CONTAINS]->(fn)
+            """, repo_name=repo_name)
+
+            # 4. Resolve Function -> Function direct CALLS (match exact name or short call name)
+            session.run("""
+                MATCH (caller:Function)-[:CALLS]->(ref:FunctionReference)
+                WHERE ($repo_name IS NULL OR caller.repo = $repo_name)
+                WITH caller, ref, trim(replace(replace(split(ref.name, '.')[-1], '(', ''), ')', '')) AS short_name
+                WHERE short_name <> '' AND short_name <> caller.name
+                MATCH (target:Function)
+                WHERE ($repo_name IS NULL OR target.repo = $repo_name)
+                  AND (target.name = short_name OR target.name = ref.name)
+                  AND caller <> target
+                MERGE (caller)-[:CALLS]->(target)
+            """, repo_name=repo_name)
+
+            # 5. Resolve internal File -> File dependencies (DEPENDS_ON) based on imports
+            session.run("""
+                MATCH (f1:File)-[:IMPORTS]->(m:Module)
+                WHERE ($repo_name IS NULL OR f1.repo = $repo_name)
+                WITH f1, m,
+                     trim(split(replace(replace(m.name, 'from ', ''), 'import ', ''), ' ')[0]) AS imp_path
+                WITH f1, imp_path, split(imp_path, '.')[-1] AS imp_base
+                WHERE imp_base <> '' AND len(imp_base) >= 2
+                MATCH (f2:File)
+                WHERE ($repo_name IS NULL OR f2.repo = $repo_name)
+                  AND f1 <> f2
+                  AND (
+                    f2.path ENDS WITH ('/' + imp_base + '.py')
+                    OR f2.path ENDS WITH ('/' + imp_base + '.ts')
+                    OR f2.path ENDS WITH ('/' + imp_base + '.js')
+                    OR f2.path ENDS WITH ('/' + imp_base + '.go')
+                    OR f2.path ENDS WITH ('/' + imp_base + '.java')
+                    OR f2.path ENDS WITH ('/' + imp_base + '.rs')
+                    OR f2.path = (imp_base + '.py')
+                    OR f2.path CONTAINS ('/' + replace(imp_path, '.', '/') + '.')
+                  )
+                MERGE (f1)-[:DEPENDS_ON]->(f2)
+            """, repo_name=repo_name)
+
+            # 6. Resolve Class -> Class inheritance (INHERITS_FROM)
+            session.run("""
+                MATCH (sub:Class)-[:INHERITS_FROM]->(base:ClassReference)
+                WHERE ($repo_name IS NULL OR sub.repo = $repo_name)
+                MATCH (super:Class)
+                WHERE ($repo_name IS NULL OR super.repo = $repo_name)
+                  AND (super.name = base.name OR super.name = split(base.name, '.')[-1])
+                  AND sub <> super
+                MERGE (sub)-[:INHERITS_FROM]->(super)
+            """, repo_name=repo_name)
+
         except Exception as e:
             print(f"[Graph] resolve_cross_references warning: {e}", flush=True)
 
-def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
+def get_graph_elements(repo_name: str = None, limit: int = 800) -> dict:
     """
     Exports nodes and edges formatted for Vis.js Network and Cytoscape.js visual rendering.
     Strips large 768-dim float embeddings to maintain light network payloads and high FPS.
-    Traverses true semantic relationships (CONTAINS, HAS_METHOD, CALLS, IMPORTS, AUTHORED).
+    Prioritizes true code relationships: CALLS, DEPENDS_ON, HAS_METHOD, INHERITS_FROM, CONTAINS.
     """
     # Fast resolution of calls and links
     resolve_cross_references(repo_name)
 
     with driver.session() as session:
-        # Query connected relationships directly so the graph forms cohesive trees and clusters instead of isolated rings
+        # Prioritize rich semantic code relationships over raw external module import lists
         query = """
-        MATCH (n)-[r:CONTAINS|HAS_METHOD|CALLS|IMPORTS|AUTHORED|EXPOSES_API]->(m)
+        MATCH (n)-[r:CALLS|DEPENDS_ON|HAS_METHOD|INHERITS_FROM|EXPOSES_API|CALLS_API|CONTAINS|IMPORTS|AUTHORED]->(m)
         WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
           AND (n:Function OR n:File OR n:Class OR n:Repository OR n:Developer OR n:Module)
           AND (m:Function OR m:File OR m:Class OR m:Repository OR m:Developer OR m:Module OR m:ApiRoute)
+          AND NOT m:FunctionReference
+          AND NOT m:ClassReference
         RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
+        ORDER BY CASE type(r)
+          WHEN 'CALLS' THEN 1
+          WHEN 'DEPENDS_ON' THEN 2
+          WHEN 'HAS_METHOD' THEN 3
+          WHEN 'INHERITS_FROM' THEN 4
+          WHEN 'EXPOSES_API' THEN 5
+          WHEN 'CALLS_API' THEN 6
+          WHEN 'CONTAINS' THEN 7
+          ELSE 8
+        END ASC
         LIMIT $limit
         """
         records = list(session.run(query, repo_name=repo_name, limit=limit))
@@ -616,12 +687,14 @@ def get_graph_elements(repo_name: str = None, limit: int = 600) -> dict:
                         "source": src_id,
                         "target": tgt_id,
                         "label": r.type,
+                        "type": r.type,
                         "title": r.type,
                         "data": {
                             "id": edge_id,
                             "source": src_id,
                             "target": tgt_id,
-                            "label": r.type
+                            "label": r.type,
+                            "type": r.type
                         }
                     })
 
