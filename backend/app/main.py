@@ -56,6 +56,8 @@ from app.core.repo_manager import (
     delete_repository
 )
 from app.core.reviewer import generate_architectural_code_review
+from app.core.preflight import run_3tier_preflight_evaluation, compile_pure_english_markdown_report
+
 
 app = FastAPI(
     title="Enterprise Code Knowledge Graph & GraphRAG API",
@@ -574,6 +576,41 @@ def review_git_diff(payload: DiffReviewRequest):
         return generate_architectural_code_review(payload.diff_text, repo_name=clean_repo)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Review failed: {str(e)}")
+
+class PreflightReportRequest(BaseModel):
+    repo_name: Optional[str] = Field(None, max_length=100)
+    custom_code: Optional[str] = Field(None, max_length=500_000)
+    analytics_data: Optional[Dict[str, Any]] = None
+
+@app.post("/api/v1/review/preflight-report", dependencies=[Depends(verify_api_key)])
+def preflight_report_endpoint(payload: PreflightReportRequest):
+    """
+    Executes 3-Tier Preflight LLM code evaluation (Red, Orange, Yellow) with strict JSON output,
+    combines with Knowledge Graph architectural smells, and produces a 100% pure English Markdown report.
+    """
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    try:
+        eval_results = run_3tier_preflight_evaluation(
+            repo_name=clean_repo,
+            custom_code=payload.custom_code
+        )
+        analytics = payload.analytics_data
+        if not analytics:
+            try:
+                from app.core.analytics import detect_code_smells
+                analytics = detect_code_smells(clean_repo)
+            except Exception:
+                analytics = {}
+        markdown_content = compile_pure_english_markdown_report(eval_results, analytics)
+        return {
+            "status": "success",
+            "repository": clean_repo or "All Repositories",
+            "evaluations": eval_results,
+            "markdown_report": markdown_content
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Preflight evaluation failed: {str(e)}")
+
 
 # 11. GitHub CI/CD Webhook Trigger
 @app.post("/api/v1/webhooks/github")
