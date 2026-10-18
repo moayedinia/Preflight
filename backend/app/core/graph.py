@@ -230,9 +230,14 @@ def init_graph_schema(max_retries: int = 30, retry_delay: float = 2.0):
 
 def ingest_parsed_data(repo_name: str, parsed_data: dict):
     """
-    Ingests parsed entities, extracts embeddings for functions and classes,
-    and links structural relationships (CONTAINS, HAS_METHOD, CALLS, IMPORTS).
+    Ingests parsed entities, extracts embeddings for functions and classes, and
+    links structural relationships (CONTAINS, HAS_METHOD, CALLS, IMPORTS).
     Preserves programming language on all nodes.
+
+    D6 fix: instead of issuing one Cypher query per import/class/method/call/route
+    (hundreds of round-trips per file), the entity rows are collected in Python and
+    written with a small number of `UNWIND ... MERGE` batch queries. Embeddings are
+    still computed per function/class (that work is in the embedder, not the DB).
     """
     file_path = parsed_data["file"]
     file_id = f"{repo_name}:{file_path}"
@@ -241,143 +246,209 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
     author_email = parsed_data.get("author_email", "unknown@example.com")
     churn = parsed_data.get("churn", 0)
 
+    content_hash = parsed_data.get("content_hash")
+
     with driver.session() as session:
-        # 1. Repo, File, and Developer nodes
+        # 1. Repo, File, and Developer nodes (single query)
         session.run("""
             MERGE (r:Repository {name: $repo_name})
             MERGE (f:File {id: $file_id})
-            ON CREATE SET f.path = $file_path, f.repo = $repo_name, f.language = $lang, f.churn = $churn
-            ON MATCH SET f.language = $lang, f.churn = $churn
+            ON CREATE SET f.path = $file_path, f.repo = $repo_name, f.language = $lang, f.churn = $churn, f.content_hash = $content_hash
+            ON MATCH SET f.language = $lang, f.churn = $churn, f.content_hash = $content_hash
             MERGE (r)-[:CONTAINS]->(f)
-            
+
             MERGE (d:Developer {email: $author_email})
             ON CREATE SET d.name = $author
             MERGE (d)-[:AUTHORED]->(f)
-        """, repo_name=repo_name, file_id=file_id, file_path=file_path, lang=lang, author=author, author_email=author_email, churn=churn)
+        """, repo_name=repo_name, file_id=file_id, file_path=file_path, lang=lang, author=author, author_email=author_email, churn=churn, content_hash=content_hash)
 
-        # 2. Imports
-        for imp in parsed_data.get("imports", []):
-            session.run("""
+        # 2. Imports (batched)
+        imports = list(parsed_data.get("imports", []))
+        if imports:
+            session.run(
+                """
                 MATCH (f:File {id: $file_id})
-                MERGE (m:Module {name: $imp})
+                UNWIND $imps AS imp
+                MERGE (m:Module {name: imp})
                 MERGE (f)-[:IMPORTS]->(m)
-            """, file_id=file_id, imp=imp)
+                """,
+                file_id=file_id, imps=imports,
+            )
 
-        # 3. Classes and their methods
+        # 3. Collect classes + their methods, then write in batches.
+        class_rows = []
+        base_rows = []
+        method_rows = []
+        method_call_rows = []
+
         for cls in parsed_data.get("classes", []):
             cls_name = cls["name"]
             cls_id = f"{file_id}:{cls_name}"
             cls_embedding = get_embedding(cls.get("code", "") or cls_name)
 
-            session.run("""
-                MATCH (f:File {id: $file_id})
-                MERGE (c:Class {id: $cls_id})
-                SET c.name = $cls_name,
-                    c.file_path = $file_path,
-                    c.repo = $repo_name,
-                    c.language = $lang,
-                    c.start_line = $start_line,
-                    c.end_line = $end_line,
-                    c.docstring = $docstring,
-                    c.code = $code,
-                    c.embedding = $embedding
-                MERGE (f)-[:CONTAINS]->(c)
-            """, file_id=file_id, cls_id=cls_id, cls_name=cls_name,
-               file_path=file_path, repo_name=repo_name, lang=lang,
-               start_line=cls["start_line"], end_line=cls["end_line"],
-               docstring=cls.get("docstring", ""), code=cls.get("code", "")[:4000],
-               embedding=cls_embedding)
+            class_rows.append({
+                "cls_id": cls_id, "cls_name": cls_name, "file_id": file_id,
+                "file_path": file_path, "repo_name": repo_name, "lang": lang,
+                "start_line": cls["start_line"], "end_line": cls["end_line"],
+                "docstring": cls.get("docstring", ""), "code": cls.get("code", "")[:4000],
+                "embedding": cls_embedding,
+            })
 
-            # Class inheritance (extends / implements / superclass)
             for base_name in cls.get("bases", []):
                 clean_base = clean_function_name(base_name)
                 if clean_base:
-                    session.run("""
-                        MATCH (c:Class {id: $cls_id})
-                        MERGE (base:ClassReference {name: $clean_base})
-                        MERGE (c)-[:INHERITS_FROM]->(base)
-                    """, cls_id=cls_id, clean_base=clean_base)
+                    base_rows.append({"cls_id": cls_id, "clean_base": clean_base})
 
-            # Class methods
             for method in cls.get("methods", []):
                 m_name = clean_function_name(method["name"], method.get("code"))
                 m_id = f"{cls_id}:{m_name}"
                 m_embedding = get_embedding(method.get("code", "") or m_name)
-
-                session.run("""
-                    MATCH (c:Class {id: $cls_id})
-                    MERGE (fn:Function {id: $m_id})
-                    SET fn.name = $m_name,
-                        fn.file_path = $file_path,
-                        fn.repo = $repo_name,
-                        fn.language = $lang,
-                        fn.start_line = $start_line,
-                        fn.end_line = $end_line,
-                        fn.docstring = $docstring,
-                        fn.code = $code,
-                        fn.embedding = $embedding
-                    MERGE (c)-[:HAS_METHOD]->(fn)
-                """, cls_id=cls_id, m_id=m_id, m_name=m_name,
-                   file_path=file_path, repo_name=repo_name, lang=lang,
-                   start_line=method["start_line"], end_line=method["end_line"],
-                   docstring=method.get("docstring", ""), code=method.get("code", "")[:4000],
-                   embedding=m_embedding)
-
-                # Track function calls
+                method_rows.append({
+                    "m_id": m_id, "m_name": m_name, "cls_id": cls_id,
+                    "file_path": file_path, "repo_name": repo_name, "lang": lang,
+                    "start_line": method["start_line"], "end_line": method["end_line"],
+                    "docstring": method.get("docstring", ""), "code": method.get("code", "")[:4000],
+                    "embedding": m_embedding,
+                })
                 for call_name in method.get("calls", []):
-                    session.run("""
-                        MATCH (fn:Function {id: $m_id})
-                        MERGE (callee:FunctionReference {name: $call_name})
-                        MERGE (fn)-[:CALLS]->(callee)
-                    """, m_id=m_id, call_name=call_name)
+                    method_call_rows.append({"m_id": m_id, "call_name": call_name})
 
-        # 4. Top-level standalone functions
+        if class_rows:
+            session.run(
+                """
+                UNWIND $rows AS r
+                MATCH (f:File {id: r.file_id})
+                MERGE (c:Class {id: r.cls_id})
+                SET c.name = r.cls_name,
+                    c.file_path = r.file_path,
+                    c.repo = r.repo_name,
+                    c.language = r.lang,
+                    c.start_line = r.start_line,
+                    c.end_line = r.end_line,
+                    c.docstring = r.docstring,
+                    c.code = r.code,
+                    c.embedding = r.embedding
+                MERGE (f)-[:CONTAINS]->(c)
+                """,
+                rows=class_rows,
+            )
+        if base_rows:
+            session.run(
+                """
+                UNWIND $rows AS r
+                MATCH (c:Class {id: r.cls_id})
+                MERGE (base:ClassReference {name: r.clean_base})
+                MERGE (c)-[:INHERITS_FROM]->(base)
+                """,
+                rows=base_rows,
+            )
+        if method_rows:
+            session.run(
+                """
+                UNWIND $rows AS r
+                MATCH (c:Class {id: r.cls_id})
+                MERGE (fn:Function {id: r.m_id})
+                SET fn.name = r.m_name,
+                    fn.file_path = r.file_path,
+                    fn.repo = r.repo_name,
+                    fn.language = r.lang,
+                    fn.start_line = r.start_line,
+                    fn.end_line = r.end_line,
+                    fn.docstring = r.docstring,
+                    fn.code = r.code,
+                    fn.embedding = r.embedding
+                MERGE (c)-[:HAS_METHOD]->(fn)
+                """,
+                rows=method_rows,
+            )
+        if method_call_rows:
+            session.run(
+                """
+                UNWIND $rows AS r
+                MATCH (fn:Function {id: r.m_id})
+                MERGE (callee:FunctionReference {name: r.call_name})
+                MERGE (fn)-[:CALLS]->(callee)
+                """,
+                rows=method_call_rows,
+            )
+
+        # 4. Top-level standalone functions (batched)
+        function_rows = []
+        function_call_rows = []
         for func in parsed_data.get("functions", []):
             func_name = clean_function_name(func["name"], func.get("code"))
             func_id = f"{file_id}:{func_name}"
             func_embedding = get_embedding(func.get("code", "") or func_name)
-
-            session.run("""
-                MATCH (f:File {id: $file_id})
-                MERGE (fn:Function {id: $func_id})
-                SET fn.name = $func_name,
-                    fn.file_path = $file_path,
-                    fn.repo = $repo_name,
-                    fn.language = $lang,
-                    fn.start_line = $start_line,
-                    fn.end_line = $end_line,
-                    fn.docstring = $docstring,
-                    fn.code = $code,
-                    fn.embedding = $embedding
-                MERGE (f)-[:CONTAINS]->(fn)
-            """, file_id=file_id, func_id=func_id, func_name=func_name,
-               file_path=file_path, repo_name=repo_name, lang=lang,
-               start_line=func["start_line"], end_line=func["end_line"],
-               docstring=func.get("docstring", ""), code=func.get("code", "")[:4000],
-               embedding=func_embedding)
-
+            function_rows.append({
+                "func_id": func_id, "func_name": func_name, "file_id": file_id,
+                "file_path": file_path, "repo_name": repo_name, "lang": lang,
+                "start_line": func["start_line"], "end_line": func["end_line"],
+                "docstring": func.get("docstring", ""), "code": func.get("code", "")[:4000],
+                "embedding": func_embedding,
+            })
             for call_name in func.get("calls", []):
-                session.run("""
-                    MATCH (fn:Function {id: $func_id})
-                    MERGE (callee:FunctionReference {name: $call_name})
-                    MERGE (fn)-[:CALLS]->(callee)
-                """, func_id=func_id, call_name=call_name)
+                function_call_rows.append({"func_id": func_id, "call_name": call_name})
 
-        # 5. API Routes & Clients (Cross-Service Traceability)
-        for route in parsed_data.get("api_routes", []):
-            session.run("""
-                MATCH (f:File {id: $file_id})
-                MERGE (api:ApiRoute {path: $path, method: $method})
-                ON CREATE SET api.repo = $repo_name
+        if function_rows:
+            session.run(
+                """
+                UNWIND $rows AS r
+                MATCH (f:File {id: r.file_id})
+                MERGE (fn:Function {id: r.func_id})
+                SET fn.name = r.func_name,
+                    fn.file_path = r.file_path,
+                    fn.repo = r.repo_name,
+                    fn.language = r.lang,
+                    fn.start_line = r.start_line,
+                    fn.end_line = r.end_line,
+                    fn.docstring = r.docstring,
+                    fn.code = r.code,
+                    fn.embedding = r.embedding
+                MERGE (f)-[:CONTAINS]->(fn)
+                """,
+                rows=function_rows,
+            )
+        if function_call_rows:
+            session.run(
+                """
+                UNWIND $rows AS r
+                MATCH (fn:Function {id: r.func_id})
+                MERGE (callee:FunctionReference {name: r.call_name})
+                MERGE (fn)-[:CALLS]->(callee)
+                """,
+                rows=function_call_rows,
+            )
+
+        # 5. API Routes & Clients (batched)
+        api_expose_rows = [
+            {"file_id": file_id, "path": r["path"], "method": r["method"], "repo_name": repo_name}
+            for r in parsed_data.get("api_routes", [])
+        ]
+        api_call_rows = [
+            {"file_id": file_id, "path": c["path"]}
+            for c in parsed_data.get("api_clients", [])
+        ]
+        if api_expose_rows:
+            session.run(
+                """
+                UNWIND $rows AS r
+                MATCH (f:File {id: r.file_id})
+                MERGE (api:ApiRoute {path: r.path, method: r.method})
+                ON CREATE SET api.repo = r.repo_name
                 MERGE (f)-[:EXPOSES_API]->(api)
-            """, file_id=file_id, path=route["path"], method=route["method"], repo_name=repo_name)
-
-        for client_req in parsed_data.get("api_clients", []):
-            session.run("""
-                MATCH (f:File {id: $file_id})
-                MERGE (api:ApiRoute {path: $path})
+                """,
+                rows=api_expose_rows,
+            )
+        if api_call_rows:
+            session.run(
+                """
+                UNWIND $rows AS r
+                MATCH (f:File {id: r.file_id})
+                MERGE (api:ApiRoute {path: r.path})
                 MERGE (f)-[:CALLS_API]->(api)
-            """, file_id=file_id, path=client_req["path"])
+                """,
+                rows=api_call_rows,
+            )
 
         # 6. Test Coverage Link
         if parsed_data.get("is_test"):
@@ -391,6 +462,58 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     WHERE target.path ENDS WITH $base_name AND target.id <> $file_id
                     MERGE (test)-[:TESTS]->(target)
                 """, file_id=file_id, repo_name=repo_name, base_name=base_name)
+
+def get_repo_file_hashes(repo_name: str) -> dict:
+    """
+    D8 fix — returns {relative_path: content_hash} for every File already indexed in
+    `repo_name`. Used by the incremental scanner to skip files whose content has
+    not changed. Paths are keyed by the stored `path` property.
+    """
+    with driver.session() as session:
+        records = session.run(
+            """
+            MATCH (f:File {repo: $repo_name})
+            WHERE f.path IS NOT NULL
+            RETURN f.path AS path, f.content_hash AS hash
+            """,
+            repo_name=repo_name,
+        ).data()
+    return {r["path"]: r["hash"] for r in records if r["path"] is not None}
+
+def prune_deleted_files(repo_name: str, kept_paths: list[str], batch: int = 2000) -> int:
+    """
+    D8 fix — removes File nodes for `repo_name` whose path is not in `kept_paths`
+    (i.e. the file was deleted or renamed on disk since the last ingest). This
+    keeps the graph from drifting. Returns the number of file ids removed.
+    """
+    with driver.session() as session:
+        rows = session.run(
+            """
+            MATCH (f:File {repo: $repo_name})
+            WHERE f.path IS NOT NULL
+            RETURN f.id AS id, f.path AS path
+            """,
+            repo_name=repo_name,
+        ).data()
+    from app.core.resolve import stale_file_ids
+    stale = stale_file_ids([r["path"] for r in rows], kept_paths)
+    if not stale:
+        return 0
+
+    pruned = 0
+    for i in range(0, len(stale), batch):
+        chunk = stale[i:i + batch]
+        with driver.session() as session:
+            session.run(
+                """
+                UNWIND $ids AS path
+                MATCH (f:File {repo: $repo_name, path: path})
+                DETACH DELETE f
+                """,
+                ids=chunk, repo_name=repo_name,
+            )
+            pruned += len(chunk)
+    return pruned
 
 def vector_search(query_embedding: list[float] = None, top_k: int = 5, repo_name: str = None, query_text: str = None) -> list[dict]:
     """

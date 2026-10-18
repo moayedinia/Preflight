@@ -7,7 +7,7 @@ thin. Each function is a small, precise policy decision that used to be buried i
 Cypher or inlined, and that had a correctness bug (see the D4/D5 notes in the repo
 roadmap).
 """
-from typing import Iterable, List, Dict, Any, Tuple
+from typing import Iterable, List, Dict, Any, Tuple, Set
 
 
 def dedupe_rank_clone_pairs(
@@ -44,3 +44,12 @@ def dedupe_rank_clone_pairs(
         {"fn1": n1, "fn2": n2, "similarity": sim}
         for (n1, n2, sim) in ranked
     ]
+
+
+def stale_file_ids(existing_ids: Iterable[str], kept_ids: Iterable[str]) -> List[str]:
+    """
+    D8 fix — given the set of file ids currently present in the graph for a repo and
+    the set of file ids that survived this scan, return the ids that are now stale
+    (present in the graph but no longer on disk). Pure set-difference, O(N).
+    """
+    return [fid for fid in set(existing_ids) - set(kept_ids) if fid]
