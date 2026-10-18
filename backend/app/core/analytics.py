@@ -215,27 +215,83 @@ def get_git_hotspots(repo_name: Optional[str] = None, limit: int = 15) -> List[D
         records = session.run(query, repo_name=repo_name, limit=limit)
         return [dict(r) for r in records]
 
-def detect_code_clones(repo_name: Optional[str] = None, threshold: float = 0.95, limit: int = 20) -> List[Dict[str, Any]]:
+def detect_code_clones(repo_name: Optional[str] = None, threshold: float = 0.95, limit: int = 20,
+                       max_candidates: int = 4000) -> List[Dict[str, Any]]:
     """
-    Detects duplicated code blocks (clones) by computing Cosine Similarity on embeddings.
-    Warning: O(N^2) complexity in memory, so we compute top 500 largest functions.
+    Detects duplicated code blocks (clones) by computing Cosine Similarity on
+    function embeddings.
+
+    D5 fix: the old implementation ran a full `MATCH (f1),(f2)` cross-join with
+    `vector.similarity.cosine` INSIDE Neo4j — an O(N^2) query with O(N^2) memory
+    that timed out / OOM'd on real repos (the docstring even admitted it). This
+    version fetches the candidate embeddings once, stacks them into a numpy matrix,
+    and computes the full cosine matrix in one BLAS pass (O(N^2) FLOPs but O(N)
+    memory and far faster). Candidates are capped to `max_candidates` and to
+    functions with a real body (code > 200 chars); a final pure helper does the
+    de-duplication and ranking.
     """
     with driver.session() as session:
-        # Instead of full N^2 in Neo4j, we limit to the largest functions to avoid timeout
-        query = """
-        MATCH (f1:Function), (f2:Function)
-        WHERE id(f1) > id(f2)
-          AND ($repo_name IS NULL OR f1.repo = $repo_name)
-          AND ($repo_name IS NULL OR f2.repo = $repo_name)
-          AND f1.embedding IS NOT NULL AND f2.embedding IS NOT NULL
-          AND size(f1.code) > 200 AND size(f2.code) > 200
-        WITH f1, f2, vector.similarity.cosine(f1.embedding, f2.embedding) AS sim
-        WHERE sim >= $threshold
-        RETURN f1.name AS fn1, f1.file_path AS file1,
-               f2.name AS fn2, f2.file_path AS file2,
-               sim AS similarity
-        ORDER BY sim DESC
-        LIMIT $limit
-        """
-        records = session.run(query, repo_name=repo_name, threshold=threshold, limit=limit)
-        return [dict(r) for r in records]
+        # 1. Fetch candidate functions (largest bodies first, so the cap keeps the
+        #    most meaningful code) that have embeddings.
+        candidates = session.run(
+            """
+            MATCH (f:Function)
+            WHERE ($repo_name IS NULL OR f.repo = $repo_name)
+              AND f.embedding IS NOT NULL
+              AND size(f.code) > 200
+            RETURN coalesce(f.id, elementId(f)) AS id,
+                   f.name AS name,
+                   f.file_path AS file_path,
+                   f.embedding AS embedding
+            ORDER BY size(f.code) DESC
+            LIMIT $max_candidates
+            """,
+            repo_name=repo_name,
+            max_candidates=max_candidates,
+        ).data()
+
+    if len(candidates) < 2:
+        return []
+
+    import numpy as np
+    from app.core.resolve import dedupe_rank_clone_pairs
+
+    # 2. Stack into a float matrix. Drop any candidate whose vector is empty/mis-typed.
+    vecs = []
+    valid = []
+    for c in candidates:
+        e = c.get("embedding")
+        if isinstance(e, (list, tuple)) and len(e) > 0:
+            try:
+                vecs.append(np.asarray(e, dtype=np.float32))
+                valid.append(c)
+            except (TypeError, ValueError):
+                continue
+    if len(vecs) < 2:
+        return []
+
+    mat = np.vstack(vecs)
+    # 3. Full cosine matrix in one BLAS pass: (M @ M.T) / (||m|| * ||m||)
+    norms = np.linalg.norm(mat, axis=1)
+    norms[norms == 0] = 1.0
+    normed = mat / norms[:, None]
+    sim = normed @ normed.T  # shape (N, N)
+
+    # 4. Collect candidate pairs above threshold (upper triangle, i<j).
+    iu = np.triu_indices_from(sim, k=1)
+    pairs = sim[iu]
+    i, j = iu
+    mask = pairs >= threshold
+    i, j, pairs = i[mask], j[mask], pairs[mask]
+
+    if len(i) == 0:
+        return []
+
+    # 5. Build rows; de-dup + rank via the pure, unit-tested helper.
+    rows = []
+    for a, b, s in zip(i.tolist(), j.tolist(), pairs.tolist()):
+        ca, cb = valid[a], valid[b]
+        key = "||".join(sorted([ca["id"], cb["id"]]))
+        rows.append((ca["name"], cb["name"], float(s), key))
+
+    return dedupe_rank_clone_pairs(rows, threshold=threshold, limit=limit)

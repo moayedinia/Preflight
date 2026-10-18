@@ -211,11 +211,57 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
         "intent": intent
     }
 
+# --- Read-only Cypher guard (D2 security fix) ---
+# NL2Cypher executes model-generated Cypher against the graph. We enforce a strict
+# allowlist so a hallucinated or prompt-injected query cannot mutate or destroy data
+# (e.g. `MATCH (n) DETACH DELETE n` or `CALL db.killServer()` / `db.reset()`).
+_READONLY_FORBIDDEN = (
+    "create", "merge", "set", "delete", "remove", "detach", "drop",
+    "call", "load", "use", "commit", "begin", "terminate",
+)
+_READONLY_PROC_PREFIXES = ("db.", "apoc.", "system.")
+_READONLY_ALLOWED_FIRST = {"match", "return", "with", "unwind", "optional"}
+_READONLY_MAX_LIMIT = 50
+_READONLY_TIMEOUT_MS = 30000
+
+def validate_readonly_cypher(cypher: str) -> str:
+    """
+    Validate that a Cypher string is a safe read-only query and return the query,
+    with a LIMIT appended if none is present. Raises ValueError on anything that
+    could mutate, delete, or abuse the database.
+    """
+    if not cypher or not cypher.strip():
+        raise ValueError("Empty Cypher query.")
+
+    q = cypher.strip().rstrip(";").strip()
+    if ";" in q:
+        raise ValueError("Only a single Cypher statement is allowed.")
+
+    low = q.lower()
+
+    # Block dangerous procedure namespaces (db.*, apoc.*, system.*).
+    for prefix in _READONLY_PROC_PREFIXES:
+        if prefix in low:
+            raise ValueError(f"Procedures in namespace '{prefix}' are not allowed.")
+
+    # Block any mutating / administrative keyword (word-boundary, case-insensitive).
+    for tok in _READONLY_FORBIDDEN:
+        if re.search(rf"\b{tok}\b", low):
+            raise ValueError(f"Keyword '{tok.upper()}' is not allowed in read-only queries.")
+
+    # The query must open with a read-oriented clause.
+    first = (low.split() or [""])[0]
+    if first not in _READONLY_ALLOWED_FIRST:
+        raise ValueError("Query must start with MATCH, RETURN, WITH, UNWIND or OPTIONAL.")
+
+    # Always bound the result set.
+    if not re.search(r"\blimit\b", low):
+        q = f"{q} LIMIT {_READONLY_MAX_LIMIT}"
+    return q
+
 def execute_nl2cypher_query(query: str, repo_name: str = None) -> dict:
     from app.core.llm import call_llm
     from app.core.graph import driver
-    import json
-    import re
 
     schema = """
     Nodes:
@@ -239,23 +285,35 @@ def execute_nl2cypher_query(query: str, repo_name: str = None) -> dict:
 
     system_prompt_cypher = (
         "You are an expert Neo4j Cypher query writer. "
-        "Write a read-only Cypher query to answer the user's question based on this schema:\n"
+        "Write a READ-ONLY Cypher query (MATCH/RETURN/WITH only; no CREATE/SET/DELETE/MERGE/CALL) "
+        "to answer the user's question based on this schema:\n"
         f"{schema}\n"
         "Return ONLY a JSON object with a single key 'cypher'. Do not include markdown blocks or any other text."
     )
 
     try:
         llm_resp = call_llm(query, system_prompt_cypher)
-        cypher_match = re.search(r'\{.*\}', llm_resp.replace('\n', ' '))
-        if not cypher_match:
-            raise ValueError("Failed to extract JSON from LLM response.")
 
-        cypher_query = json.loads(cypher_match.group(0)).get("cypher", "")
-        if not cypher_query.lower().startswith("match"):
-            raise ValueError("Invalid Cypher query generated.")
+        # Robustly extract the first JSON object (raw_decode handles braces inside
+        # the Cypher string, unlike a greedy regex).
+        decoded = None
+        start = llm_resp.find("{")
+        if start != -1:
+            try:
+                decoded, _ = json.JSONDecoder().raw_decode(llm_resp[start:])
+            except json.JSONDecodeError:
+                decoded = None
+        if not isinstance(decoded, dict) or "cypher" not in decoded:
+            raise ValueError("Failed to extract a 'cypher' object from the LLM response.")
+
+        cypher_query = validate_readonly_cypher(str(decoded["cypher"]).strip())
 
         with driver.session() as session:
-            result = session.run(cypher_query)
+            try:
+                result = session.run(cypher_query, timeout=_READONLY_TIMEOUT_MS)
+            except TypeError:
+                # Older drivers that don't accept a per-query timeout kwarg.
+                result = session.run(cypher_query)
             db_results = [dict(r) for r in result]
 
         explain_prompt = (

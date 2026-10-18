@@ -35,7 +35,7 @@ def async_index_repository(self, repo_path: str, repo_name: str = None):
         raise e
 
 @celery_app.task(bind=True)
-def async_clone_and_index(self, git_url: str, repo_name: str = None, branch: str = None, token: str = None):
+def async_clone_and_index(self, git_url: str, repo_name: str = None, branch: str = None, token: str = None, full_history: bool = True):
     """
     Automated pipeline:
     1. Clones repository from Git URL.
@@ -48,7 +48,7 @@ def async_clone_and_index(self, git_url: str, repo_name: str = None, branch: str
         meta={"status": "Cloning repository from Git...", "percent": 5, "current": 0, "total": 0, "stage": "cloning"}
     )
     try:
-        cloned_path = clone_git_repo(git_url=git_url, repo_name=repo_name, branch=branch, token=token)
+        cloned_path = clone_git_repo(git_url=git_url, repo_name=repo_name, branch=branch, token=token, full_history=full_history)
         actual_name = repo_name or cloned_path.name
         print(f"[Celery Ingestion] Cloned '{actual_name}' into {cloned_path}. Scanning files...", flush=True)
 

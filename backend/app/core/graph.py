@@ -13,6 +13,35 @@ KEYWORDS_FN = {
 
 CONTROL_FLOW_FN = {'if', 'while', 'for', 'switch', 'catch', 'sizeof', 'typeof', 'using', 'lock'}
 
+def _short_call_name(ref_name: str) -> str:
+    """Reduce a raw call name to its short identifier: 'utils.parse' -> 'parse', 'parse(' -> 'parse'."""
+    s = (ref_name or "").strip()
+    s = s.split(".")[-1]
+    s = s.replace("(", "").replace(")", "").strip()
+    return s
+
+def resolve_call_targets(call_name: str, name_to_ids: dict[str, list[str]]) -> "str | None":
+    """
+    D4 fix — precise function-call target selection.
+
+    Given a raw call name and a map of {short function name -> [function ids]},
+    return the single target function id IF the name resolves unambiguously
+    (exactly one target carries that short name), otherwise None.
+
+    Rationale: a bare `MATCH ... WHERE target.name = short_name` links a call to
+    EVERY function with that name across the repo (or across languages), which
+    corrupts the call graph, blast radius and dead-code analysis. We only resolve
+    the ambiguity with the name itself; an ambiguous name resolves to nothing
+    (precision over recall). Import/scope-aware resolution (SCIP) is the follow-on.
+    """
+    short = _short_call_name(call_name)
+    if not short:
+        return None
+    ids = name_to_ids.get(short) or []
+    if len(ids) == 1:
+        return ids[0]
+    return None
+
 def clean_function_name(name_str: str, node_id: str = None) -> str:
     """
     Extracts strictly the clean function/method name from any raw code snippet, signature,
@@ -514,18 +543,56 @@ def resolve_cross_references(repo_name: str = None):
                 MERGE (f)-[:CONTAINS]->(fn)
             """, repo_name=repo_name)
 
-            # 4. Resolve Function -> Function direct CALLS (match exact name or short call name)
-            session.run("""
-                MATCH (caller:Function)-[:CALLS]->(ref:FunctionReference)
+            # 4. Resolve Function -> Function direct CALLS (precise, batched) — D4 fix.
+            # Collect the caller->callee reference edges, resolve each call name in
+            # Python to at most ONE function id (see resolve_call_targets), then merge
+            # only unambiguous links in a single batch. This replaces the old per-name
+            # MATCH that linked a call to EVERY same-named function in the repo.
+            refs = session.run(
+                """
+                MATCH (caller:Function)-[cr:CALLS]->(ref:FunctionReference)
                 WHERE ($repo_name IS NULL OR caller.repo = $repo_name)
-                WITH caller, ref, trim(replace(replace(split(ref.name, '.')[-1], '(', ''), ')', '')) AS short_name
-                WHERE short_name <> '' AND short_name <> caller.name
-                MATCH (target:Function)
-                WHERE ($repo_name IS NULL OR target.repo = $repo_name)
-                  AND (target.name = short_name OR target.name = ref.name)
-                  AND caller <> target
-                MERGE (caller)-[:CALLS]->(target)
-            """, repo_name=repo_name)
+                RETURN coalesce(caller.id, elementId(caller)) AS caller_id,
+                       ref.name AS call_name
+                """,
+                repo_name=repo_name,
+            ).data()
+
+            fn_rows = session.run(
+                """
+                MATCH (t:Function)
+                WHERE $repo_name IS NULL OR t.repo = $repo_name
+                RETURN t.name AS name, coalesce(t.id, elementId(t)) AS id
+                """,
+                repo_name=repo_name,
+            ).data()
+            name_to_ids: dict[str, list[str]] = {}
+            for row in fn_rows:
+                nm = row["name"]
+                if nm:
+                    name_to_ids.setdefault(nm, []).append(row["id"])
+
+            merge_rows = []
+            for rec in refs:
+                caller_id = rec["caller_id"]
+                if not caller_id:
+                    continue
+                target_id = resolve_call_targets(rec["call_name"], name_to_ids)
+                if target_id and target_id != caller_id:
+                    merge_rows.append({"caller_id": caller_id, "target_id": target_id})
+
+            if merge_rows:
+                session.run(
+                    """
+                    UNWIND $rows AS row
+                    MATCH (caller:Function), (target:Function)
+                    WHERE (caller.id = row.caller_id OR elementId(caller) = row.caller_id)
+                      AND (target.id = row.target_id OR elementId(target) = row.target_id)
+                      AND caller <> target
+                    MERGE (caller)-[:CALLS]->(target)
+                    """,
+                    rows=merge_rows,
+                )
 
             # 5. Resolve internal File -> File dependencies (DEPENDS_ON) based on imports
             session.run("""

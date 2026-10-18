@@ -1,6 +1,8 @@
 import os
 import shutil
 import tempfile
+import hashlib
+import hmac
 try:
     import redis
 except ImportError:
@@ -97,6 +99,7 @@ class GitIngestRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100, description="Optional custom name for repository")
     branch: Optional[str] = Field(None, max_length=100, description="Optional branch or tag")
     auth_token: Optional[str] = Field(None, max_length=200, description="Optional GitHub/GitLab personal access token")
+    full_history: Optional[bool] = Field(True, description="Clone full git history (required for accurate Git Hotspots/churn). Set false for very large repos where git analysis is not needed.")
     is_async: Optional[bool] = True
 
 class RepoScanRequest(BaseModel):
@@ -192,7 +195,8 @@ def ingest_from_git(payload: GitIngestRequest):
             git_url=payload.git_url,
             repo_name=clean_repo,
             branch=payload.branch,
-            token=payload.auth_token
+            token=payload.auth_token,
+            full_history=payload.full_history
         )
         return {
             "status": "queued",
@@ -205,7 +209,8 @@ def ingest_from_git(payload: GitIngestRequest):
                 git_url=payload.git_url,
                 repo_name=clean_repo,
                 branch=payload.branch,
-                token=payload.auth_token
+                token=payload.auth_token,
+                full_history=payload.full_history
             )
             actual_name = clean_repo or cloned_dir.name
             result = scan_and_ingest_directory(str(cloned_dir), actual_name)
@@ -574,9 +579,40 @@ def review_git_diff(payload: DiffReviewRequest):
 async def github_webhook(request: Request):
     """
     Automated Webhook: Triggers background clone and ingestion when code is pushed to GitHub.
+
+    Security (D1 fix): the request is only processed if its HMAC-SHA256 signature
+    (`X-Hub-Signature-256`) verifies against the raw body using WEBHOOK_SECRET. This
+    stops arbitrary callers from triggering unauthenticated `git clone` on any URL
+    (SSRF / resource abuse / unauthorized ingestion).
+
+    Configure the secret to match the "Webhook > Secret" value in the GitHub repo.
+    For development only, set WEBHOOK_SECRET=dev-insecure-webhook to disable signing.
     """
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    event = request.headers.get("X-GitHub-Event", "")
+    raw_body = await request.body()
+
+    secret = os.getenv("WEBHOOK_SECRET", "")
+    if not secret:
+        raise HTTPException(
+            status_code=401,
+            detail="WEBHOOK_SECRET is not configured. Set the environment variable and the matching 'Webhook > Secret' in GitHub.",
+        )
+
+    # Explicit, well-understood insecure development default (never used in production).
+    if secret == "dev-insecure-webhook":
+        if event != "push":
+            return {"status": "ignored", "message": "Only 'push' events are processed."}
+        # fall through to processing below
+    else:
+        if not signature.startswith("sha256="):
+            raise HTTPException(status_code=401, detail="Missing or malformed X-Hub-Signature-256 header.")
+        expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise HTTPException(status_code=401, detail="Webhook signature verification failed.")
+
     try:
-        body = await request.json()
+        body = json.loads(raw_body)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
@@ -588,6 +624,10 @@ async def github_webhook(request: Request):
 
     if not clone_url or not raw_repo_name:
         return {"status": "ignored", "message": "Not a push event or missing repository info."}
+
+    # Only allow HTTP(S) clone URLs (never file:// or ssh).
+    if not (clone_url.startswith("https://") or clone_url.startswith("http://")):
+        raise HTTPException(status_code=400, detail="clone_url must be an http(s) URL.")
 
     clean_repo = sanitize_name(raw_repo_name)
     task = async_clone_and_index.delay(

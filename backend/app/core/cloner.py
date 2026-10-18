@@ -40,10 +40,21 @@ def infer_repo_name_from_url(url: str) -> str:
     name = clean_url.split("/")[-1].split(":")[-1]
     return sanitize_name(name) if name else "ClonedRepo"
 
-def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Optional[str] = None, token: Optional[str] = None) -> Path:
+def clone_git_repo(
+    git_url: str,
+    repo_name: Optional[str] = None,
+    branch: Optional[str] = None,
+    token: Optional[str] = None,
+    full_history: bool = True,
+) -> Path:
     """
     Clones a remote Git repository into the sandboxed repos directory.
     Uses subprocess with direct argument list (no shell injection).
+
+    full_history: by default clone the COMPLETE history. The Git Hotspots / churn
+    analysis (`git rev-list --count`) needs the real commit history to be meaningful;
+    a shallow clone (`--depth 1`) makes every file report churn=1 and breaks hotspots.
+    Set full_history=False only for very large repos where analysis is not required.
     """
     safe_url = sanitize_git_url(git_url, token=token)
     if not repo_name:
@@ -62,7 +73,9 @@ def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Option
             detail=f"Permission denied on repos directory ({ALLOWED_REPO_DIR}): {pe}. Run 'chmod -R 777 ./repos' on the host server."
         )
 
-    cmd = ["git", "-c", "core.quotepath=false", "clone", "--depth", "1"]
+    cmd = ["git", "-c", "core.quotepath=false", "clone"]
+    if not full_history:
+        cmd.extend(["--depth", "1"])
     if branch:
         clean_branch = re.sub(r"[^a-zA-Z0-9_\-\./]", "", branch)
         cmd.extend(["--branch", clean_branch])
@@ -77,7 +90,7 @@ def clone_git_repo(git_url: str, repo_name: Optional[str] = None, branch: Option
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=180, # 3 minutes max
+            timeout=1200 if full_history else 180, # full history can be large; allow 20 min
             check=True
         )
     except subprocess.CalledProcessError as e:
