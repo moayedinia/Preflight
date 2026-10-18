@@ -31,25 +31,44 @@ class ShortCallNameTests(unittest.TestCase):
 class CallTargetResolutionTests(unittest.TestCase):
     """D4 — a call must link to at most one, unambiguously-named function."""
 
+    @staticmethod
+    def _fn(fid, file_path):
+        return {"id": fid, "file_path": file_path}
+
     def test_unique_name_resolves(self):
-        self.assertEqual(resolve_call_targets("parse", {"parse": ["id:parse"]}), "id:parse")
+        m = {"parse": [self._fn("id:parse", "a.py")]}
+        self.assertEqual(resolve_call_targets("parse", m), "id:parse")
 
     def test_qualified_name_resolves_to_short(self):
-        self.assertEqual(resolve_call_targets("utils.parse", {"parse": ["id:parse"]}), "id:parse")
+        m = {"parse": [self._fn("id:parse", "a.py")]}
+        self.assertEqual(resolve_call_targets("utils.parse", m), "id:parse")
 
     def test_parens_stripped(self):
-        self.assertEqual(resolve_call_targets("parse(", {"parse": ["id:parse"]}), "id:parse")
+        m = {"parse": [self._fn("id:parse", "a.py")]}
+        self.assertEqual(resolve_call_targets("parse(", m), "id:parse")
 
-    def test_ambiguous_name_resolves_to_none(self):
-        m = {"parse": ["id:parse_a", "id:parse_b"]}
+    def test_ambiguous_across_files_with_no_caller_file(self):
+        # Two same-named functions in different files, no caller file context
+        # -> unresolvable (precision over recall).
+        m = {"parse": [self._fn("id:a", "a.py"), self._fn("id:b", "b.py")]}
         self.assertIsNone(resolve_call_targets("parse", m))
 
+    def test_same_file_fallback_resolves(self):
+        # Two same-named functions, but caller is in b.py -> link to the one in b.py.
+        m = {"parse": [self._fn("id:a", "a.py"), self._fn("id:b", "b.py")]}
+        self.assertEqual(resolve_call_targets("parse", m, caller_file_path="b.py"), "id:b")
+
+    def test_same_file_fallback_no_match(self):
+        # Caller file doesn't contain any same-named function -> still unresolved.
+        m = {"parse": [self._fn("id:a", "a.py"), self._fn("id:b", "b.py")]}
+        self.assertIsNone(resolve_call_targets("parse", m, caller_file_path="c.py"))
+
     def test_unknown_name_resolves_to_none(self):
-        self.assertIsNone(resolve_call_targets("parse", {"other": ["id:other"]}))
+        self.assertIsNone(resolve_call_targets("parse", {"other": [self._fn("id:o", "x.py")]}))
 
     def test_empty_and_blank_names(self):
-        self.assertIsNone(resolve_call_targets("", {"a": ["x"]}))
-        self.assertIsNone(resolve_call_targets("   ", {"a": ["x"]}))
+        self.assertIsNone(resolve_call_targets("", {"a": [self._fn("x", "a.py")]}))
+        self.assertIsNone(resolve_call_targets("   ", {"a": [self._fn("x", "a.py")]}))
         self.assertIsNone(resolve_call_targets("parse", {}))
 
 

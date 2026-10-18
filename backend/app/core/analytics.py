@@ -222,13 +222,15 @@ def detect_code_clones(repo_name: Optional[str] = None, threshold: float = 0.95,
     function embeddings.
 
     D5 fix: the old implementation ran a full `MATCH (f1),(f2)` cross-join with
-    `vector.similarity.cosine` INSIDE Neo4j — an O(N^2) query with O(N^2) memory
-    that timed out / OOM'd on real repos (the docstring even admitted it). This
-    version fetches the candidate embeddings once, stacks them into a numpy matrix,
-    and computes the full cosine matrix in one BLAS pass (O(N^2) FLOPs but O(N)
-    memory and far faster). Candidates are capped to `max_candidates` and to
-    functions with a real body (code > 200 chars); a final pure helper does the
-    de-duplication and ranking.
+    `vector.similarity.cosine` INSIDE Neo4j — O(N^2) per-pair vector calls executed
+    by the database, which timed out / OOM'd on real repos (the old docstring even
+    admitted it). This version fetches the candidate embeddings once, stacks them
+    into a float32 matrix, and computes the full similarity matrix in a single BLAS
+    GEMM (normed @ normed.T). Work is still O(N^2) FLOPs, but it runs as one vectorized
+    matmul in Python RAM instead of N^2 Cypher function calls, so it is far faster and
+    does not hold the database. The candidate set is capped to `max_candidates`
+    (default 4000 -> a fixed ~64MB matrix), and to functions with a real body
+    (code > 200 chars); a final pure helper does the de-duplication and ranking.
     """
     with driver.session() as session:
         # 1. Fetch candidate functions (largest bodies first, so the cap keeps the

@@ -20,26 +20,35 @@ def _short_call_name(ref_name: str) -> str:
     s = s.replace("(", "").replace(")", "").strip()
     return s
 
-def resolve_call_targets(call_name: str, name_to_ids: dict[str, list[str]]) -> "str | None":
+def resolve_call_targets(
+    call_name: str,
+    name_to_ids: dict[str, list[dict]],
+    caller_file_path: "str | None" = None,
+) -> "str | None":
     """
     D4 fix — precise function-call target selection.
 
-    Given a raw call name and a map of {short function name -> [function ids]},
-    return the single target function id IF the name resolves unambiguously
-    (exactly one target carries that short name), otherwise None.
+    `name_to_ids` maps a function's clean name -> list of {"id": ..., "file_path": ...}.
+    Returns the single target function id for `call_name`, or None if unresolvable.
 
-    Rationale: a bare `MATCH ... WHERE target.name = short_name` links a call to
-    EVERY function with that name across the repo (or across languages), which
-    corrupts the call graph, blast radius and dead-code analysis. We only resolve
-    the ambiguity with the name itself; an ambiguous name resolves to nothing
-    (precision over recall). Import/scope-aware resolution (SCIP) is the follow-on.
+    Resolution policy (precision-first, with a safe same-file fallback):
+      1. If exactly one function in scope carries the short name, it is the target.
+      2. Otherwise, if the caller has a file and exactly one same-named function
+         lives in that SAME file, link to it — a bare call almost always refers to
+         the definition in the caller's own file.
+      3. Otherwise the name is ambiguous across files -> link nothing.
+    Import/scope-aware resolution (SCIP) is the follow-on step.
     """
     short = _short_call_name(call_name)
     if not short:
         return None
-    ids = name_to_ids.get(short) or []
-    if len(ids) == 1:
-        return ids[0]
+    cands = name_to_ids.get(short) or []
+    if len(cands) == 1:
+        return cands[0]["id"]
+    if caller_file_path:
+        same_file = [c for c in cands if c.get("file_path") == caller_file_path]
+        if len(same_file) == 1:
+            return same_file[0]["id"]
     return None
 
 def clean_function_name(name_str: str, node_id: str = None) -> str:
@@ -553,6 +562,7 @@ def resolve_cross_references(repo_name: str = None):
                 MATCH (caller:Function)-[cr:CALLS]->(ref:FunctionReference)
                 WHERE ($repo_name IS NULL OR caller.repo = $repo_name)
                 RETURN coalesce(caller.id, elementId(caller)) AS caller_id,
+                       caller.file_path AS caller_file,
                        ref.name AS call_name
                 """,
                 repo_name=repo_name,
@@ -562,33 +572,40 @@ def resolve_cross_references(repo_name: str = None):
                 """
                 MATCH (t:Function)
                 WHERE $repo_name IS NULL OR t.repo = $repo_name
-                RETURN t.name AS name, coalesce(t.id, elementId(t)) AS id
+                RETURN t.name AS name,
+                       coalesce(t.id, elementId(t)) AS id,
+                       t.file_path AS file_path
                 """,
                 repo_name=repo_name,
             ).data()
-            name_to_ids: dict[str, list[str]] = {}
+            name_to_ids: dict[str, list[dict]] = {}
             for row in fn_rows:
                 nm = row["name"]
                 if nm:
-                    name_to_ids.setdefault(nm, []).append(row["id"])
+                    name_to_ids.setdefault(nm, []).append(
+                        {"id": row["id"], "file_path": row.get("file_path")}
+                    )
 
             merge_rows = []
             for rec in refs:
                 caller_id = rec["caller_id"]
                 if not caller_id:
                     continue
-                target_id = resolve_call_targets(rec["call_name"], name_to_ids)
+                target_id = resolve_call_targets(
+                    rec["call_name"], name_to_ids, caller_file_path=rec.get("caller_file")
+                )
                 if target_id and target_id != caller_id:
                     merge_rows.append({"caller_id": caller_id, "target_id": target_id})
 
             if merge_rows:
+                # Per-node MATCH (not a cross-product) so each lookup is index-backed
+                # on Function.id; the legacy `OR elementId` fallback is avoided.
                 session.run(
                     """
                     UNWIND $rows AS row
-                    MATCH (caller:Function), (target:Function)
-                    WHERE (caller.id = row.caller_id OR elementId(caller) = row.caller_id)
-                      AND (target.id = row.target_id OR elementId(target) = row.target_id)
-                      AND caller <> target
+                    MATCH (caller:Function {id: row.caller_id})
+                    MATCH (target:Function {id: row.target_id})
+                    WHERE caller <> target
                     MERGE (caller)-[:CALLS]->(target)
                     """,
                     rows=merge_rows,
