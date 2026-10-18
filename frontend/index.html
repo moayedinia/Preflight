@@ -137,7 +137,7 @@
       </div>
 
       <!-- Ollama Embeddings Indicator -->
-      <div id="ollama-badge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-300 font-mono" title="Ollama Embeddings Service">
+      <div id="ollama-badge" onclick="openLlmConfigModal()" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-[11px] text-slate-300 font-mono cursor-pointer transition" title="Ollama Embeddings Service (Click to configure)">
         <span id="ollama-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
         <span id="ollama-text">Ollama</span>
       </div>
@@ -1325,21 +1325,38 @@
 
       <div class="space-y-3 text-xs">
         <div>
-          <label class="block text-slate-400 mb-1">Base URL (OpenAI-compatible)</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-slate-400">Base URL (OpenAI-compatible)</label>
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="setLlmBasePreset('http://host.docker.internal:11434/v1')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Docker Host</button>
+              <button type="button" onclick="setLlmBasePreset('http://127.0.0.1:11434/v1')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">127.0.0.1</button>
+              <button type="button" onclick="setLlmBasePreset('http://10.164.1.43:11434/v1')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Host LAN</button>
+            </div>
+          </div>
           <input id="llm-base-url" type="text" placeholder="http://host.docker.internal:11434/v1" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
-          <p class="text-[10px] text-slate-500 mt-1">This URL is used by the backend containers. Same Linux host: http://host.docker.internal:11434/v1. Remote Ollama: http://SERVER_IP:11434/v1.</p>
+          <p class="text-[10px] text-slate-500 mt-1">Docker on Windows: use <code class="text-purple-400">host.docker.internal:11434/v1</code> or your Host LAN IP. Native/Direct: use <code class="text-purple-400">127.0.0.1:11434/v1</code>.</p>
         </div>
         <div>
           <label class="block text-slate-400 mb-1">Model Name</label>
-          <input id="llm-model-name" type="text" placeholder="llama3" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
+          <input id="llm-model-name" type="text" placeholder="qwen:0.5b or llama3" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
+          <div id="llm-available-models-chips" class="hidden mt-1.5 flex flex-wrap gap-1"></div>
         </div>
         <div>
-          <label class="block text-slate-400 mb-1">API Key (Optional for Local)</label>
+          <label class="block text-slate-400 mb-1">API Key (Optional for Local Ollama)</label>
           <input id="llm-api-key" type="password" placeholder="sk-..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
         </div>
-        <button onclick="saveLlmConfig()" class="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/20 transition">
-          <i data-lucide="save" class="w-4 h-4"></i> Save Configuration
-        </button>
+
+        <!-- Connection Test Result Banner -->
+        <div id="llm-test-result" class="hidden p-2.5 rounded-lg text-[11px] font-mono border"></div>
+
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button type="button" id="btn-test-llm" onclick="testLlmConnection()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border border-slate-700 transition">
+            <i data-lucide="activity" class="w-3.5 h-3.5 text-sky-400"></i> Test Connection
+          </button>
+          <button type="button" onclick="saveLlmConfig()" class="w-full py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/20 transition">
+            <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Configuration
+          </button>
+        </div>
 
         <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
           <button onclick="closeLlmConfigModal(); switchMainView('chat');" class="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1.5 font-medium transition">
@@ -1771,11 +1788,15 @@ asyncio.run(run())`;
             } else if (data.status === 'not_configured') {
               oDot.className = 'w-2 h-2 rounded-full bg-amber-400';
               oText.innerText = 'Embeddings: Offline (Fallback)';
-              oBadge.title = 'OLLAMA_BASE_URL is not configured in .env';
+              oBadge.title = 'OLLAMA_BASE_URL is not configured in .env (Click to configure)';
+            } else if (data.status === 'offline') {
+              oDot.className = 'w-2 h-2 rounded-full bg-amber-400';
+              oText.innerText = 'Embeddings: Fallback Mode';
+              oBadge.title = `Ollama unreachable at ${data.server_url || 'server'}. Using deterministic fallback embeddings. Click to configure.`;
             } else {
-              oDot.className = 'w-2 h-2 rounded-full bg-rose-500';
-              oText.innerText = 'Ollama: Error';
-              oBadge.title = data.error_detail || 'Could not connect to Ollama server';
+              oDot.className = 'w-2 h-2 rounded-full bg-amber-500';
+              oText.innerText = 'Ollama: Unavailable';
+              oBadge.title = (data.error_detail || 'Could not connect to Ollama server') + ' (Click to configure)';
             }
           } else {
             oDot.className = 'w-2 h-2 rounded-full bg-amber-500';
@@ -1787,7 +1808,7 @@ asyncio.run(run())`;
         const oText = document.getElementById('ollama-text');
         if (oDot && oText) {
           oDot.className = 'w-2 h-2 rounded-full bg-slate-500';
-          oText.innerText = 'Ollama: Unreachable';
+          oText.innerText = 'Ollama: Offline';
         }
       }
     }
@@ -3916,8 +3937,19 @@ asyncio.run(run())`;
     }
 
     // LLM CONFIG & AUTODOC LOGIC
+    function setLlmBasePreset(url) {
+      const input = document.getElementById('llm-base-url');
+      if (input) input.value = url;
+    }
+
     async function openLlmConfigModal() {
-      document.getElementById('llm-config-modal').classList.remove('hidden');
+      const modal = document.getElementById('llm-config-modal');
+      const testResult = document.getElementById('llm-test-result');
+      const chips = document.getElementById('llm-available-models-chips');
+      if (testResult) testResult.classList.add('hidden');
+      if (chips) chips.classList.add('hidden');
+      modal.classList.remove('hidden');
+
       try {
         const res = await fetch(`${API_BASE}/api/v1/config/llm`, { headers: getAuthHeaders() });
         if (res.ok) {
@@ -3931,6 +3963,78 @@ asyncio.run(run())`;
 
     function closeLlmConfigModal() {
       document.getElementById('llm-config-modal').classList.add('hidden');
+    }
+
+    async function testLlmConnection() {
+      const btn = document.getElementById('btn-test-llm');
+      const resBox = document.getElementById('llm-test-result');
+      const chips = document.getElementById('llm-available-models-chips');
+      const originalText = btn ? btn.innerHTML : '';
+
+      let rawBase = (document.getElementById('llm-base-url').value || '').trim().replace(/\/+$/, '');
+      rawBase = rawBase.replace(/(?<!:)\/+/g, '/');
+      const model = (document.getElementById('llm-model-name').value || '').trim();
+      const apiKey = (document.getElementById('llm-api-key').value || '').trim();
+
+      if (!rawBase) {
+        if (resBox) {
+          resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-rose-950/40 text-rose-300 border-rose-800';
+          resBox.innerText = 'Please enter a valid Base URL before testing.';
+          resBox.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (btn) {
+        btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Testing...';
+        btn.disabled = true;
+        if (window.lucide) window.lucide.createIcons();
+      }
+
+      try {
+        // Temporarily persist to test endpoint
+        await fetch(`${API_BASE}/api/v1/config/llm`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ base_url: rawBase, model: model, api_key: apiKey })
+        });
+
+        const statusRes = await fetch(`${API_BASE}/api/v1/llm/status`, { headers: getAuthHeaders() });
+        const data = await statusRes.json();
+
+        if (resBox) {
+          resBox.classList.remove('hidden');
+          if (data.status === 'connected') {
+            resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-emerald-950/40 text-emerald-300 border-emerald-800';
+            resBox.innerHTML = `🟢 <b>Connected!</b> ${data.message || 'Server reachable.'}`;
+
+            // Render available model chips
+            if (data.available_models && data.available_models.length > 0 && chips) {
+              chips.innerHTML = '<span class="text-[10px] text-slate-400 mr-1">Available Models:</span>' + 
+                data.available_models.map(m => `
+                  <button type="button" onclick="document.getElementById('llm-model-name').value='${m}'" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 font-mono transition" title="Click to use this model">${m}</button>
+                `).join('');
+              chips.classList.remove('hidden');
+            }
+          } else {
+            resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-rose-950/40 text-rose-300 border-rose-800';
+            resBox.innerHTML = `🔴 <b>Offline:</b> ${data.message || 'Connection refused.'}`;
+            if (chips) chips.classList.add('hidden');
+          }
+        }
+      } catch (e) {
+        if (resBox) {
+          resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-rose-950/40 text-rose-300 border-rose-800';
+          resBox.innerHTML = `🔴 <b>Network Error:</b> ${e.message || e}`;
+          resBox.classList.remove('hidden');
+        }
+      } finally {
+        if (btn) {
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+          if (window.lucide) window.lucide.createIcons();
+        }
+      }
     }
 
     async function saveLlmConfig() {
@@ -3950,11 +4054,15 @@ asyncio.run(run())`;
         if (res.ok) {
           alert('LLM Configuration saved successfully!');
           closeLlmConfigModal();
+          // Immediately refresh status indicators
+          checkChatModelStatus();
+          checkHealth();
         } else {
           alert('Failed to save configuration.');
         }
-      } catch (e) { alert('Connection error.'); }
+      } catch (e) { alert('Connection error: ' + (e.message || e)); }
     }
+
 
     async function triggerAutoDoc() {
       const repo = document.getElementById('repo-filter-select').value || undefined;

@@ -688,9 +688,21 @@ from app.tasks.autodoc import generate_missing_docs_task
 def get_llm_settings():
     return get_llm_config()
 
+_LLM_STATUS_CACHE = {"timestamp": 0, "result": None}
+
+def clear_llm_status_cache():
+    global _LLM_STATUS_CACHE
+    _LLM_STATUS_CACHE = {"timestamp": 0, "result": None}
+
 @app.post("/api/v1/config/llm", dependencies=[Depends(verify_api_key)])
 def update_llm_settings(payload: LLMConfigRequest):
     set_llm_config(payload.base_url, payload.model, payload.api_key)
+    clear_llm_status_cache()
+    try:
+        from app.core.embedder import clear_embedder_cache
+        clear_embedder_cache()
+    except Exception:
+        pass
     return {"status": "success", "message": "LLM configuration updated successfully."}
 
 class AutoDocRequest(BaseModel):
@@ -710,7 +722,14 @@ def trigger_auto_doc(payload: AutoDocRequest):
 def check_llm_status():
     """
     Checks the status of the configured LLM endpoint and retrieves available models.
+    Caches the result for 15 seconds to keep the UI snappy and prevent blocking.
     """
+    import time
+    global _LLM_STATUS_CACHE
+    now = time.time()
+    if _LLM_STATUS_CACHE.get("result") and (now - _LLM_STATUS_CACHE.get("timestamp", 0)) < 15:
+        return _LLM_STATUS_CACHE["result"]
+
     from app.core.llm import get_llm_config, normalize_llm_base_url
     import requests
     config = get_llm_config()
@@ -728,6 +747,7 @@ def check_llm_status():
     if not base_url:
         status_info["status"] = "not_configured"
         status_info["message"] = "LLM base URL is not configured."
+        _LLM_STATUS_CACHE = {"timestamp": now, "result": status_info}
         return status_info
 
     try:
@@ -736,9 +756,12 @@ def check_llm_status():
         headers = {}
         if config.get("api_key"):
             headers["Authorization"] = f"Bearer {config['api_key']}"
+
+        is_connected = False
         try:
-            resp = requests.get(f"{norm_base}/models", headers=headers, timeout=5)
+            resp = requests.get(f"{norm_base}/models", headers=headers, timeout=2.5)
             if resp.ok:
+                is_connected = True
                 data = resp.json()
                 models = [m.get("id") for m in data.get("data", []) if m.get("id")]
         except Exception:
@@ -747,20 +770,30 @@ def check_llm_status():
         if not models:
             try:
                 root_url = base_url.replace("/v1", "").rstrip("/")
-                resp2 = requests.get(f"{root_url}/api/tags", timeout=5)
+                resp2 = requests.get(f"{root_url}/api/tags", timeout=2.5)
                 if resp2.ok:
+                    is_connected = True
                     data2 = resp2.json()
                     models = [m.get("name") for m in data2.get("models", []) if m.get("name")]
             except Exception:
                 pass
 
         status_info["available_models"] = models
-        status_info["status"] = "connected"
-        status_info["message"] = f"Connected to {base_url}. Active Model: {target_model}"
+        if is_connected or models:
+            status_info["status"] = "connected"
+            status_info["message"] = f"Connected to {base_url}. Active Model: {target_model}"
+        else:
+            status_info["status"] = "offline"
+            status_info["message"] = (
+                f"Could not connect to {base_url}. "
+                "If running inside Docker on Windows/Mac, set OLLAMA_HOST=0.0.0.0 on the host or use your host LAN IP."
+            )
     except Exception as e:
         status_info["status"] = "error"
         status_info["message"] = str(e)
 
+    _LLM_STATUS_CACHE = {"timestamp": now, "result": status_info}
     return status_info
+
 
 

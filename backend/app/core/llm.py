@@ -19,6 +19,8 @@ def _clean_slashes(url: str) -> str:
     s = str(url).strip().rstrip("/")
     return re.sub(r'(?<!:)/+', '/', s)
 
+_MEMORY_LLM_CONFIG = {}
+
 def get_llm_config() -> dict:
     if r_client:
         try:
@@ -32,6 +34,9 @@ def get_llm_config() -> dict:
                 return cfg
         except Exception:
             pass
+    if _MEMORY_LLM_CONFIG:
+        return dict(_MEMORY_LLM_CONFIG)
+
     raw_env_base = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
     return {
         "base_url": _clean_slashes(raw_env_base),
@@ -42,12 +47,25 @@ def get_llm_config() -> dict:
 def set_llm_config(base_url: str, model: str, api_key: str):
     clean_base = _clean_slashes(base_url)
     norm_base = normalize_llm_base_url(clean_base)
+    cfg_data = {
+        "base_url": norm_base,
+        "model": model,
+        "api_key": api_key
+    }
+    _MEMORY_LLM_CONFIG.update(cfg_data)
     if r_client:
-        r_client.set("codegraph_llm_config", json.dumps({
-            "base_url": norm_base,
-            "model": model,
-            "api_key": api_key
-        }))
+        try:
+            r_client.set("codegraph_llm_config", json.dumps(cfg_data))
+        except Exception:
+            pass
+
+    # Synchronize embedder runtime url
+    try:
+        from app.core.embedder import set_runtime_ollama_url
+        set_runtime_ollama_url(norm_base)
+    except Exception:
+        pass
+
 
 def normalize_llm_base_url(base_url: str) -> str:
     """Normalize an OpenAI-compatible API base and add /v1 when omitted, cleaning double slashes."""
