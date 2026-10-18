@@ -634,15 +634,24 @@ def get_graph_stats() -> dict:
 def resolve_cross_references(repo_name: str = None):
     """
     Resolves cross-references and extracts explicit architectural relationships:
-    1. Sanitizes legacy/dirty function names first.
-    2. Ensures all files belong to their Repository via CONTAINS.
-    3. Ensures Class methods are connected to their containing File and have repo set.
-    4. Resolves Function -> Function direct CALLS across the codebase.
-    5. Resolves File -> File internal module import dependencies (DEPENDS_ON).
-    6. Resolves Class -> Class inheritance hierarchies (INHERITS_FROM).
+    1. Ensures all nodes have .id populated so property and elementId matching is rock-solid.
+    2. Sanitizes legacy/dirty function names first.
+    3. Ensures all files belong to their Repository via CONTAINS.
+    4. Ensures Class methods are connected to their containing File and have repo set.
+    5. Ensures standalone Functions in Files are connected to their containing File via CONTAINS.
+    6. Resolves Function -> Function direct CALLS across the codebase.
+    7. Resolves File -> File internal module import dependencies (DEPENDS_ON).
+    8. Resolves Class -> Class inheritance hierarchies (INHERITS_FROM).
     """
     with driver.session() as session:
         try:
+            # 0. Ensure all nodes have .id populated so elementId mismatch never occurs
+            session.run("""
+                MATCH (n)
+                WHERE n.id IS NULL AND (n:Function OR n:File OR n:Class OR n:Repository)
+                SET n.id = elementId(n)
+            """)
+
             # 1. Sanitize dirty/legacy function names first so subsequent matches succeed
             dirty_fns = session.run("""
                 MATCH (fn:Function)
@@ -664,6 +673,7 @@ def resolve_cross_references(repo_name: str = None):
                 MATCH (f:File)
                 WHERE f.repo IS NOT NULL AND ($repo_name IS NULL OR f.repo = $repo_name)
                 MERGE (r:Repository {name: f.repo})
+                ON CREATE SET r.id = f.repo
                 MERGE (r)-[:CONTAINS]->(f)
             """, repo_name=repo_name)
 
@@ -675,11 +685,19 @@ def resolve_cross_references(repo_name: str = None):
                 MERGE (f)-[:CONTAINS]->(fn)
             """, repo_name=repo_name)
 
-            # 4. Resolve Function -> Function direct CALLS (precise, batched) — D4 fix.
+            # 4. Ensure standalone functions in Files are linked via CONTAINS
+            session.run("""
+                MATCH (f:File), (fn:Function)
+                WHERE ($repo_name IS NULL OR f.repo = $repo_name)
+                  AND fn.file_path = f.path
+                  AND ($repo_name IS NULL OR fn.repo = f.repo)
+                MERGE (f)-[:CONTAINS]->(fn)
+            """, repo_name=repo_name)
+
+            # 5. Resolve Function -> Function direct CALLS (precise, batched) — D4 fix.
             # Collect the caller->callee reference edges, resolve each call name in
             # Python to at most ONE function id (see resolve_call_targets), then merge
-            # only unambiguous links in a single batch. This replaces the old per-name
-            # MATCH that linked a call to EVERY same-named function in the repo.
+            # only unambiguous links in a single batch.
             refs = session.run(
                 """
                 MATCH (caller:Function)-[cr:CALLS]->(ref:FunctionReference)
@@ -721,20 +739,35 @@ def resolve_cross_references(repo_name: str = None):
                     merge_rows.append({"caller_id": caller_id, "target_id": target_id})
 
             if merge_rows:
-                # Per-node MATCH (not a cross-product) so each lookup is index-backed
-                # on Function.id; the legacy `OR elementId` fallback is avoided.
                 session.run(
                     """
                     UNWIND $rows AS row
-                    MATCH (caller:Function {id: row.caller_id})
-                    MATCH (target:Function {id: row.target_id})
-                    WHERE caller <> target
+                    MATCH (caller:Function)
+                    WHERE (caller.id = row.caller_id OR elementId(caller) = row.caller_id)
+                    MATCH (target:Function)
+                    WHERE (target.id = row.target_id OR elementId(target) = row.target_id)
+                      AND caller <> target
                     MERGE (caller)-[:CALLS]->(target)
                     """,
                     rows=merge_rows,
                 )
 
-            # 5. Resolve internal File -> File dependencies (DEPENDS_ON) based on imports
+            # Direct Cypher call resolver: catches remaining calls across files or modules
+            # matching target functions within the same repository
+            session.run("""
+                MATCH (caller:Function)-[:CALLS]->(ref:FunctionReference)
+                WHERE ($repo_name IS NULL OR caller.repo = $repo_name)
+                WITH caller, ref, trim(replace(replace(split(ref.name, '.')[-1], '(', ''), ')', '')) AS short_name
+                WHERE short_name <> '' AND short_name <> caller.name
+                MATCH (target:Function)
+                WHERE ($repo_name IS NULL OR target.repo = $repo_name)
+                  AND (target.repo = caller.repo OR target.repo IS NULL OR caller.repo IS NULL)
+                  AND (target.name = short_name OR target.name = ref.name)
+                  AND caller <> target
+                MERGE (caller)-[:CALLS]->(target)
+            """, repo_name=repo_name)
+
+            # 6. Resolve internal File -> File dependencies (DEPENDS_ON) based on imports
             session.run("""
                 MATCH (f1:File)-[:IMPORTS]->(m:Module)
                 WHERE ($repo_name IS NULL OR f1.repo = $repo_name)
@@ -758,7 +791,7 @@ def resolve_cross_references(repo_name: str = None):
                 MERGE (f1)-[:DEPENDS_ON]->(f2)
             """, repo_name=repo_name)
 
-            # 6. Resolve Class -> Class inheritance (INHERITS_FROM)
+            # 7. Resolve Class -> Class inheritance (INHERITS_FROM)
             session.run("""
                 MATCH (sub:Class)-[:INHERITS_FROM]->(base:ClassReference)
                 WHERE ($repo_name IS NULL OR sub.repo = $repo_name)
@@ -776,93 +809,64 @@ def get_graph_elements(repo_name: str = None, limit: int = 800) -> dict:
     """
     Exports nodes and edges formatted for Vis.js Network and Cytoscape.js visual rendering.
     Strips large 768-dim float embeddings to maintain light network payloads and high FPS.
-    Prioritizes true code relationships: CALLS, DEPENDS_ON, HAS_METHOD, INHERITS_FROM, CONTAINS.
+    Guarantees structural backbone (Repository, File, Class) is never starved by call graphs,
+    and all edge endpoints are included in the node set.
     """
     # Fast resolution of calls and links
     resolve_cross_references(repo_name)
 
-    with driver.session() as session:
-        # Prioritize rich semantic code relationships over raw external module import lists
-        query = """
-        MATCH (n)-[r:CALLS|DEPENDS_ON|HAS_METHOD|INHERITS_FROM|EXPOSES_API|CALLS_API|CONTAINS|IMPORTS|AUTHORED]->(m)
-        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
-          AND (n:Function OR n:File OR n:Class OR n:Repository OR n:Developer OR n:Module)
-          AND (m:Function OR m:File OR m:Class OR m:Repository OR m:Developer OR m:Module OR m:ApiRoute)
-          AND NOT m:FunctionReference
-          AND NOT m:ClassReference
-        RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
-        ORDER BY CASE type(r)
-          WHEN 'CALLS' THEN 1
-          WHEN 'DEPENDS_ON' THEN 2
-          WHEN 'HAS_METHOD' THEN 3
-          WHEN 'INHERITS_FROM' THEN 4
-          WHEN 'EXPOSES_API' THEN 5
-          WHEN 'CALLS_API' THEN 6
-          WHEN 'CONTAINS' THEN 7
-          ELSE 8
-        END ASC
-        LIMIT $limit
-        """
-        records = list(session.run(query, repo_name=repo_name, limit=limit))
+    nodes = {}
+    edges = []
+    edge_keys = set()
 
-        # Fallback if repository has nodes without relationships yet
-        if not records:
-            fallback_query = """
-            MATCH (n)
-            WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
-              AND (n:Function OR n:File OR n:Class OR n:Repository)
-            RETURN n, null AS r, null AS m, null AS r_start, null AS r_end
-            LIMIT $limit
-            """
-            records = list(session.run(fallback_query, repo_name=repo_name, limit=limit))
+    def format_node(node_obj):
+        n_labels = list(node_obj.labels)
+        label = n_labels[0] if n_labels else "Node"
+        for priority_label in ["Repository", "File", "Class", "Function", "ApiRoute", "Module", "Developer"]:
+            if priority_label in n_labels:
+                label = priority_label
+                break
         
-        nodes = {}
-        edges = []
-        edge_keys = set()
+        raw_props = dict(node_obj.items()) if hasattr(node_obj, "items") else dict(node_obj)
+        has_embedding = "embedding" in raw_props and raw_props["embedding"] is not None
+        embedding_dim = len(raw_props["embedding"]) if has_embedding and isinstance(raw_props["embedding"], list) else 0
+        if "embedding" in raw_props:
+            del raw_props["embedding"]
+        raw_props["has_embedding"] = has_embedding
+        raw_props["embedding_dim"] = embedding_dim
 
-        def format_node(node_obj):
-            n_labels = list(node_obj.labels)
-            label = n_labels[0] if n_labels else "Node"
-            
-            raw_props = dict(node_obj)
-            has_embedding = "embedding" in raw_props and raw_props["embedding"] is not None
-            embedding_dim = len(raw_props["embedding"]) if has_embedding and isinstance(raw_props["embedding"], list) else 0
-            if "embedding" in raw_props:
-                del raw_props["embedding"]
-            raw_props["has_embedding"] = has_embedding
-            raw_props["embedding_dim"] = embedding_dim
+        # Label formatting: clean identifiers only
+        if label == "File":
+            file_p = raw_props.get("path") or raw_props.get("file_path") or "file"
+            name = os.path.basename(file_p) or file_p
+        elif label == "Function":
+            name = clean_function_name(raw_props.get("name"), raw_props.get("id"))
+        elif label == "Class":
+            raw_name = raw_props.get("name") or raw_props.get("id") or "Class"
+            name = clean_function_name(raw_name, raw_props.get("id"))
+        elif label == "Repository":
+            name = raw_props.get("name") or "Repository"
+        else:
+            name = raw_props.get("name") or raw_props.get("path") or raw_props.get("id") or "Node"
+        
+        node_id = str(node_obj.get("id") or (node_obj.element_id if hasattr(node_obj, "element_id") else node_obj.id))
 
-            # Label formatting: clean identifiers only
-            if label == "File":
-                file_p = raw_props.get("path") or raw_props.get("file_path") or "file"
-                name = os.path.basename(file_p) or file_p
-            elif label == "Function":
-                name = clean_function_name(raw_props.get("name"), raw_props.get("id"))
-            elif label == "Class":
-                raw_name = raw_props.get("name") or raw_props.get("id") or "Class"
-                name = clean_function_name(raw_name, raw_props.get("id"))
-            elif label == "Repository":
-                name = raw_props.get("name") or "Repository"
-            else:
-                name = raw_props.get("name") or raw_props.get("path") or raw_props.get("id") or "Node"
-            
-            node_id = str(node_obj.get("id") or (node_obj.element_id if hasattr(node_obj, "element_id") else node_obj.id))
-
-            return {
+        return {
+            "id": node_id,
+            "label": name,
+            "type": label,
+            "group": label,
+            "properties": raw_props,
+            "data": {
                 "id": node_id,
                 "label": name,
                 "type": label,
-                "group": label,
-                "properties": raw_props,
-                "data": {
-                    "id": node_id,
-                    "label": name,
-                    "type": label,
-                    "properties": raw_props
-                }
+                "properties": raw_props
             }
+        }
 
-        for record in records:
+    def process_records(recs):
+        for record in recs:
             n = record.get("n")
             r = record.get("r")
             m = record.get("m")
@@ -882,6 +886,13 @@ def get_graph_elements(repo_name: str = None, limit: int = 800) -> dict:
             if r and r_start and r_end:
                 src_id = str(r_start.get("id") or (r_start.element_id if hasattr(r_start, "element_id") else r_start.id))
                 tgt_id = str(r_end.get("id") or (r_end.element_id if hasattr(r_end, "element_id") else r_end.id))
+                
+                # Crucial: Ensure edge endpoints exist in nodes dict so Vis.js filter doesn't drop edges
+                if src_id not in nodes and r_start:
+                    nodes[src_id] = format_node(r_start)
+                if tgt_id not in nodes and r_end:
+                    nodes[tgt_id] = format_node(r_end)
+
                 edge_id = str(r.element_id if hasattr(r, "element_id") else r.id)
                 edge_key = f"{src_id}->{tgt_id}:{r.type}"
 
@@ -905,10 +916,76 @@ def get_graph_elements(repo_name: str = None, limit: int = 800) -> dict:
                         }
                     })
 
-        return {
-            "nodes": list(nodes.values()),
-            "edges": edges
-        }
+    with driver.session() as session:
+        # Step 1: Query structural hierarchy (Repository -> File -> Class -> Function)
+        # This guarantees File and Class nodes and CONTAINS/HAS_METHOD are NEVER starved!
+        struct_limit = max(int(limit * 0.4), 250)
+        struct_query = """
+        MATCH (n)-[r:CONTAINS|HAS_METHOD]->(m)
+        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
+          AND (n:Repository OR n:File OR n:Class)
+          AND (m:File OR m:Class OR m:Function)
+        RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
+        ORDER BY CASE type(r)
+          WHEN 'CONTAINS' THEN 1
+          WHEN 'HAS_METHOD' THEN 2
+          ELSE 3
+        END ASC
+        LIMIT $limit
+        """
+        struct_records = list(session.run(struct_query, repo_name=repo_name, limit=struct_limit))
+        process_records(struct_records)
+
+        # Step 2: Query semantic code relationships (CALLS, DEPENDS_ON, INHERITS_FROM, EXPOSES_API, CALLS_API)
+        code_limit = max(int(limit * 0.6), 350)
+        code_query = """
+        MATCH (n)-[r:CALLS|DEPENDS_ON|INHERITS_FROM|EXPOSES_API|CALLS_API]->(m)
+        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
+          AND (n:Function OR n:File OR n:Class)
+          AND (m:Function OR m:File OR m:Class OR m:ApiRoute)
+          AND NOT m:FunctionReference
+          AND NOT m:ClassReference
+        RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
+        ORDER BY CASE type(r)
+          WHEN 'CALLS' THEN 1
+          WHEN 'DEPENDS_ON' THEN 2
+          WHEN 'INHERITS_FROM' THEN 3
+          WHEN 'EXPOSES_API' THEN 4
+          WHEN 'CALLS_API' THEN 5
+          ELSE 6
+        END ASC
+        LIMIT $limit
+        """
+        code_records = list(session.run(code_query, repo_name=repo_name, limit=code_limit))
+        process_records(code_records)
+
+        # Step 3: Standalone structural nodes (Files or Classes that might not yet have calls or methods)
+        standalone_query = """
+        MATCH (n)
+        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
+          AND (n:Repository OR n:File OR n:Class)
+        RETURN n, null AS r, null AS m, null AS r_start, null AS r_end
+        LIMIT 200
+        """
+        standalone_records = list(session.run(standalone_query, repo_name=repo_name))
+        process_records(standalone_records)
+
+        # Step 4: Fallback if no records found at all
+        if not nodes:
+            fallback_query = """
+            MATCH (n)
+            WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
+              AND (n:Repository OR n:File OR n:Class OR n:Function)
+            RETURN n, null AS r, null AS m, null AS r_start, null AS r_end
+            LIMIT $limit
+            """
+            fallback_records = list(session.run(fallback_query, repo_name=repo_name, limit=limit))
+            process_records(fallback_records)
+
+    return {
+        "nodes": list(nodes.values()),
+        "edges": edges
+    }
 
 def get_node_details(node_id: str) -> dict:
     """
