@@ -741,7 +741,7 @@ def resolve_cross_references(repo_name: str = None):
                 WITH f1, m,
                      trim(split(replace(replace(m.name, 'from ', ''), 'import ', ''), ' ')[0]) AS imp_path
                 WITH f1, imp_path, split(imp_path, '.')[-1] AS imp_base
-                WHERE imp_base <> '' AND len(imp_base) >= 2
+                WHERE imp_base <> '' AND size(imp_base) >= 2
                 MATCH (f2:File)
                 WHERE ($repo_name IS NULL OR f2.repo = $repo_name)
                   AND f1 <> f2
