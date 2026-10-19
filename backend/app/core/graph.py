@@ -1130,7 +1130,7 @@ def get_vector_database_stats(repo_name: str = None) -> dict:
     Returns vector database statistics, dimension info, and total indexed entities.
     """
     dim = validate_embedding_configuration()
-    model = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v2-code:latest")
+    model = os.getenv("EMBEDDING_MODEL", "unclemusclez/jina-embeddings-v2-base-code:latest")
 
     with driver.session() as session:
         query = """
