@@ -706,7 +706,7 @@ def resolve_cross_references(repo_name: str = None):
             session.run("""
                 MATCH (c:Class), (fn:Function)
                 WHERE ($repo_name IS NULL OR c.repo = $repo_name)
-                  AND (fn.id STARTS WITH (c.id + ':') OR fn.id CONTAINS (':' + c.name + ':'))
+                  AND fn.id STARTS WITH (c.id + ':')
                 SET fn.repo = c.repo, fn.file_path = c.file_path
                 MERGE (c)-[:HAS_METHOD]->(fn)
             """, repo_name=repo_name)
@@ -963,8 +963,9 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
     with driver.session() as session:
         # Step 1: Query structural hierarchy (Repository -> File -> Class -> Function)
         struct_query = """
-        MATCH (n)-[r:CONTAINS|HAS_METHOD]->(m)
-        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
+        MATCH (n)-[r]->(m)
+        WHERE type(r) IN ['CONTAINS', 'HAS_METHOD']
+          AND ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
           AND (n:Repository OR n:File OR n:Class)
           AND (m:File OR m:Class OR m:Function)
         RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
@@ -975,12 +976,11 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
 
         # Step 2: Query semantic code relationships (CALLS, DEPENDS_ON, INHERITS_FROM, EXPOSES_API, CALLS_API)
         code_query = """
-        MATCH (n)-[r:CALLS|DEPENDS_ON|INHERITS_FROM|EXPOSES_API|CALLS_API]->(m)
-        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
+        MATCH (n)-[r]->(m)
+        WHERE type(r) IN ['CALLS', 'DEPENDS_ON', 'INHERITS_FROM', 'EXPOSES_API', 'CALLS_API']
+          AND ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
           AND (n:Function OR n:File OR n:Class)
           AND (m:Function OR m:File OR m:Class OR m:ApiRoute)
-          AND NOT m:FunctionReference
-          AND NOT m:ClassReference
         RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
         LIMIT $limit
         """
