@@ -587,6 +587,47 @@
         </div>
       </div>
       
+      <!-- Project Documentation Coverage Banner & Progress Card -->
+      <div id="doc-coverage-card" class="bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/40 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div class="flex items-center gap-3.5">
+            <div class="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">
+              <i data-lucide="book-open-check" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2.5">
+                <h3 class="text-sm font-bold text-slate-100">Project Documentation Coverage</h3>
+                <span id="doc-coverage-badge" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-800 text-emerald-400 border border-emerald-800/50">0%</span>
+              </div>
+              <p id="doc-coverage-subtitle" class="text-xs text-slate-400 mt-1">
+                <span id="doc-coverage-count" class="font-medium text-slate-200">0</span> of <span id="doc-total-count" class="font-medium text-slate-200">0</span> functions documented (<span id="doc-missing-count" class="text-rose-400 font-medium">0</span> missing docstrings)
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <button onclick="exportFullProjectCodeAndDocs()" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition" title="Export full codebase with classes, methods, docstrings and caller references in Markdown format">
+              <i data-lucide="file-code" class="w-3.5 h-3.5 text-indigo-400"></i>
+              <span>Export Full Code & Docs (.md)</span>
+            </button>
+            <button id="btn-run-autodoc" onclick="triggerAutoDoc()" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow-sm">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+              <span>Run Auto-Doc</span>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Live Coverage Progress Bar -->
+        <div class="mt-4 space-y-1.5">
+          <div class="flex justify-between items-center text-xs font-mono">
+            <span id="doc-progress-status-text" class="text-slate-300">Coverage status</span>
+            <span id="doc-progress-bar-percent" class="font-bold text-emerald-400">0%</span>
+          </div>
+          <div class="w-full bg-slate-950 border border-slate-800 rounded-full h-3 overflow-hidden p-0.5 shadow-inner">
+            <div id="doc-coverage-progress-bar" class="bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+      
       <!-- Clones & Hotspots Box -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-4">
         <div class="flex items-center justify-between">
@@ -1661,6 +1702,7 @@
         loadVectorDbData();
       } else if (viewName === 'analytics') {
         loadCodeSmells();
+        loadDocCoverageStats();
       } else if (viewName === 'repos') {
         loadRepositoriesHub();
       } else if (viewName === 'chat') {
@@ -2671,6 +2713,7 @@ asyncio.run(run())`;
       }
       if (!document.getElementById('view-analytics').classList.contains('hidden')) {
         loadCodeSmells();
+        loadDocCoverageStats();
       }
     }
 
@@ -3422,6 +3465,7 @@ asyncio.run(run())`;
         }
 
         if (window.lucide) window.lucide.createIcons();
+        loadDocCoverageStats();
 
       } catch (err) {
         console.warn('Code smells load error:', err);
@@ -3751,21 +3795,55 @@ asyncio.run(run())`;
             const detailMsg = task.current_file ? `Processing: ${task.current_file}` : (task.stage || 'Ingesting codebase...');
             const counterMsg = task.total > 0 ? `${task.current || 0} / ${task.total} files` : (task.stage || 'In progress...');
             showTaskStatus(task.progress || 'Processing codebase in background...', 'INDEXING', pct, detailMsg, counterMsg);
+            if (task.coverage_percent !== undefined) {
+              updateDocCoverageUI(task.coverage_percent, task.documented_functions, task.total_functions);
+              const statusText = document.getElementById('doc-progress-status-text');
+              if (statusText && task.progress) statusText.innerText = task.progress;
+            }
           } else if (task.status === 'SUCCESS') {
             clearInterval(interval);
             const r = task.result || {};
-            const finalRepo = r.repo_name || currentIngestedRepo || 'Repository';
-            currentIngestedRepo = finalRepo;
-            showTaskStatus(
-              `Repository '${finalRepo}' indexed successfully!`,
-              'SUCCESS',
-              100,
-              `Files: ${r.parsed_files || 0} | Classes: ${r.classes_indexed || 0} | Functions & Methods: ${r.functions_indexed || 0}`,
-              `${r.parsed_files || 0} files completed`
-            );
-            await refreshData();
+            const btn = document.getElementById('btn-run-autodoc');
+            if (btn) {
+              btn.innerHTML = '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i> <span>Run Auto-Doc</span>';
+              btn.disabled = false;
+              if (window.lucide) window.lucide.createIcons();
+            }
+
+            if (r.final_coverage_percent !== undefined) {
+              updateDocCoverageUI(r.final_coverage_percent, r.total_documented_functions, r.total_functions);
+              const statusText = document.getElementById('doc-progress-status-text');
+              if (statusText) statusText.innerHTML = `<span class="text-emerald-400 font-semibold">Done:</span> Project documentation is now at ${r.final_coverage_percent}% (${r.newly_documented || 0} functions newly documented).`;
+              showTaskStatus(
+                `Auto-Doc complete! Project Documentation Coverage: ${r.final_coverage_percent}%`,
+                'SUCCESS',
+                100,
+                `Documented Functions: ${r.total_documented_functions || 0} / ${r.total_functions || 0} | Newly Documented: ${r.newly_documented || 0}`,
+                `${r.final_coverage_percent}% Documented`
+              );
+              await refreshData();
+              loadDocCoverageStats();
+            } else {
+              const finalRepo = r.repo_name || currentIngestedRepo || 'Repository';
+              currentIngestedRepo = finalRepo;
+              showTaskStatus(
+                `Repository '${finalRepo}' indexed successfully!`,
+                'SUCCESS',
+                100,
+                `Files: ${r.parsed_files || 0} | Classes: ${r.classes_indexed || 0} | Functions & Methods: ${r.functions_indexed || 0}`,
+                `${r.parsed_files || 0} files completed`
+              );
+              await refreshData();
+              loadDocCoverageStats();
+            }
           } else if (task.status === 'FAILURE') {
             clearInterval(interval);
+            const btn = document.getElementById('btn-run-autodoc');
+            if (btn) {
+              btn.innerHTML = '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i> <span>Run Auto-Doc</span>';
+              btn.disabled = false;
+              if (window.lucide) window.lucide.createIcons();
+            }
             const errDetail = task.meta?.error || task.meta?.exc || JSON.stringify(task.result || 'Check container logs');
             showTaskStatus('Operation failed: ' + errDetail, 'FAILURE', 0, errDetail);
           }
@@ -4443,21 +4521,123 @@ asyncio.run(run())`;
 
 
     async function triggerAutoDoc() {
-      const repo = document.getElementById('repo-filter-select').value || undefined;
+      const rawRepo = document.getElementById('repo-filter-select')?.value || undefined;
+      const cleanRepo = (rawRepo && rawRepo !== 'All Repositories' && rawRepo !== 'ALL') ? rawRepo : undefined;
+      const btn = document.getElementById('btn-run-autodoc');
+      const origBtnHtml = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> <span>Documenting...</span>';
+        btn.disabled = true;
+        if (window.lucide) window.lucide.createIcons();
+      }
+
+      const statusText = document.getElementById('doc-progress-status-text');
+      if (statusText) statusText.innerText = 'Initializing Auto-Doc background task...';
+
       try {
         const res = await fetch(`${API_BASE}/api/v1/tasks/autodoc`, {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ repo_name: repo })
+          body: JSON.stringify({ repo_name: cleanRepo })
         });
         const data = await res.json();
-        if (res.ok) {
+        if (res.ok && data.task_id) {
+          openIngestModal();
+          showTaskStatus('Auto-Doc started. Scanning undocumented functions...', 'PROCESSING', 5, 'Generating docstrings and updating project graph...');
           pollTaskProgress(data.task_id);
         } else {
-          showTaskStatus(`Auto-Doc execution error: ${data.detail}`, 'FAILURE', 0, data.detail);
+          showTaskStatus(`Auto-Doc execution error: ${data.detail || 'Unknown error'}`, 'FAILURE', 0, data.detail);
+          if (btn) {
+            btn.innerHTML = origBtnHtml;
+            btn.disabled = false;
+            if (window.lucide) window.lucide.createIcons();
+          }
         }
       } catch (err) { 
         showTaskStatus(`Network error sending request: ${err.message}`, 'FAILURE', 0, err.message);
+        if (btn) {
+          btn.innerHTML = origBtnHtml;
+          btn.disabled = false;
+          if (window.lucide) window.lucide.createIcons();
+        }
+      }
+    }
+
+    async function loadDocCoverageStats() {
+      const rawRepo = document.getElementById('repo-filter-select')?.value || '';
+      let url = `${API_BASE}/api/v1/analytics/documentation-coverage`;
+      if (rawRepo && rawRepo !== 'All Repositories' && rawRepo !== 'ALL') {
+        url += `?repo_name=${encodeURIComponent(rawRepo)}`;
+      }
+      try {
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        updateDocCoverageUI(
+          data.coverage_percent || 0,
+          data.documented_functions || 0,
+          data.total_functions || 0,
+          data.missing_count || 0
+        );
+      } catch (err) {
+        console.warn('Doc coverage error:', err);
+      }
+    }
+
+    function updateDocCoverageUI(percent, documented, total, missing) {
+      const pct = Math.min(100, Math.max(0, Math.round(Number(percent) * 10) / 10));
+      const badge = document.getElementById('doc-coverage-badge');
+      const bar = document.getElementById('doc-coverage-progress-bar');
+      const pctText = document.getElementById('doc-progress-bar-percent');
+      const docCount = document.getElementById('doc-coverage-count');
+      const totalCount = document.getElementById('doc-total-count');
+      const missingCount = document.getElementById('doc-missing-count');
+      const statusText = document.getElementById('doc-progress-status-text');
+
+      if (badge) badge.innerText = `${pct}%`;
+      if (bar) bar.style.width = `${pct}%`;
+      if (pctText) pctText.innerText = `${pct}%`;
+      if (docCount) docCount.innerText = documented !== undefined ? documented : 0;
+      if (totalCount) totalCount.innerText = total !== undefined ? total : 0;
+      if (missingCount) missingCount.innerText = missing !== undefined ? missing : Math.max(0, (total || 0) - (documented || 0));
+
+      if (statusText) {
+        if (pct >= 80) {
+          statusText.innerHTML = `<span class="text-emerald-400 font-semibold">High Coverage:</span> Codebase is extensively documented (${pct}% complete).`;
+        } else if (pct >= 40) {
+          statusText.innerHTML = `<span class="text-amber-400 font-semibold">Moderate Coverage:</span> Parts of codebase are missing docstrings (${pct}% complete).`;
+        } else {
+          statusText.innerHTML = `<span class="text-rose-400 font-semibold">Low Coverage:</span> Most functions lack docstrings (${pct}%). Click 'Run Auto-Doc' to generate.`;
+        }
+      }
+    }
+
+    async function exportFullProjectCodeAndDocs() {
+      const rawRepo = document.getElementById('repo-filter-select')?.value || '';
+      let url = `${API_BASE}/api/v1/analytics/full-code-docs`;
+      if (rawRepo && rawRepo !== 'All Repositories' && rawRepo !== 'ALL') {
+        url += `?repo_name=${encodeURIComponent(rawRepo)}`;
+      }
+      try {
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (!res.ok) {
+          alert('Failed to export full project code and docs. Server returned ' + res.status);
+          return;
+        }
+        const data = await res.json();
+        const content = data.markdown_report || '';
+        const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        const safeName = (data.repo_name || 'full_project').replace(/[^a-zA-Z0-9_\-]/g, '_');
+        a.download = `${safeName}_code_and_docs.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(downloadUrl);
+      } catch (err) {
+        alert('Network error downloading code & docs: ' + (err.message || err));
       }
     }
 

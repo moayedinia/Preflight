@@ -25,10 +25,13 @@ from app.core.analytics import (
     detect_circular_dependencies,
     detect_high_risk_hubs,
     detect_dead_code_candidates,
-    calculate_blast_radius
+    calculate_blast_radius,
+    get_documentation_coverage_stats,
+    get_full_project_code_and_docs_data
 )
 from app.core.repo_manager import list_all_repositories
 from app.core.reviewer import generate_architectural_code_review
+from app.core.llm import call_llm
 
 # Initialize FastMCP Server
 mcp = FastMCP(
@@ -372,6 +375,162 @@ def review_code_diff(diff_text: str, repo_name: Optional[str] = None) -> str:
         f"### Architectural Review Assessment:\n"
         f"{res['ai_review']}"
     )
+
+@mcp.tool()
+def get_documentation_coverage(repo_name: Optional[str] = None) -> str:
+    """
+    Computes and returns the overall documentation coverage percentage of the codebase.
+    Reports total functions, documented functions, undocumented functions, and a list of symbols missing docstrings.
+    
+    Args:
+        repo_name: Optional repository name to filter documentation statistics.
+    """
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    stats = get_documentation_coverage_stats(clean_repo)
+
+    lines = [
+        f"## 📚 Documentation Coverage Report ({stats['repo_name']})",
+        f"- **Coverage Percentage:** `{stats['coverage_percent']}%`",
+        f"- **Total Functions / Methods:** {stats['total_functions']}",
+        f"- **Documented Functions:** {stats['documented_functions']} ({stats['coverage_percent']}%)",
+        f"- **Undocumented Functions:** {stats['undocumented_functions']}",
+        f"- **Classes:** {stats['documented_classes']} / {stats['total_classes']} documented",
+        ""
+    ]
+
+    if stats["undocumented_sample"]:
+        lines.append("### Functions Missing Docstrings (Sample):")
+        for u in stats["undocumented_sample"][:15]:
+            lines.append(f"- `{u['name']}` ({u['file_path']}:{u['line']})")
+    else:
+        lines.append("🎉 All functions are fully documented in this repository!")
+
+    return "\n".join(lines)
+
+@mcp.tool()
+def run_auto_documentation(repo_name: Optional[str] = None, limit: int = 25) -> str:
+    """
+    Runs the automated documentation engine on the codebase:
+    Finds functions missing docstrings, generates technical docstrings using the LLM,
+    updates the Knowledge Graph, and returns the newly achieved documentation percentage.
+    
+    Args:
+        repo_name: Optional repository name.
+        limit: Maximum number of functions to document in this run (1-50).
+    """
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    clean_limit = min(max(limit, 1), 50)
+
+    # 1. Fetch undocumented functions
+    with driver.session() as session:
+        query = """
+        MATCH (f:Function)
+        WHERE (f.docstring IS NULL OR trim(f.docstring) = '')
+        """
+        if clean_repo:
+            query += " AND f.repo = $repo_name"
+        query += " RETURN coalesce(f.id, elementId(f)) AS id, f.name AS name, f.code AS code, f.file_path AS file_path LIMIT $limit"
+        records = [dict(r) for r in session.run(query, repo_name=clean_repo, limit=clean_limit)]
+
+    if not records:
+        cov = get_documentation_coverage_stats(clean_repo)
+        return f"All functions in repository '{clean_repo or 'Entire Enterprise'}' are already documented! (Coverage: {cov['coverage_percent']}%)"
+
+    system_prompt = (
+        "You are an expert technical writer and senior software engineer. "
+        "Your task is to write a concise, professional docstring for the provided function code. "
+        "Do not include the function code or Markdown code blocks in your response. "
+        "Return ONLY the raw text of the docstring."
+    )
+
+    documented_items = []
+    with driver.session() as session:
+        for item in records:
+            code = (item.get("code") or "")[:2000]
+            prompt = f"Function Name: {item['name']}\nCode:\n{code}"
+            doc = call_llm(prompt, system_prompt).strip('"""').strip("'''").strip()
+            if doc.startswith("```"):
+                lines = doc.split("\n")
+                doc = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+            session.run("""
+                MATCH (f:Function)
+                WHERE f.id = $id OR elementId(f) = $id
+                SET f.docstring = $doc
+            """, id=item["id"], doc=doc)
+            documented_items.append(f"- `{item['name']}` ({item.get('file_path', 'unknown')})")
+
+    after_cov = get_documentation_coverage_stats(clean_repo)
+
+    return (
+        f"## 🚀 Auto-Documentation Completed Successfully!\n"
+        f"- **Newly Documented Functions:** {len(documented_items)}\n"
+        f"- **New Project Documentation Coverage:** `{after_cov['coverage_percent']}%` "
+        f"({after_cov['documented_functions']}/{after_cov['total_functions']} functions)\n\n"
+        f"### Documented Entities:\n" + "\n".join(documented_items)
+    )
+
+@mcp.tool()
+def get_full_project_code_and_docs(repo_name: Optional[str] = None, max_files: int = 100) -> str:
+    """
+    Extracts and exports the complete source code, classes, methods, docstrings,
+    and architectural structure of the entire project from the Code Knowledge Graph.
+    Allows an AI agent to ingest the whole codebase context and documentation in one call.
+    
+    Args:
+        repo_name: Optional repository to export. Defaults to the active repository.
+        max_files: Maximum files to include in export (1-200).
+    """
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    clean_max = min(max(max_files, 1), 200)
+    data = get_full_project_code_and_docs_data(clean_repo, max_files=clean_max)
+
+    cov = data["coverage"]
+    lines = [
+        f"# 📖 Complete Codebase & Documentation Dossier: {data['repo_name']}",
+        f"- **Total Files:** {len(data['files'])}",
+        f"- **Total Classes:** {len(data['classes'])}",
+        f"- **Total Functions:** {len(data['functions'])}",
+        f"- **Documentation Coverage:** `{cov['coverage_percent']}%` ({cov['documented_functions']}/{cov['total_functions']} documented)",
+        "",
+        "---",
+        "## 1. Project Files & Architecture",
+        ""
+    ]
+
+    for f in data["files"]:
+        lines.append(f"- **`{f['path']}`** ({f.get('language') or 'text'}) - Churn: {f.get('churn', 0)}")
+
+    lines.append("\n---\n## 2. Classes & Method Implementations\n")
+    if data["classes"]:
+        for c in data["classes"]:
+            lines.append(f"### Class `{c['class_name']}` ({c.get('file_path', 'unknown')})")
+            if c.get("docstring"):
+                lines.append(f"> {c['docstring']}\n")
+            methods = c.get("methods", [])
+            if methods:
+                lines.append(f"**Methods ({len(methods)}):**")
+                for m in methods:
+                    lines.append(f"- `{m.get('name')}`: {m.get('docstring') or 'No docstring'}")
+            lines.append("")
+    else:
+        lines.append("_No classes defined._\n")
+
+    lines.append("---\n## 3. Function Implementations, Docstrings & Full Code\n")
+    for fn in data["functions"][:clean_max * 3]:
+        callers = ", ".join(fn.get("callers", [])) or "None"
+        callees = ", ".join(fn.get("callees", [])) or "None"
+        lines.append(f"### Symbol `{fn['name']}`")
+        lines.append(f"- **File:** `{fn.get('file_path')}` (Lines {fn.get('start_line', 1)}-{fn.get('end_line', 1)})")
+        lines.append(f"- **Callers:** {callers} | **Calls:** {callees}")
+        if fn.get("docstring"):
+            lines.append(f"- **Documentation:** _{fn['docstring']}_")
+        code = fn.get("code") or ""
+        if code:
+            lines.append(f"```python\n{code[:4000]}\n```")
+        lines.append("")
+
+    return "\n".join(lines)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CodeGraph Brain MCP Server")

@@ -6,26 +6,62 @@ import time
 @celery_app.task(bind=True, max_retries=1)
 def generate_missing_docs_task(self, repo_name: str = None):
     """
-    Finds functions without a docstring in the graph and uses the configured LLM to generate them.
+    Finds functions without a docstring in the graph and uses the configured LLM to generate them,
+    tracking live percentage coverage as the progress bar fills up.
     """
-    self.update_state(state="PROCESSING", meta={"status": "Querying functions without docstrings..."})
-    
     with driver.session() as session:
+        stats_query = """
+        MATCH (f:Function)
+        WHERE $repo_name IS NULL OR f.repo = $repo_name
+        RETURN count(f) AS total_functions,
+               count(CASE WHEN f.docstring IS NOT NULL AND trim(f.docstring) <> '' THEN 1 END) AS documented_functions
+        """
+        stat_rec = session.run(stats_query, repo_name=repo_name).single()
+        total_fn = stat_rec["total_functions"] if stat_rec else 0
+        doc_fn = stat_rec["documented_functions"] if stat_rec else 0
+        initial_pct = round((doc_fn * 100.0) / max(total_fn, 1), 1) if total_fn > 0 else 100.0
+
         # Find functions missing docstring
         query = """
         MATCH (f:Function)
-        WHERE (f.docstring IS NULL OR f.docstring = '')
+        WHERE (f.docstring IS NULL OR trim(f.docstring) = '')
         """
         if repo_name:
             query += " AND f.repo = $repo_name"
             
-        query += " RETURN f.id AS id, f.name AS name, f.code AS code LIMIT 50"
+        query += " RETURN coalesce(f.id, elementId(f)) AS id, f.name AS name, f.code AS code, f.file_path AS file_path LIMIT 100"
         
         result = session.run(query, repo_name=repo_name)
         functions = [dict(r) for r in result]
         
     if not functions:
-        return {"status": "success", "message": "No functions missing docstrings found."}
+        self.update_state(state="SUCCESS", meta={
+            "status": "success",
+            "percent": 100,
+            "progress": "All functions are fully documented! Coverage is 100%.",
+            "total_functions": total_fn,
+            "documented_functions": doc_fn,
+            "coverage_percent": 100.0
+        })
+        return {
+            "status": "success",
+            "message": "All functions in this project are already documented! (Coverage: 100%)",
+            "total_functions": total_fn,
+            "documented_functions": doc_fn,
+            "coverage_percent": 100.0,
+            "processed": 0
+        }
+
+    self.update_state(state="PROGRESS", meta={
+        "status": "PROGRESS",
+        "percent": initial_pct,
+        "progress": f"Initial coverage: {initial_pct}% ({doc_fn}/{total_fn} documented). Starting Auto-Doc...",
+        "total": len(functions),
+        "total_functions": total_fn,
+        "documented_functions": doc_fn,
+        "coverage_percent": initial_pct,
+        "current": 0
+    })
         
     system_prompt = (
         "You are an expert technical writer and senior software engineer. "
@@ -36,12 +72,25 @@ def generate_missing_docs_task(self, repo_name: str = None):
     
     processed = 0
     errors = 0
+    current_documented = doc_fn
     
     for i, func in enumerate(functions):
-        self.update_state(state="PROCESSING", meta={"status": f"Generating docs... {i+1}/{len(functions)} ({func['name']})"})
+        current_pct = round((current_documented * 100.0) / max(total_fn, 1), 1) if total_fn > 0 else 100.0
+        self.update_state(state="PROGRESS", meta={
+            "status": "PROGRESS",
+            "percent": current_pct,
+            "progress": f"Documenting {func['name']}... Project Coverage: {current_pct}% ({current_documented}/{total_fn})",
+            "total": len(functions),
+            "current": i + 1,
+            "total_functions": total_fn,
+            "documented_functions": current_documented,
+            "coverage_percent": current_pct,
+            "current_file": func.get("file_path", "")
+        })
         
         try:
-            user_prompt = f"Function Name: {func['name']}\nCode:\n{func['code'][:2000]}"
+            code_snippet = (func.get("code") or "")[:2000]
+            user_prompt = f"Function Name: {func['name']}\nCode:\n{code_snippet}"
             generated_doc = call_llm(user_prompt, system_prompt)
             
             # Clean up the output in case the LLM returned quotes or markdown
@@ -52,19 +101,25 @@ def generate_missing_docs_task(self, repo_name: str = None):
             
             with driver.session() as session:
                 session.run("""
-                    MATCH (f:Function {id: $id})
+                    MATCH (f:Function)
+                    WHERE f.id = $id OR elementId(f) = $id
                     SET f.docstring = $doc
                 """, id=func["id"], doc=generated_doc)
             
             processed += 1
-            time.sleep(1) # throttle a bit to avoid overwhelming local LLM
+            current_documented += 1
+            time.sleep(0.3)
         except Exception as e:
             print(f"Error generating doc for {func['name']}: {e}")
             errors += 1
             
+    final_pct = round((current_documented * 100.0) / max(total_fn, 1), 1) if total_fn > 0 else 100.0
     return {
         "status": "success",
         "processed": processed,
         "errors": errors,
-        "message": f"Generated {processed} docstrings."
+        "total_functions": total_fn,
+        "documented_functions": current_documented,
+        "coverage_percent": final_pct,
+        "message": f"Auto-Documentation complete! Documented {processed} functions. Coverage increased from {initial_pct}% to {final_pct}%."
     }

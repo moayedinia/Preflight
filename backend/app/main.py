@@ -718,6 +718,20 @@ def trigger_auto_doc(payload: AutoDocRequest):
         "message": "Auto-Documentation engine started in background worker."
     }
 
+@app.get("/api/v1/analytics/documentation-coverage", dependencies=[Depends(verify_api_key)])
+def get_documentation_coverage_endpoint(repo_name: Optional[str] = None):
+    """Returns documentation coverage percentage and breakdown for codebase."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    from app.core.analytics import get_documentation_coverage_stats
+    return get_documentation_coverage_stats(clean_repo)
+
+@app.get("/api/v1/analytics/full-code-docs", dependencies=[Depends(verify_api_key)])
+def get_full_code_and_docs_endpoint(repo_name: Optional[str] = None):
+    """Returns the complete codebase source code and documentation dossier."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    from app.core.analytics import get_full_project_code_and_docs_data
+    return get_full_project_code_and_docs_data(clean_repo)
+
 @app.get("/api/v1/llm/status", dependencies=[Depends(verify_api_key)])
 def check_llm_status():
     """

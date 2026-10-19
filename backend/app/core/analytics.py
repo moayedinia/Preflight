@@ -297,3 +297,174 @@ def detect_code_clones(repo_name: Optional[str] = None, threshold: float = 0.95,
         rows.append((ca["name"], cb["name"], float(s), key))
 
     return dedupe_rank_clone_pairs(rows, threshold=threshold, limit=limit)
+
+def get_documentation_coverage_stats(repo_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Computes overall project documentation coverage statistics:
+    - total functions / methods
+    - documented functions
+    - undocumented functions
+    - documentation coverage percentage
+    - total classes
+    - documented classes
+    - undocumented classes
+    - sample of undocumented functions
+    """
+    with driver.session() as session:
+        query = """
+        MATCH (f:Function)
+        WHERE $repo_name IS NULL OR f.repo = $repo_name
+        WITH count(f) AS total_functions,
+             count(CASE WHEN f.docstring IS NOT NULL AND trim(f.docstring) <> '' THEN 1 END) AS documented_functions
+        OPTIONAL MATCH (c:Class)
+        WHERE $repo_name IS NULL OR c.repo = $repo_name
+        WITH total_functions, documented_functions,
+             count(c) AS total_classes,
+             count(CASE WHEN c.docstring IS NOT NULL AND trim(c.docstring) <> '' THEN 1 END) AS documented_classes
+        RETURN total_functions, documented_functions, total_classes, documented_classes
+        """
+        record = session.run(query, repo_name=repo_name).single()
+        
+        tot_fn = record["total_functions"] if record else 0
+        doc_fn = record["documented_functions"] if record else 0
+        undoc_fn = max(0, tot_fn - doc_fn)
+        
+        tot_cls = record["total_classes"] if record else 0
+        doc_cls = record["documented_classes"] if record else 0
+        undoc_cls = max(0, tot_cls - doc_cls)
+        
+        coverage_pct = round((doc_fn * 100.0) / max(tot_fn, 1), 1) if tot_fn > 0 else 100.0
+        
+        undoc_query = """
+        MATCH (f:Function)
+        WHERE ($repo_name IS NULL OR f.repo = $repo_name)
+          AND (f.docstring IS NULL OR trim(f.docstring) = '')
+        RETURN coalesce(f.id, elementId(f)) AS id, f.name AS name, f.file_path AS file_path, coalesce(f.start_line, 1) AS line
+        LIMIT 30
+        """
+        undoc_records = [dict(r) for r in session.run(undoc_query, repo_name=repo_name)]
+
+        return {
+            "repo_name": repo_name or "All Repositories",
+            "total_functions": tot_fn,
+            "documented_functions": doc_fn,
+            "undocumented_functions": undoc_fn,
+            "coverage_percent": coverage_pct,
+            "total_classes": tot_cls,
+            "documented_classes": doc_cls,
+            "undocumented_classes": undoc_cls,
+            "undocumented_sample": undoc_records
+        }
+
+def get_full_project_code_and_docs_data(repo_name: Optional[str] = None, max_files: int = 150) -> Dict[str, Any]:
+    """
+    Extracts complete codebase structure, full source codes, docstrings, classes,
+    methods, and function relationships across the entire project from Neo4j.
+    """
+    with driver.session() as session:
+        file_query = """
+        MATCH (f:File)
+        WHERE $repo_name IS NULL OR f.repo = $repo_name
+        RETURN f.id AS id, f.path AS path, f.repo AS repo, f.language AS language, coalesce(f.churn, 0) AS churn
+        ORDER BY f.path ASC
+        LIMIT $max_files
+        """
+        files = [dict(r) for r in session.run(file_query, repo_name=repo_name, max_files=max_files)]
+
+        class_query = """
+        MATCH (c:Class)
+        WHERE $repo_name IS NULL OR c.repo = $repo_name
+        OPTIONAL MATCH (c)-[:HAS_METHOD]->(m:Function)
+        RETURN c.name AS class_name, c.file_path AS file_path, c.docstring AS docstring,
+               c.code AS code, c.start_line AS start_line, c.end_line AS end_line,
+               collect({
+                   name: m.name,
+                   docstring: m.docstring,
+                   code: m.code,
+                   start_line: m.start_line,
+                   end_line: m.end_line
+               }) AS methods
+        LIMIT 200
+        """
+        classes = [dict(r) for r in session.run(class_query, repo_name=repo_name)]
+
+        func_query = """
+        MATCH (fn:Function)
+        WHERE $repo_name IS NULL OR fn.repo = $repo_name
+        OPTIONAL MATCH (caller:Function)-[:CALLS]->(fn)
+        OPTIONAL MATCH (fn)-[:CALLS]->(callee:Function)
+        RETURN coalesce(fn.id, elementId(fn)) AS id, fn.name AS name, fn.file_path AS file_path,
+               fn.docstring AS docstring, fn.code AS code, fn.start_line AS start_line,
+               fn.end_line AS end_line,
+               collect(DISTINCT caller.name) AS callers,
+               collect(DISTINCT callee.name) AS callees
+        LIMIT 500
+        """
+        functions = [dict(r) for r in session.run(func_query, repo_name=repo_name)]
+
+        coverage = get_documentation_coverage_stats(repo_name)
+
+        data = {
+            "repo_name": repo_name or "All Repositories",
+            "coverage": coverage,
+            "files": files,
+            "classes": classes,
+            "functions": functions
+        }
+        data["markdown_report"] = build_codebase_markdown_export(data)
+        return data
+
+def build_codebase_markdown_export(data: Dict[str, Any]) -> str:
+    """Formats full project files, classes, methods, docstrings and code into a structured Markdown document."""
+    cov = data.get("coverage", {})
+    repo = data.get("repo_name", "All Repositories")
+    files = data.get("files", [])
+    classes = data.get("classes", [])
+    functions = data.get("functions", [])
+
+    lines = [
+        f"# Complete Codebase & Documentation Dossier: {repo}",
+        f"- **Total Files:** {len(files)}",
+        f"- **Total Classes:** {len(classes)}",
+        f"- **Total Functions:** {len(functions)}",
+        f"- **Documentation Coverage:** `{cov.get('coverage_percent', 0)}%` ({cov.get('documented_functions', 0)}/{cov.get('total_functions', 0)} documented)",
+        "",
+        "---",
+        "## 1. Project Files & Architecture",
+        ""
+    ]
+
+    for f in files:
+        lines.append(f"- **`{f.get('path')}`** ({f.get('language') or 'text'}) - Churn: {f.get('churn', 0)}")
+
+    lines.append("\n---\n## 2. Classes & Method Implementations\n")
+    if classes:
+        for c in classes:
+            lines.append(f"### Class `{c.get('class_name')}` ({c.get('file_path', 'unknown')})")
+            if c.get("docstring"):
+                lines.append(f"> {c['docstring']}\n")
+            methods = c.get("methods", [])
+            if methods:
+                lines.append(f"**Methods ({len(methods)}):**")
+                for m in methods:
+                    if isinstance(m, dict):
+                        lines.append(f"- `{m.get('name')}`: {m.get('docstring') or 'No docstring'}")
+            lines.append("")
+    else:
+        lines.append("_No classes defined._\n")
+
+    lines.append("---\n## 3. Function Implementations, Docstrings & Full Code\n")
+    for fn in functions:
+        callers = ", ".join(fn.get("callers", [])) or "None"
+        callees = ", ".join(fn.get("callees", [])) or "None"
+        lines.append(f"### Symbol `{fn.get('name')}`")
+        lines.append(f"- **File:** `{fn.get('file_path')}` (Lines {fn.get('start_line', 1)}-{fn.get('end_line', 1)})")
+        lines.append(f"- **Callers:** {callers} | **Calls:** {callees}")
+        if fn.get("docstring"):
+            lines.append(f"- **Documentation:** _{fn['docstring']}_")
+        code = fn.get("code") or ""
+        if code:
+            lines.append(f"```python\n{code[:4000]}\n```")
+        lines.append("")
+
+    return "\n".join(lines)
