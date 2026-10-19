@@ -59,13 +59,6 @@ def set_llm_config(base_url: str, model: str, api_key: str):
         except Exception:
             pass
 
-    # Synchronize embedder runtime url
-    try:
-        from app.core.embedder import set_runtime_ollama_url
-        set_runtime_ollama_url(norm_base)
-    except Exception:
-        pass
-
 
 def normalize_llm_base_url(base_url: str) -> str:
     """Normalize an OpenAI-compatible API base and add /v1 when omitted, cleaning double slashes."""

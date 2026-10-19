@@ -136,10 +136,10 @@
         <span id="health-text">Online</span>
       </div>
 
-      <!-- Ollama Embeddings Indicator -->
-      <div id="ollama-badge" onclick="openLlmConfigModal()" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-[11px] text-slate-300 font-mono cursor-pointer transition" title="Ollama Embeddings Service (Click to configure)">
+      <!-- Ollama Embeddings Status (Automated Jina Code 768d) -->
+      <div id="ollama-badge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-300 font-mono transition select-none" title="Automated Jina Code Embeddings (768d) on Ollama">
         <span id="ollama-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
-        <span id="ollama-text">Ollama</span>
+        <span id="ollama-text">Jina Code (768d)</span>
       </div>
 
       <!-- API Key Setting -->
@@ -1841,21 +1841,21 @@ asyncio.run(run())`;
           if (res.ok) {
             const data = await res.json();
             if (data.status === 'connected') {
-              oDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-              oText.innerText = `Ollama: ${data.target_model} (${data.detected_dimension}d)`;
-              oBadge.title = `Connected to ${data.server_url}\nModel: ${data.target_model} (${data.detected_dimension}d)`;
+              oDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+              oText.innerText = `Jina Code: ${data.detected_dimension || 768}d Active`;
+              oBadge.title = `Ollama Embeddings: Connected to ${data.server_url}\nModel: ${data.target_model} (${data.detected_dimension}d)`;
             } else if (data.status === 'not_configured') {
               oDot.className = 'w-2 h-2 rounded-full bg-amber-400';
               oText.innerText = 'Embeddings: Offline (Fallback)';
-              oBadge.title = 'OLLAMA_BASE_URL is not configured in .env (Click to configure)';
+              oBadge.title = 'OLLAMA_BASE_URL is not configured in .env';
             } else if (data.status === 'offline') {
               oDot.className = 'w-2 h-2 rounded-full bg-amber-400';
               oText.innerText = 'Embeddings: Fallback Mode';
-              oBadge.title = `Ollama unreachable at ${data.server_url || 'server'}. Using deterministic fallback embeddings. Click to configure.`;
+              oBadge.title = `Ollama unreachable at ${data.server_url || 'server'}. Using deterministic fallback embeddings.`;
             } else {
               oDot.className = 'w-2 h-2 rounded-full bg-amber-500';
-              oText.innerText = 'Ollama: Unavailable';
-              oBadge.title = (data.error_detail || 'Could not connect to Ollama server') + ' (Click to configure)';
+              oText.innerText = 'Embeddings: In Progress / Offline';
+              oBadge.title = data.error_detail || 'Connecting to Ollama embedding service...';
             }
           } else {
             oDot.className = 'w-2 h-2 rounded-full bg-amber-500';

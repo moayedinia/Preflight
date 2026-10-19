@@ -28,15 +28,23 @@ OLLAMA_BASE_URL = normalize_ollama_base_url(
     os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 )
 DEFAULT_EMBEDDING_MODEL = "unclemusclez/jina-embeddings-v2-base-code:latest"
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
+PREFERRED_EMBEDDING_MODELS = [
+    "unclemusclez/jina-embeddings-v2-base-code:latest",
+    "unclemusclez/jina-embeddings-v2-base-code",
+    "jina-embeddings-v2-base-code:latest",
+    "jina-embeddings-v2-base-code",
+    "jina-embeddings-v2-code:latest",
+    "jina-embeddings-v2-code",
+]
+EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ALLOW_FAKE_EMBEDDINGS = _as_bool(os.getenv("ALLOW_FAKE_EMBEDDINGS"), default=False)
 
-_RUNTIME_OLLAMA_BASE_URL: str | None = None
 _STATUS_CACHE: dict = {"timestamp": 0, "result": None}
 _LAST_LOGGED_ERROR: str | None = None
 _VERIFIED_WORKING_OLLAMA_URL: str | None = None
+_ENSURED_EMBEDDING_MODEL: str | None = None
 
 def _get_linux_default_gateway() -> str | None:
     """Reads default gateway IP from /proc/net/route if running in Linux/Docker container."""
@@ -51,60 +59,24 @@ def _get_linux_default_gateway() -> str | None:
         pass
     return None
 
-def set_runtime_ollama_url(url: str | None):
-    """Dynamically set the active Ollama base URL (e.g. when configured in UI)."""
-    global _RUNTIME_OLLAMA_BASE_URL, _VERIFIED_WORKING_OLLAMA_URL
-    if not url:
-        _RUNTIME_OLLAMA_BASE_URL = None
-    else:
-        try:
-            _RUNTIME_OLLAMA_BASE_URL = normalize_ollama_base_url(url)
-        except Exception:
-            _RUNTIME_OLLAMA_BASE_URL = None
-    _VERIFIED_WORKING_OLLAMA_URL = None
-    clear_embedder_cache()
-
 def clear_embedder_cache():
-    """Invalidates the health/status check cache."""
-    global _STATUS_CACHE, _LAST_LOGGED_ERROR, _VERIFIED_WORKING_OLLAMA_URL
+    """Invalidates the health/status check and verified endpoint cache."""
+    global _STATUS_CACHE, _LAST_LOGGED_ERROR, _VERIFIED_WORKING_OLLAMA_URL, _ENSURED_EMBEDDING_MODEL
     _STATUS_CACHE = {"timestamp": 0, "result": None}
     _LAST_LOGGED_ERROR = None
     _VERIFIED_WORKING_OLLAMA_URL = None
+    _ENSURED_EMBEDDING_MODEL = None
 
 def get_active_ollama_url() -> str:
-    """Returns currently active Ollama URL: runtime override -> Redis LLM config -> verified working candidate -> OLLAMA_BASE_URL."""
+    """
+    Returns the verified reachable Ollama URL for code embeddings.
+    Dedicated exclusively to embedding operations (not mutated by chat LLM settings).
+    """
     global _VERIFIED_WORKING_OLLAMA_URL
-    if _RUNTIME_OLLAMA_BASE_URL:
-        return _RUNTIME_OLLAMA_BASE_URL
-    try:
-        from app.core.llm import get_llm_config
-        cfg = get_llm_config()
-        if cfg and cfg.get("base_url"):
-            candidate = normalize_ollama_base_url(cfg["base_url"])
-            if candidate:
-                return candidate
-    except Exception:
-        pass
-
     if _VERIFIED_WORKING_OLLAMA_URL:
         return _VERIFIED_WORKING_OLLAMA_URL
 
     configured_url = OLLAMA_BASE_URL
-    if not configured_url:
-        return ""
-
-    # Test configured URL first with fast 1.0s timeout
-    try:
-        req = urllib.request.Request(f"{configured_url}/api/tags", headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            if resp.status == 200:
-                _VERIFIED_WORKING_OLLAMA_URL = configured_url
-                return _VERIFIED_WORKING_OLLAMA_URL
-    except Exception:
-        pass
-
-    # If configured URL timed out or failed (common when host.docker.internal has stale IP or is blocked by Docker/WSL2):
-    # Proactively probe host gateway and standard candidates
     port = 11434
     try:
         parsed = urlparse(configured_url)
@@ -114,35 +86,101 @@ def get_active_ollama_url() -> str:
         pass
 
     candidates = []
-    # 1. Gateway from Linux routing table (Docker container default gateway to host)
+    # 1. Configured URL
+    if configured_url:
+        candidates.append(configured_url)
+    # 2. Known WSL2/Hyper-V host gateway
+    candidates.append(f"http://172.17.80.1:{port}")
+    # 3. Gateway from Linux routing table (Docker container default gateway to host)
     gw_ip = _get_linux_default_gateway()
     if gw_ip:
         candidates.append(f"http://{gw_ip}:{port}")
-    # 2. Known WSL2/Hyper-V default gateway
-    candidates.append(f"http://172.17.80.1:{port}")
+    # 4. Standard host adapters
     candidates.append(f"http://172.26.0.1:{port}")
     candidates.append(f"http://10.164.1.43:{port}")
-    # 3. Docker host-gateway and default bridge
+    candidates.append(f"http://host.docker.internal:{port}")
     candidates.append(f"http://host-gateway:{port}")
     candidates.append(f"http://172.17.0.1:{port}")
     candidates.append(f"http://127.0.0.1:{port}")
     candidates.append(f"http://localhost:{port}")
 
+    seen = set()
     for cand in candidates:
-        if cand == configured_url:
+        if not cand or cand in seen:
             continue
+        seen.add(cand)
         try:
             req = urllib.request.Request(f"{cand}/api/tags", headers={"Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=1.0) as resp:
                 if resp.status == 200:
                     _VERIFIED_WORKING_OLLAMA_URL = cand
-                    print(f"[Embedder] Auto-discovered working Ollama endpoint at {cand} (primary '{configured_url}' was unreachable).", flush=True)
+                    if cand != configured_url:
+                        print(f"[Embedder] Connected to Ollama endpoint at {cand} (primary '{configured_url}' deferred).", flush=True)
                     return _VERIFIED_WORKING_OLLAMA_URL
         except Exception:
             continue
 
-    # Fallback to configured URL if all candidates fail
-    return configured_url
+    # Fallback to configured URL if all probes fail
+    return configured_url or "http://127.0.0.1:11434"
+
+def pull_ollama_model(base_url: str, model_name: str, timeout: int = 300) -> bool:
+    """
+    Requests Ollama to pull/download the specified model from the Ollama library.
+    POST /api/pull with {"name": model_name, "stream": false}.
+    """
+    base = normalize_ollama_base_url(base_url)
+    if not base:
+        return False
+    url = f"{base}/api/pull"
+    payload = json.dumps({"name": model_name, "stream": False}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json; charset=utf-8"}
+    )
+    print(f"[Embedder] Requesting Ollama at {base} to pull model '{model_name}'...", flush=True)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("status") == "success" or "success" in str(data).lower():
+                print(f"[Embedder] Successfully pulled model '{model_name}' on Ollama.", flush=True)
+                return True
+            print(f"[Embedder] Ollama pull status: {data}", flush=True)
+            return True
+    except Exception as e:
+        print(f"[Embedder Notice] Ollama pull request for '{model_name}' encountered: {e}", flush=True)
+        return False
+
+def ensure_embedding_model(base_url: str) -> str:
+    """
+    Finds the active Jina code embedding model on Ollama.
+    If none is found, initiates an automatic pull of DEFAULT_EMBEDDING_MODEL.
+    """
+    global _ENSURED_EMBEDDING_MODEL
+    if _ENSURED_EMBEDDING_MODEL:
+        return _ENSURED_EMBEDDING_MODEL
+
+    available = list_ollama_models(base_url, timeout=2)
+    if available:
+        for pref in PREFERRED_EMBEDDING_MODELS:
+            if pref in available:
+                _ENSURED_EMBEDDING_MODEL = pref
+                return pref
+        for m in available:
+            low = m.lower()
+            if "jina" in low and ("code" in low or "embed" in low):
+                _ENSURED_EMBEDDING_MODEL = m
+                return m
+
+    # Not installed on Ollama -> Request Ollama to pull default model
+    if base_url:
+        print(f"[Embedder] Embedding model not detected on Ollama. Triggering auto-pull for '{DEFAULT_EMBEDDING_MODEL}'...", flush=True)
+        if pull_ollama_model(base_url, DEFAULT_EMBEDDING_MODEL, timeout=180):
+            _ENSURED_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
+            return DEFAULT_EMBEDDING_MODEL
+
+    _ENSURED_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
+    return DEFAULT_EMBEDDING_MODEL
 
 class EmbeddingError(RuntimeError):
     """Raised when a real embedding cannot be produced safely."""
@@ -266,7 +304,7 @@ def _query_ollama(text: str, model: str, base_url: str, timeout: int = 60) -> tu
     except Exception as e:
         errors.append(f"/v1/embeddings: {e}")
 
-    # If the model failed with 404 / not found, try to auto-detect matching available model on Ollama
+    # If the model failed with 404 / not found, try to auto-detect matching available model or auto-pull on Ollama
     if any("not found" in str(err).lower() for err in errors):
         try:
             available = list_ollama_models(base, timeout=2)
@@ -279,6 +317,11 @@ def _query_ollama(text: str, model: str, base_url: str, timeout: int = 60) -> tu
             if matched and matched != model:
                 print(f"[Embedder] Model '{model}' not found on Ollama. Auto-fallback to available model '{matched}'.", flush=True)
                 return _query_ollama(text, matched, base_url, timeout=timeout)
+            
+            # Trigger auto-pull of default embedding model
+            print(f"[Embedder] Embedding model not installed on Ollama. Initiating auto-pull of '{DEFAULT_EMBEDDING_MODEL}'...", flush=True)
+            if pull_ollama_model(base, DEFAULT_EMBEDDING_MODEL, timeout=180):
+                return _query_ollama(text, DEFAULT_EMBEDDING_MODEL, base_url, timeout=timeout)
         except Exception:
             pass
 
@@ -298,7 +341,7 @@ def _generate_fallback_embedding(text: str, dim: int = None) -> list[float]:
 def get_embedding(text: str, model: str = None) -> list[float]:
     """
     Generates a vector embedding for code snippet or text using:
-    1. Ollama (e.g. nomic-embed-text, jina-embeddings-v2-base-code) on remote/internal server if OLLAMA_BASE_URL is set.
+    1. Ollama (jina-embeddings-v2-base-code) on remote/internal server with auto-discovery and auto-pull.
     2. OpenAI (text-embedding-3-small) if OPENAI_API_KEY is set.
     3. Optional deterministic test vectors only when ALLOW_FAKE_EMBEDDINGS=true.
     """
@@ -306,10 +349,11 @@ def get_embedding(text: str, model: str = None) -> list[float]:
         return [0.0] * EMBEDDING_DIM
 
     clean_text = text.replace("\n", " ")[:8000]
-    target_model = validate_embedding_model_name(model or EMBEDDING_MODEL)
+    active_url = get_active_ollama_url()
+    target_model = model or (ensure_embedding_model(active_url) if active_url else DEFAULT_EMBEDDING_MODEL)
+    target_model = validate_embedding_model_name(target_model)
 
     # 1. Ollama
-    active_url = get_active_ollama_url()
     if active_url:
         emb, err = _query_ollama(clean_text, target_model, active_url)
         if emb:
@@ -351,15 +395,7 @@ def validate_embedding_configuration(timeout: int = 5) -> int:
             return EMBEDDING_DIM
         raise EmbeddingError("OLLAMA_BASE_URL is not configured.")
 
-    available_models = list_ollama_models(active_url, timeout=min(timeout, 3))
-    effective_model = EMBEDDING_MODEL
-    if available_models and effective_model not in available_models:
-        for m in available_models:
-            if any(token in m.lower() for token in ["jina", "embed", "code"]):
-                print(f"[Embedder] Configured model '{effective_model}' not found on Ollama. Using available '{m}'.", flush=True)
-                effective_model = m
-                break
-
+    effective_model = ensure_embedding_model(active_url)
     vector, err = _query_ollama("code graph embedding health check", effective_model, active_url, timeout=timeout)
     if not vector:
         raise EmbeddingError(
@@ -391,22 +427,15 @@ def verify_ollama_status() -> dict:
             "status": "not_configured",
             "message": "Ollama base URL is not configured.",
             "server_url": None,
-            "target_model": EMBEDDING_MODEL,
+            "target_model": DEFAULT_EMBEDDING_MODEL,
             "available_models": []
         }
         _STATUS_CACHE = {"timestamp": now, "result": res}
         return res
 
+    effective_model = ensure_embedding_model(active_url)
     available_models = list_ollama_models(active_url, timeout=2)
-    # If the default model is not present, check if an alternative embedding model exists
-    effective_model = EMBEDDING_MODEL
-    if available_models and effective_model not in available_models:
-        for m in available_models:
-            if "jina" in m.lower() or "embed" in m.lower():
-                effective_model = m
-                break
-
-    test_vec, err = _query_ollama("test code embedding", effective_model, active_url, timeout=2)
+    test_vec, err = _query_ollama("test code embedding", effective_model, active_url, timeout=4)
 
     if test_vec:
         dimension_matches = len(test_vec) == EMBEDDING_DIM
