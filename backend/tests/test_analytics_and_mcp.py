@@ -81,5 +81,16 @@ class AnalyticsCoverageTests(unittest.TestCase):
         self.assertIn("start_server", data["markdown_report"])
         self.assertIn("Starts the HTTP listener.", data["markdown_report"])
 
+    def test_3tier_preflight_evaluation(self):
+        from app.core.preflight import run_3tier_preflight_evaluation
+        result = run_3tier_preflight_evaluation(repo_name="test_repo")
+        self.assertEqual(result["repository"], "test_repo")
+        self.assertIn("red_defects", result)
+        self.assertIn("orange_defects", result)
+        self.assertIn("yellow_defects", result)
+        self.assertIn("rules", result["red_defects"])
+        self.assertIn("rules", result["orange_defects"])
+        self.assertIn("rules", result["yellow_defects"])
+
 if __name__ == "__main__":
     unittest.main()

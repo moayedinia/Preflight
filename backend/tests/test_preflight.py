@@ -11,18 +11,21 @@ mock_modules = {
 }
 
 
-with patch.dict(sys.modules, mock_modules):
-    from app.core.preflight import (
-        extract_json_defect,
-        evaluate_red_family,
-        evaluate_orange_family,
-        evaluate_yellow_family,
-        run_3tier_preflight_evaluation,
-        compile_pure_english_markdown_report,
-        RED_SYSTEM_PROMPT,
-        ORANGE_SYSTEM_PROMPT,
-        YELLOW_SYSTEM_PROMPT
-    )
+for mod_name, mock_mod in mock_modules.items():
+    if mod_name not in sys.modules:
+        sys.modules[mod_name] = mock_mod
+
+from app.core.preflight import (
+    extract_json_defect,
+    evaluate_red_family,
+    evaluate_orange_family,
+    evaluate_yellow_family,
+    run_3tier_preflight_evaluation,
+    compile_pure_english_markdown_report,
+    RED_SYSTEM_PROMPT,
+    ORANGE_SYSTEM_PROMPT,
+    YELLOW_SYSTEM_PROMPT
+)
 
 
 class TestPreflightEvaluation(unittest.TestCase):

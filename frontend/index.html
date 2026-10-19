@@ -628,6 +628,92 @@
         </div>
       </div>
       
+      <!-- 3-Tier Autonomous Preflight Verification (Red, Orange, Yellow) -->
+      <div id="preflight-tiers-section" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-4 shadow-sm">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+              <i data-lucide="shield-alert" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+                3-Tier Preflight Verification Prompts & Defect Families
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">Automated evaluation of Red (Blockers), Orange (Operational), and Yellow (Hygiene) rules with tailored AI repair prompts.</p>
+            </div>
+          </div>
+          <button onclick="load3TierPreflightStatus()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Re-scan 3 Tiers
+          </button>
+        </div>
+
+        <!-- 3 Interactive Tier Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <!-- 🔴 Red Card -->
+          <div id="card-tier-red" onclick="openTierDetailsModal('red')" class="bg-rose-950/20 hover:bg-rose-950/30 border border-rose-900/60 hover:border-rose-500/80 rounded-xl p-4 cursor-pointer transition transform hover:-translate-y-0.5 group">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-rose-400 flex items-center gap-1.5">
+                <span id="tier-red-indicator" class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                🔴 RED: Critical Blockers
+              </span>
+              <span id="tier-red-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">PASS</span>
+            </div>
+            <div class="mt-2.5">
+              <div id="tier-red-title" class="text-xs font-bold text-slate-100">Security & Stability Rules</div>
+              <p id="tier-red-desc" class="text-[11px] text-slate-400 mt-1 line-clamp-2">
+                Leaked API Keys, Unprotected Admin Routes, SQL/NoSQL Injection, Fatal Crashes, Infinite Loops, Dead Buttons.
+              </p>
+            </div>
+            <div class="mt-3 pt-2.5 border-t border-rose-900/30 flex items-center justify-between text-[10px]">
+              <span id="tier-red-conf" class="text-slate-400 font-mono">Confidence: 90%</span>
+              <span class="text-rose-400 group-hover:text-rose-300 font-semibold flex items-center gap-1">Inspect Prompt &rarr;</span>
+            </div>
+          </div>
+
+          <!-- 🟠 Orange Card -->
+          <div id="card-tier-orange" onclick="openTierDetailsModal('orange')" class="bg-amber-950/20 hover:bg-amber-950/30 border border-amber-900/60 hover:border-amber-500/80 rounded-xl p-4 cursor-pointer transition transform hover:-translate-y-0.5 group">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                <span id="tier-orange-indicator" class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                🟠 ORANGE: Operational Hazards
+              </span>
+              <span id="tier-orange-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">PASS</span>
+            </div>
+            <div class="mt-2.5">
+              <div id="tier-orange-title" class="text-xs font-bold text-slate-100">UX & Reliability Rules</div>
+              <p id="tier-orange-desc" class="text-[11px] text-slate-400 mt-1 line-clamp-2">
+                Missing Loading State, Unbounded Input Fields, Un-debounced Search, Heavy Unoptimized Images.
+              </p>
+            </div>
+            <div class="mt-3 pt-2.5 border-t border-amber-900/30 flex items-center justify-between text-[10px]">
+              <span id="tier-orange-conf" class="text-slate-400 font-mono">Confidence: 88%</span>
+              <span class="text-amber-400 group-hover:text-amber-300 font-semibold flex items-center gap-1">Inspect Prompt &rarr;</span>
+            </div>
+          </div>
+
+          <!-- 🟡 Yellow Card -->
+          <div id="card-tier-yellow" onclick="openTierDetailsModal('yellow')" class="bg-yellow-950/20 hover:bg-yellow-950/30 border border-yellow-900/60 hover:border-yellow-500/80 rounded-xl p-4 cursor-pointer transition transform hover:-translate-y-0.5 group">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-yellow-400 flex items-center gap-1.5">
+                <span id="tier-yellow-indicator" class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                🟡 YELLOW: Hygiene & Polish
+              </span>
+              <span id="tier-yellow-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">PASS</span>
+            </div>
+            <div class="mt-2.5">
+              <div id="tier-yellow-title" class="text-xs font-bold text-slate-100">Code Quality & Hygiene Rules</div>
+              <p id="tier-yellow-desc" class="text-[11px] text-slate-400 mt-1 line-clamp-2">
+                Stray Debug Logs (console.log), Contrast / A11y, Incomplete Documentation & Missing Readme.
+              </p>
+            </div>
+            <div class="mt-3 pt-2.5 border-t border-yellow-900/30 flex items-center justify-between text-[10px]">
+              <span id="tier-yellow-conf" class="text-slate-400 font-mono">Confidence: 85%</span>
+              <span class="text-yellow-400 group-hover:text-yellow-300 font-semibold flex items-center gap-1">Inspect Prompt &rarr;</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
       <!-- Clones & Hotspots Box -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-4">
         <div class="flex items-center justify-between">
@@ -1462,6 +1548,69 @@
     </div>
   </div>
 
+  <!-- ==================== 3-TIER PREFLIGHT DETAILS & PROMPT MODAL ==================== -->
+  <div id="tier-details-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
+        <div class="flex items-center gap-3">
+          <span id="modal-tier-icon" class="text-2xl">🔴</span>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 id="modal-tier-title" class="text-base font-bold text-slate-100">Tier Verification Details</h3>
+              <span id="modal-tier-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">PASS</span>
+            </div>
+            <p id="modal-tier-subtitle" class="text-xs text-slate-400 mt-0.5">Defect Family rules and tool-tailored AI repair instructions</p>
+          </div>
+        </div>
+        <button onclick="closeTierDetailsModal()" class="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      
+      <div class="p-5 space-y-4 overflow-y-auto custom-scrollbar text-xs">
+        <div>
+          <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <i data-lucide="check-square" class="w-3.5 h-3.5 text-sky-400"></i> Inspected Defect Family Rules
+          </span>
+          <ul id="modal-tier-rules" class="mt-2 space-y-1.5 text-slate-300 list-disc list-inside bg-slate-950/70 p-3 rounded-xl border border-slate-800/80">
+          </ul>
+        </div>
+        
+        <div>
+          <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <i data-lucide="info" class="w-3.5 h-3.5 text-indigo-400"></i> Plain English Explanation
+          </span>
+          <div id="modal-tier-explanation" class="mt-2 p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-200 leading-relaxed font-sans">
+          </div>
+        </div>
+        
+        <div>
+          <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-amber-400"></i> Business & Operational Consequence
+          </span>
+          <div id="modal-tier-consequence" class="mt-2 p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-200 leading-relaxed font-sans">
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-400"></i> Tool-Tailored AI Repair Prompt
+            </span>
+            <button onclick="copyTierRepairPrompt()" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[11px] font-semibold flex items-center gap-1 transition shadow-sm">
+              <i data-lucide="copy" class="w-3 h-3"></i> Copy Prompt
+            </button>
+          </div>
+          <pre id="modal-tier-repair" class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-indigo-300 font-mono text-[11px] whitespace-pre-wrap break-all select-all"></pre>
+        </div>
+      </div>
+      
+      <div class="p-4 border-t border-slate-800 bg-slate-950 flex justify-end">
+        <button onclick="closeTierDetailsModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs transition">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== DEAD CODE INSPECTION MODAL ==================== -->
   <div id="dead-code-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-slate-900 border border-slate-800 w-full max-w-3xl rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
@@ -1703,6 +1852,7 @@
       } else if (viewName === 'analytics') {
         loadCodeSmells();
         loadDocCoverageStats();
+        load3TierPreflightStatus();
       } else if (viewName === 'repos') {
         loadRepositoriesHub();
       } else if (viewName === 'chat') {
@@ -2714,6 +2864,7 @@ asyncio.run(run())`;
       if (!document.getElementById('view-analytics').classList.contains('hidden')) {
         loadCodeSmells();
         loadDocCoverageStats();
+        load3TierPreflightStatus();
       }
     }
 
@@ -3466,6 +3617,7 @@ asyncio.run(run())`;
 
         if (window.lucide) window.lucide.createIcons();
         loadDocCoverageStats();
+        load3TierPreflightStatus();
 
       } catch (err) {
         console.warn('Code smells load error:', err);
@@ -4822,11 +4974,167 @@ ${h.code || ''}
       }, 150);
     }
 
+    // --- 3-Tier Preflight Prompts & Defect Families Logic ---
+    let current3TierData = null;
+    let activeModalTier = 'red';
+
+    async function load3TierPreflightStatus() {
+      const rawRepo = document.getElementById('repo-filter-select')?.value || '';
+      const selectedRepo = (rawRepo && rawRepo !== 'All Repositories' && rawRepo !== 'ALL') ? rawRepo : '';
+      let url = `${API_BASE}/api/v1/review/preflight-status`;
+      if (selectedRepo) url += `?repo_name=${encodeURIComponent(selectedRepo)}`;
+
+      try {
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        current3TierData = data;
+        render3TierCards(data);
+      } catch (err) {
+        console.warn('3-tier preflight status load notice:', err);
+      }
+    }
+
+    function render3TierCards(data) {
+      if (!data) return;
+      const red = data.red_defects || {};
+      const orange = data.orange_defects || {};
+      const yellow = data.yellow_defects || {};
+
+      // RED
+      const redBadge = document.getElementById('tier-red-badge');
+      const redInd = document.getElementById('tier-red-indicator');
+      const redTitle = document.getElementById('tier-red-title');
+      const redConf = document.getElementById('tier-red-conf');
+      if (red.is_defect) {
+        if (redBadge) { redBadge.innerText = 'DEFECT DETECTED'; redBadge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-800'; }
+        if (redInd) redInd.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping';
+        if (redTitle) redTitle.innerText = '🔴 Critical Blocker Found!';
+      } else {
+        if (redBadge) { redBadge.innerText = 'PASS'; redBadge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800'; }
+        if (redInd) redInd.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+        if (redTitle) redTitle.innerText = 'Security & Stability: Optimal';
+      }
+      if (redConf) redConf.innerText = `Confidence: ${Math.round((red.confidence || 0.9) * 100)}%`;
+
+      // ORANGE
+      const orangeBadge = document.getElementById('tier-orange-badge');
+      const orangeInd = document.getElementById('tier-orange-indicator');
+      const orangeTitle = document.getElementById('tier-orange-title');
+      const orangeConf = document.getElementById('tier-orange-conf');
+      if (orange.is_defect) {
+        if (orangeBadge) { orangeBadge.innerText = 'HAZARD DETECTED'; orangeBadge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-800'; }
+        if (orangeInd) orangeInd.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping';
+        if (orangeTitle) orangeTitle.innerText = '🟠 Operational Hazard Found!';
+      } else {
+        if (orangeBadge) { orangeBadge.innerText = 'PASS'; orangeBadge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800'; }
+        if (orangeInd) orangeInd.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+        if (orangeTitle) orangeTitle.innerText = 'UX & Reliability: Optimal';
+      }
+      if (orangeConf) orangeConf.innerText = `Confidence: ${Math.round((orange.confidence || 0.88) * 100)}%`;
+
+      // YELLOW
+      const yellowBadge = document.getElementById('tier-yellow-badge');
+      const yellowInd = document.getElementById('tier-yellow-indicator');
+      const yellowTitle = document.getElementById('tier-yellow-title');
+      const yellowConf = document.getElementById('tier-yellow-conf');
+      if (yellow.is_defect) {
+        if (yellowBadge) { yellowBadge.innerText = 'HYGIENE ISSUE'; yellowBadge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-yellow-950 text-yellow-300 border border-yellow-800'; }
+        if (yellowInd) yellowInd.className = 'w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse';
+        if (yellowTitle) yellowTitle.innerText = '🟡 Polish & Hygiene Issue';
+      } else {
+        if (yellowBadge) { yellowBadge.innerText = 'PASS'; yellowBadge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800'; }
+        if (yellowInd) yellowInd.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+        if (yellowTitle) yellowTitle.innerText = 'Code Polish: Clean';
+      }
+      if (yellowConf) yellowConf.innerText = `Confidence: ${Math.round((yellow.confidence || 0.85) * 100)}%`;
+    }
+
+    function openTierDetailsModal(tier) {
+      activeModalTier = tier;
+      const modal = document.getElementById('tier-details-modal');
+      if (!modal) return;
+
+      const data = current3TierData || {};
+      let tierObj = {};
+      let icon = '🔴';
+      let title = 'RED: Critical / Blocker Vulnerabilities';
+      let defaultRules = [
+        'Leaked Keys / Secrets: Hardcoded API keys or credentials in client-side code',
+        'Unprotected Admin Routes: Sensitive routes accessible without server-side auth',
+        'SQL/NoSQL Injection: Raw unescaped query string interpolation',
+        'Fatal Server Crashes: Unhandled route exceptions causing 500 error pages',
+        'Infinite Render Loops: Cyclic state dependencies causing CPU lockups',
+        'Dead Core Buttons: Empty or mock click handlers on checkout/submit actions'
+      ];
+
+      if (tier === 'red') {
+        tierObj = data.red_defects || {};
+        icon = '🔴';
+        title = 'RED: Critical / Blocker Defect Family';
+      } else if (tier === 'orange') {
+        tierObj = data.orange_defects || {};
+        icon = '🟠';
+        title = 'ORANGE: High Risk / Operational Hazards';
+        defaultRules = [
+          'Missing Loading State: Double-click hazards while async requests in-flight',
+          'Unbounded Input Fields: Text inputs/textareas lacking maxLength bounds',
+          'Un-debounced Search: Rapid API requests fired on every single keystroke',
+          'Heavy Unoptimized Images: Large raw assets without lazy-load or compression'
+        ];
+      } else if (tier === 'yellow') {
+        tierObj = data.yellow_defects || {};
+        icon = '🟡';
+        title = 'YELLOW: Code Quality & Hygiene Polish';
+        defaultRules = [
+          'Stray Debug Logs: console.log or debugger statements left in production',
+          'Contrast & Accessibility (A11y): Missing aria labels or low text contrast',
+          'Incomplete Documentation: Missing or generic README and lack of docstrings'
+        ];
+      }
+
+      document.getElementById('modal-tier-icon').innerText = icon;
+      document.getElementById('modal-tier-title').innerText = title;
+      const badge = document.getElementById('modal-tier-badge');
+      if (badge) {
+        if (tierObj.is_defect) {
+          badge.innerText = 'DEFECT DETECTED';
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-800';
+        } else {
+          badge.innerText = 'PASS - CLEAN';
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
+        }
+      }
+
+      const rules = tierObj.rules || defaultRules;
+      document.getElementById('modal-tier-rules').innerHTML = rules.map(r => `<li>${escapeHtml(r)}</li>`).join('');
+
+      document.getElementById('modal-tier-explanation').innerText = tierObj.plain_english_explanation || 'No defects detected for this defect family. Codebase conforms to all inspected rules.';
+      document.getElementById('modal-tier-consequence').innerText = tierObj.business_consequence || 'Ensures high reliability, zero operational downtime, and optimal user trust.';
+      document.getElementById('modal-tier-repair').innerText = tierObj.repair_prompt || 'Continue adhering to standard defensive coding and architectural patterns.';
+
+      modal.classList.remove('hidden');
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function closeTierDetailsModal() {
+      const modal = document.getElementById('tier-details-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function copyTierRepairPrompt() {
+      const promptText = document.getElementById('modal-tier-repair')?.innerText || '';
+      if (promptText) {
+        navigator.clipboard.writeText(promptText);
+        alert('Tool-Tailored AI Repair Prompt copied to clipboard!');
+      }
+    }
+
     async function exportArchitectureReportMarkdown() {
       const btn = document.querySelector('button[onclick="exportArchitectureReportMarkdown()"]');
       const originalText = btn ? btn.innerHTML : '';
       if (btn) {
-        btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Running Preflight Arbiter...';
+        btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generating Report...';
         btn.disabled = true;
         if (window.lucide) window.lucide.createIcons();
       }
@@ -4836,56 +5144,16 @@ ${h.code || ''}
       const displayRepoName = selectedRepo || 'All Repositories';
 
       try {
-        let cycles = (typeof currentCyclesList !== 'undefined' && Array.isArray(currentCyclesList)) ? currentCyclesList : [];
-        let hubs = (typeof currentHubsList !== 'undefined' && Array.isArray(currentHubsList)) ? currentHubsList : [];
-        let dead = (typeof currentDeadCodeList !== 'undefined' && Array.isArray(currentDeadCodeList)) ? currentDeadCodeList : [];
-        let clones = (typeof currentClonesList !== 'undefined' && Array.isArray(currentClonesList)) ? currentClonesList : [];
-        let hotspots = (typeof currentHotspotsList !== 'undefined' && Array.isArray(currentHotspotsList)) ? currentHotspotsList : [];
-
-        // If analytics data is not yet loaded into memory, quickly fetch code-smells from API
-        if (cycles.length === 0 && hubs.length === 0 && dead.length === 0) {
-          try {
-            let smellsUrl = `${API_BASE}/api/v1/analytics/code-smells`;
-            if (selectedRepo) smellsUrl += `?repo_name=${encodeURIComponent(selectedRepo)}`;
-            const smellsRes = await fetch(smellsUrl, { headers: getAuthHeaders() });
-            if (smellsRes.ok) {
-              const smellsData = await smellsRes.json();
-              cycles = smellsData.circular_dependencies || [];
-              hubs = smellsData.high_risk_hubs || [];
-              dead = smellsData.dead_code_candidates || [];
-              currentCyclesList = cycles;
-              currentHubsList = hubs;
-              currentDeadCodeList = dead;
-            }
-          } catch (autoFetchErr) {
-            console.warn('Analytics auto-load notice:', autoFetchErr);
-          }
-        }
-
-        const analyticsPayload = {
-          circular_dependencies: cycles,
-          critical_hubs: hubs,
-          dead_code_candidates: dead,
-          code_clones: clones,
-          git_hotspots: hotspots
-        };
-
         let md = '';
         try {
-          // 25-second abort timeout so user is never stuck if LLM server is busy
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 25000);
+          let url = `${API_BASE}/api/v1/review/preflight-report-download`;
+          if (selectedRepo) url += `?repo_name=${encodeURIComponent(selectedRepo)}`;
 
-          const res = await fetch(`${API_BASE}/api/v1/review/preflight-report`, {
-            method: 'POST',
-            headers: {
-              ...getAuthHeaders(),
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              repo_name: selectedRepo,
-              analytics_data: analyticsPayload
-            }),
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+          const res = await fetch(url, {
+            headers: getAuthHeaders(),
             signal: controller.signal
           });
           clearTimeout(timeoutId);
@@ -4895,7 +5163,7 @@ ${h.code || ''}
             md = data.markdown_report || '';
           }
         } catch (apiErr) {
-          console.warn('Preflight endpoint timed out or failed, using client-side pure English report synthesizer:', apiErr);
+          console.warn('Preflight download endpoint timed out or failed, using client-side report synthesizer:', apiErr);
         }
 
         // If backend output was empty or unreachable, generate pure English structured report

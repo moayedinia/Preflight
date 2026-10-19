@@ -70,7 +70,7 @@ def normalize_llm_base_url(base_url: str) -> str:
         normalized += "/v1"
     return _clean_slashes(normalized)
 
-def call_llm(prompt: str, system_prompt: str = "") -> str:
+def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
     """Calls any OpenAI-compatible endpoint (Ollama, vLLM, LMStudio, LocalAI, OpenAI) with auto-fallbacks."""
     config = get_llm_config()
     headers = {"Content-Type": "application/json"}
@@ -98,7 +98,7 @@ def call_llm(prompt: str, system_prompt: str = "") -> str:
     url = _clean_slashes(f"{norm_base}/chat/completions")
     
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"].strip()

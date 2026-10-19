@@ -157,6 +157,28 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
     return "\n".join(samples)[:max_total_chars]
 
 
+RED_RULES = [
+    "Leaked Keys / Secrets: API keys or credentials hardcoded in codebase",
+    "Unprotected Admin Routes: Sensitive or mutation endpoints lacking server-side auth",
+    "SQL/NoSQL Injection: Raw unescaped query string interpolation",
+    "Fatal Server Crashes: Unhandled route exceptions causing 500 error pages",
+    "Infinite Render Loops: Cyclic state dependencies causing CPU lockups",
+    "Dead Core Buttons: Empty or mock click handlers on critical user actions"
+]
+
+ORANGE_RULES = [
+    "Missing Loading State: Async actions without busy / pending feedback",
+    "Unbounded Input Fields: Text inputs/textareas lacking maxLength bounds",
+    "Un-debounced Search: Rapid API requests fired on every keystroke",
+    "Heavy Unoptimized Images: Large raw assets without lazy-load or compression"
+]
+
+YELLOW_RULES = [
+    "Stray Debug Logs: console.log or debugger statements left in production",
+    "Contrast / A11y: Missing aria labels or insufficient text contrast",
+    "Incomplete Documentation: Missing or generic README and missing docstrings"
+]
+
 def evaluate_red_family(code_context: str) -> Dict[str, Any]:
     """Runs Pass 1: 🔴 RED (Critical / Blocker) vulnerabilities evaluation."""
     fallback = {
@@ -164,7 +186,8 @@ def evaluate_red_family(code_context: str) -> Dict[str, Any]:
         "confidence": 0.90,
         "plain_english_explanation": "No critical vulnerabilities or security blocker defects were identified in inspected routes and state cycles.",
         "business_consequence": "System operation remains safe against credential leaks, SQL injection, and fatal runtime crashes.",
-        "repair_prompt": "Continue enforcing server-side authentication guards, parameterized SQL queries, and robust try/catch exception wrappers on all API routes."
+        "repair_prompt": "Continue enforcing server-side authentication guards, parameterized SQL queries, and robust try/catch exception wrappers on all API routes.",
+        "rules": RED_RULES
     }
 
     # Rule-based detection heuristic for fallback or confirmation
@@ -186,8 +209,10 @@ def evaluate_red_family(code_context: str) -> Dict[str, Any]:
 Analyze thoroughly and respond strictly in valid JSON."""
 
     try:
-        raw_resp = call_llm(user_prompt, RED_SYSTEM_PROMPT)
-        return extract_json_defect(raw_resp, fallback)
+        raw_resp = call_llm(user_prompt, RED_SYSTEM_PROMPT, timeout=5)
+        res = extract_json_defect(raw_resp, fallback)
+        res["rules"] = RED_RULES
+        return res
     except Exception:
         return fallback
 
@@ -199,7 +224,8 @@ def evaluate_orange_family(code_context: str) -> Dict[str, Any]:
         "confidence": 0.88,
         "plain_english_explanation": "No high-risk UX or operational hazards such as unbounded inputs or un-debounced search were detected.",
         "business_consequence": "Protects users from accidental double submissions and preserves API server throughput.",
-        "repair_prompt": "Ensure all async button clicks toggle loading states and inputs declare strict maxLength boundaries."
+        "repair_prompt": "Ensure all async button clicks toggle loading states and inputs declare strict maxLength boundaries.",
+        "rules": ORANGE_RULES
     }
 
     # Rule-based heuristic
@@ -207,8 +233,8 @@ def evaluate_orange_family(code_context: str) -> Dict[str, Any]:
     if unbounded_input:
         fallback["is_defect"] = True
         fallback["confidence"] = 0.80
-        fallback["plain_english_explanation"] = "Text inputs were found without explicit maxLength or bounds validation.",
-        fallback["business_consequence"] = "Risk of buffer inflation, malicious payload pasting, and unexpected layout overflow.",
+        fallback["plain_english_explanation"] = "Text inputs were found without explicit maxLength or bounds validation."
+        fallback["business_consequence"] = "Risk of buffer inflation, malicious payload pasting, and unexpected layout overflow."
         fallback["repair_prompt"] = "Add maxLength attributes and boundary validation to all user text input fields."
 
     user_prompt = f"""Evaluate the following codebase against the 🟠 ORANGE (High Risk / Operational) inspection rules:
@@ -220,8 +246,10 @@ def evaluate_orange_family(code_context: str) -> Dict[str, Any]:
 Analyze thoroughly and respond strictly in valid JSON."""
 
     try:
-        raw_resp = call_llm(user_prompt, ORANGE_SYSTEM_PROMPT)
-        return extract_json_defect(raw_resp, fallback)
+        raw_resp = call_llm(user_prompt, ORANGE_SYSTEM_PROMPT, timeout=5)
+        res = extract_json_defect(raw_resp, fallback)
+        res["rules"] = ORANGE_RULES
+        return res
     except Exception:
         return fallback
 
@@ -233,7 +261,8 @@ def evaluate_yellow_family(code_context: str) -> Dict[str, Any]:
         "confidence": 0.85,
         "plain_english_explanation": "Codebase hygiene is satisfactory with clean production components and adequate documentation.",
         "business_consequence": "Maintains professional code readability and clean runtime console output.",
-        "repair_prompt": "Keep production builds stripped of console.log debug statements and ensure all UI elements include aria labels."
+        "repair_prompt": "Keep production builds stripped of console.log debug statements and ensure all UI elements include aria labels.",
+        "rules": YELLOW_RULES
     }
 
     # Rule-based heuristic
@@ -255,8 +284,10 @@ def evaluate_yellow_family(code_context: str) -> Dict[str, Any]:
 Analyze thoroughly and respond strictly in valid JSON."""
 
     try:
-        raw_resp = call_llm(user_prompt, YELLOW_SYSTEM_PROMPT)
-        return extract_json_defect(raw_resp, fallback)
+        raw_resp = call_llm(user_prompt, YELLOW_SYSTEM_PROMPT, timeout=5)
+        res = extract_json_defect(raw_resp, fallback)
+        res["rules"] = YELLOW_RULES
+        return res
     except Exception:
         return fallback
 

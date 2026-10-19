@@ -611,6 +611,30 @@ def preflight_report_endpoint(payload: PreflightReportRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Preflight evaluation failed: {str(e)}")
 
+@app.get("/api/v1/review/preflight-status", dependencies=[Depends(verify_api_key)])
+def get_preflight_status(repo_name: Optional[str] = None):
+    """Returns 3-Tier Preflight evaluation status (Red, Orange, Yellow) with rules and repair prompts."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    eval_results = run_3tier_preflight_evaluation(repo_name=clean_repo)
+    return eval_results
+
+@app.get("/api/v1/review/preflight-report-download", dependencies=[Depends(verify_api_key)])
+def download_preflight_report(repo_name: Optional[str] = None):
+    """Directly compiles and returns the full Architecture Health and 3-Tier Preflight Markdown report."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    eval_results = run_3tier_preflight_evaluation(repo_name=clean_repo)
+    try:
+        from app.core.analytics import detect_code_smells
+        analytics = detect_code_smells(clean_repo)
+    except Exception:
+        analytics = {}
+    markdown_content = compile_pure_english_markdown_report(eval_results, analytics)
+    return {
+        "status": "success",
+        "repository": clean_repo or "All Repositories",
+        "markdown_report": markdown_content
+    }
+
 
 # 11. GitHub CI/CD Webhook Trigger
 @app.post("/api/v1/webhooks/github")
