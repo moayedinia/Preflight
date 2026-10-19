@@ -784,8 +784,10 @@ def resolve_cross_references(repo_name: str = None):
                 session.run(
                     """
                     UNWIND $rows AS row
-                    MATCH (caller:Function {id: row.caller_id})
-                    MATCH (target:Function {id: row.target_id})
+                    MATCH (caller:Function)
+                    WHERE (caller.id = row.caller_id OR elementId(caller) = row.caller_id)
+                    MATCH (target:Function)
+                    WHERE (target.id = row.target_id OR elementId(target) = row.target_id)
                     WHERE caller <> target
                     MERGE (caller)-[:CALLS]->(target)
                     """,
@@ -1025,9 +1027,9 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
         standalone_query = """
         MATCH (n)
         WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
-          AND (n:Repository OR n:File OR n:Class OR n:Function)
+          AND (n:Repository OR n:File OR n:Class)
         RETURN n, null AS r, null AS m, null AS r_start, null AS r_end
-        LIMIT 400
+        LIMIT 200
         """
         standalone_records = list(session.run(standalone_query, repo_name=repo_name))
         process_records(standalone_records)
