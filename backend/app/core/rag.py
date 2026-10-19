@@ -14,17 +14,17 @@ def classify_query_intent(query: str) -> str:
     q = (query or "").lower()
 
     impl_keywords = [
-        "کد", "چطور نوشته", "پیاده سازی", "پیاده‌سازی", "الگوریتم", "دیباگ", "باگ",
-        "خطا", "سورس", "code", "implementation", "implement", "how it works internally",
-        "debug", "refactor", "source", "syntax", "write"
+        "code", "implementation", "implement", "how it works internally",
+        "debug", "refactor", "source", "syntax", "write", "algorithm",
+        "bug", "error", "trace", "logic"
     ]
     if any(k in q for k in impl_keywords):
         return "IMPLEMENTATION"
 
     impact_keywords = [
-        "اثر", "تغییر", "ریسک", "وابستگی", "کجا فراخوانی", "کی صدا میزنه", "وابسته",
-        "blast radius", "impact", "who calls", "caller", "callee", "dependency", "depend",
-        "شکستن", "شکسته", "downstream", "upstream"
+        "blast radius", "impact", "who calls", "caller", "callee",
+        "dependency", "depend", "change", "risk", "break", "breaking",
+        "downstream", "upstream", "affect", "affected"
     ]
     if any(k in q for k in impact_keywords):
         return "IMPACT"
@@ -79,7 +79,7 @@ def serialize_graph_topology(hits: list[dict], relational_context: list[dict], i
             call_chains.append(f"{fn_name} ➔ {c}")
 
     if call_chains:
-        lines.append("### ۱. زنجیره فراخوانی‌های گراف (Call Graph Paths):")
+        lines.append("### 1. Call Graph Paths:")
         seen = set()
         for chain in call_chains:
             if chain not in seen:
@@ -88,7 +88,7 @@ def serialize_graph_topology(hits: list[dict], relational_context: list[dict], i
         lines.append("")
 
     # 2. Entity Contracts (Signatures & Metadata)
-    lines.append("### ۲. قرارداد نمادها در گراف کد (Code Entity Contracts):")
+    lines.append("### 2. Code Entity Contracts:")
     for i, hit in enumerate(hits[:4]):
         name = hit.get("name")
         file_path = hit.get("file_path", "")
@@ -112,7 +112,7 @@ def serialize_graph_topology(hits: list[dict], relational_context: list[dict], i
 
         # Only inject a small focused implementation slice if the user specifically asked for implementation
         if intent == "IMPLEMENTATION" and i == 0 and raw_code:
-            lines.append("  - Implementation Slice (برش منطق کلیدی):")
+            lines.append("  - Implementation Slice:")
             code_lines = [line for line in raw_code.splitlines()[:15] if line.strip()]
             code_slice = "\n    ".join(code_lines)
             lines.append(f"    ```\n    {code_slice}\n    ```")
@@ -151,15 +151,15 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
         from app.core.llm import call_llm
         system_prompt = (
             "You are CodeGraph Brain AI Assistant, an expert software architect. "
-            "Provide clean, well-structured, and practical answers in Persian."
+            "Provide clean, well-structured, and practical answers in English."
         )
         try:
             direct_answer = call_llm(query, system_prompt)
         except Exception as e:
             direct_answer = (
-                "⚠️ **سیستم هوش مصنوعی CodeGraph Brain:**\n\n"
-                f"گره‌های متناظری در پایگاه دانش گراف یافت نشد و ارتباط با مدل زبانی برقرار نشد: `{e}`\n\n"
-                "💡 **راهنما:** لطفاً بررسی کنید که آیا مخزن ایندکس شده است و تنظیمات LLM معتبر می‌باشد."
+                "⚠️ **CodeGraph Brain AI System:**\n\n"
+                f"No matching nodes found in the knowledge graph, and unable to connect to the language model: `{e}`\n\n"
+                "💡 **Help:** Please verify that the repository has been indexed and LLM configuration is valid."
             )
         return {
             "answer": direct_answer,
@@ -178,18 +178,18 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
     system_prompt = (
         "You are an expert Enterprise Software Architect and Code Reviewer. "
         "Use the provided Knowledge Graph topology (call chains, symbol signatures, and relationships) "
-        "to answer the user's question accurately and concisely in Persian. "
+        "to answer the user's question accurately and concisely in English. "
         "Rely strictly on the verified graph relationships and exact file paths."
     )
 
     user_prompt = f"""
-پرسش کاربر:
+User Question:
 {query}
 
-اطلاعات استخراج‌شده از گراف دانش کد (Code Knowledge Graph Topology):
+Code Knowledge Graph Topology:
 {compact_graph_context}
 
-لطفاً پاسخی دقیق، ساختاریافته و متمرکز بر روابط و معماری ارائه دهید:
+Please provide an accurate, structured response focusing on code relationships and architecture:
 """
 
     from app.core.llm import call_llm
@@ -202,7 +202,7 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
             light_prompt = f"{query}\n\n(Relevant symbols in graph: {fn_names})"
             answer = call_llm(light_prompt, system_prompt)
         except Exception as e2:
-            answer = f"⚠️ خطا در ارتباط با مدل زبانی: {e2}\n\n{compact_graph_context}"
+            answer = f"⚠️ LLM communication error: {e2}\n\n{compact_graph_context}"
 
     return {
         "answer": answer,
@@ -317,7 +317,7 @@ def execute_nl2cypher_query(query: str, repo_name: str = None) -> dict:
             db_results = [dict(r) for r in result]
 
         explain_prompt = (
-            "You are a Senior Software Architect. Explain the result of this graph database query to the user in Persian.\n\n"
+            "You are a Senior Software Architect. Explain the result of this graph database query to the user in English.\n\n"
             f"User Question: {query}\n"
             f"Cypher Query Executed: {cypher_query}\n"
             f"Database Result: {db_results[:15]}\n\n"
@@ -326,7 +326,7 @@ def execute_nl2cypher_query(query: str, repo_name: str = None) -> dict:
         final_answer = call_llm("Explain the results.", explain_prompt)
 
         return {
-            "answer": final_answer + f"\n\n*(کوئری گراف اجرا شده: `{cypher_query}`)*",
+            "answer": final_answer + f"\n\n*(Executed Cypher Query: `{cypher_query}`)*",
             "retrieved_nodes": [],
             "graph_context": db_results[:10]
         }

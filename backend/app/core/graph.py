@@ -549,8 +549,8 @@ def vector_search(query_embedding: list[float] = None, top_k: int = 5, repo_name
         if query_text:
             # Extract identifier-like tokens
             tokens = [w for w in re.findall(r"[A-Za-z0-9_\u0600-\u06FF]{3,}", query_text) if len(w) >= 3]
-            # Ignore general Persian or English chat words
-            stop_words = {"what", "where", "which", "function", "class", "tell", "show", "code", "file", "repo", "چطور", "کجا", "توابع", "کلاس", "کد", "مخزن", "معماری", "توضیح"}
+            # Ignore general English chat words and query keywords
+            stop_words = {"what", "where", "which", "function", "class", "tell", "show", "code", "file", "repo", "how", "architecture", "explain", "find", "get", "list", "describe"}
             meaningful = [t for t in tokens if t.lower() not in stop_words]
             if meaningful:
                 keyword = meaningful[0]

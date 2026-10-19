@@ -15,9 +15,9 @@ with patch.dict(sys.modules, mock_modules):
 
 class GraphRagTests(unittest.TestCase):
     def test_intent_classification(self):
-        self.assertEqual(classify_query_intent("معماری سیستم احراز هویت چطور کار میکنه؟"), "ARCHITECTURE")
-        self.assertEqual(classify_query_intent("اگر این تابع را تغییر بدهم چه بخش‌هایی اثر می‌پذیرند؟"), "IMPACT")
-        self.assertEqual(classify_query_intent("سورس کد پیاده سازی تابع verify_token چیست؟"), "IMPLEMENTATION")
+        self.assertEqual(classify_query_intent("How does the authentication architecture work?"), "ARCHITECTURE")
+        self.assertEqual(classify_query_intent("What is the impact and blast radius if I change this function?"), "IMPACT")
+        self.assertEqual(classify_query_intent("Show me the source code implementation of verify_token"), "IMPLEMENTATION")
 
     def test_signature_extraction(self):
         code = """def create_order(

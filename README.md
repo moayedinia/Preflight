@@ -11,84 +11,84 @@
 [![MCP](https://img.shields.io/badge/MCP-Protocol-8A2BE2?style=for-the-badge&logo=anthropic&logoColor=white)](https://modelcontextprotocol.io/)
 
 <p align="center">
-  <b>تبدیل کدهای سازمانی چندزبانه به گراف دانش، بازیابی هیبریدی برداری (GraphRAG)، کشف کدهای تکراری، تولید مستندات خودکار، بازبینی معماری و اتصال مستقیم به ایجنت‌های هوش مصنوعی (MCP)</b>
+  <b>Transform polyglot enterprise codebases into knowledge graphs, perform hybrid vector & graph retrieval (GraphRAG), detect code clones, generate automated docstrings, audit architecture health, and integrate directly with AI coding agents (MCP).</b>
 </p>
 
-[ویژگی‌ها](#-ویژگی‌های-محصول-کامل) •
-[معماری](#-معماری-سیستم) •
-[راه‌اندازی با داکر](#-راه‌اندازی-سریع-با-docker) •
-[داشبورد سازمانی](#-داشبورد-سازمانی) •
-[ابزارهای MCP](#-ابزارهای-جامع-mcp-برای-ایجنت‌های-ai) •
-[وب‌هوک گیت‌هاب](#-وب‌هوک-خودکار-github-cicd) •
-[امنیت](#-تدابیر-امنیتی-enterprise-security) •
-[راهنمای جامع](#-مستندات-بیشتر)
+[Features](#-key-features) •
+[Architecture](#-system-architecture) •
+[Quick Start](#-quick-start-with-docker) •
+[Enterprise Dashboard](#-enterprise-dashboard) •
+[MCP Tools](#-comprehensive-mcp-tools-for-ai-agents) •
+[GitHub Webhook](#-automated-github-cicd-webhook) •
+[Security](#-enterprise-security) •
+[User Guide](#-documentation)
 
 </div>
 
 ---
 
-## 📖 معرفی محصول
+## 📖 Overview
 
-در سازمان‌ها و شرکت‌های نرم‌افزاری، پروژه‌ها متشکل از میلیون‌ها خط کد در زبان‌های مختلف و روابط بسیار درهم‌تنیده هستند. مدل‌های زبانی متداول (LLMها) به دلیل عدم اشراف بر کل سورس‌کد و کانتکست ساختاری، هنگام ریفکتورینگ و توسعه ویژگی‌ها دچار خطاهای مهلک معماری و رگرسیون می‌شوند.
+Enterprise codebases span millions of lines across diverse programming languages with deeply entangled dependencies. Conventional Large Language Models (LLMs) struggle with architectural reviews and refactoring because they lack full structural awareness and cross-file context, frequently hallucinating or introducing silent regression defects.
 
-**CodeGraph Brain Enterprise** پلتفرمی کامل و همه‌جانبه است که کد سازمان شما را از طریق **درخت نحو انتزاعی (Tree-sitter AST)** به یک **گراف دانش رابطه‌ای و برداری (Neo4j)** تبدیل می‌کند. این پلتفرم کاملاً امن و ایزوله (آفلاین) کار کرده و برای ایندکس و هوش مصنوعی از شبکه‌های متن‌باز لوکال (مانند Hugging Face و Ollama) استفاده می‌کند.
-
----
-
-## 🌟 ویژگی‌های محصول کامل
-
-### ۱. پشتیبانی از تمام زبان‌های برنامه‌نویسی (Universal Polyglot)
-- پارس عمیق ساختاری با Tree-sitter و موتور Universal Fallback برای پشتیبانی از Python, JS/TS, Go, Java, C/C++, C#, Rust, PHP, Ruby, Kotlin و ...
-
-### ۲. هوش سازمانی و آنالیز عمیق (Enterprise Intelligence)
-- 🔍 **تشخیص کدهای تکراری (Code Clones):** کشف خودکار توابعی که منطق کاملا مشابهی (کپی-پیست) در سراسر سیستم دارند با استفاده از Cosine Similarity.
-- 🔥 **تشخیص نقاط داغ گیت (Git Hotspots):** شناسایی فایل‌هایی که دارای بیشترین تغییرات و کامیت (Churn Rate) هستند تا نقاط مستعد باگ پیدا شوند.
-- 🔗 **تست کاوریج (Test Coverage Graph):** متصل کردن فایل‌های تست به منطق اصلی برنامه در دیتابیس گراف.
-- 🌐 **ردیابی ارتباطات میکروسرویس‌ها (Cross-Service Traceability):** استخراج API Routeها (مانند `@app.get` و `router.post`) و اتصال خودکار فرانت‌اند (`fetch` / `axios`) به بک‌اند!
-
-### ۳. دستیار هوشمند و تعاملی (AI Chat & NL2Cypher)
-- 💬 **رابط کاربری Chat RAG:** پرسش و پاسخ تخصصی معماری، استخراج شده مستقیم از گراف وابستگی.
-- 🤖 **ترجمه متن به دیتابیس (Text-to-Cypher RAG):** فقط کافیست بپرسید: `cypher/ کدام توابع احراز هویت دیتابیس را بدون کش فراخوانی می‌کنند؟`، هوش مصنوعی کد اسکریپت دقیق گراف (Cypher) را می‌نویسد و روی دیتابیس Neo4j سازمان اجرا می‌کند!
-
-### ۴. تحلیل سلامت معماری و بوی کد (Code Smells)
-- 🔄 **چرخه‌های صدا زدن دوری (Circular Call Chains):** کشف حلقه‌های `fnA -> fnB -> fnC -> fnA`.
-- ⚡ **توابع پرخطر و گلوگاه‌ها (God Functions):** توابعی با فراخوانی‌های تو در تو بیش از حد.
-- 👻 **کدهای مرده (Dead Code Candidates):** شناسایی توابعی بدون صدا زننده در سیستم.
-
-### ۵. شعاع تخریب، Code Review و تولید داکیومنت
-- ارزیابی خودکار Git Diff در مقایسه با گراف دانش جهت کشف توابعی که از بین خواهند رفت.
-- 📝 **موتور مستندات خودکار (Auto-Doc Engine):** تولید داکیومنت (Docstrings) برای توابع فاقد مستندات در پس‌زمینه با استفاده از LLM.
-
-### ۶. تنظیمات داینامیک LLM (پشتیبانی آفلاین)
-- **بدون قفل‌شدگی روی سرویس‌دهنده خاص:** به راحتی از داشبورد گرافیکی مدل محلی خود (`Ollama`, `vLLM`, `LMStudio`) یا مدل‌های سازمانی را با تنظیم `Base URL`, `Model Name` و `API Key` متصل کنید. (پایگاه داده برداری نیز به صورت کاملا لوکال توسط `sentence-transformers` و مدل‌های Hugging Face اجرا می‌شود).
-
-### ۷. سرور جامع FastMCP
-پشتیبانی از پروتکل Model Context Protocol با درگاه `stdio` برای اتصال هوشمندانه ایجنت‌ها به گراف دانش با ۱۱ ابزار کاربردی (شامل جستجو، تحلیل معماری، تشخیص بو و ...).
+**CodeGraph Brain Enterprise** converts entire enterprise software repositories into a unified **Relational and Vector Knowledge Graph (Neo4j)** using **Abstract Syntax Trees (Tree-sitter AST)** and semantic code embeddings. The platform operates 100% locally and offline in air-gapped environments, leveraging local models (such as Hugging Face and Ollama) for embedding and LLM inference.
 
 ---
 
-## 🏗 معماری سیستم
+## 🌟 Key Features
+
+### 1. Universal Polyglot Support
+- Deep AST parsing with Tree-sitter and a Universal Fallback engine supporting Python, TypeScript/JavaScript, Go, Java, C/C++, C#, Rust, PHP, Ruby, Kotlin, and more.
+
+### 2. Enterprise Intelligence & Deep Code Analytics
+- 🔍 **Code Clone Detection:** Automatically identifies duplicate functions and copy-pasted logic across repositories using cosine similarity vectors.
+- 🔥 **Git Hotspots & Churn Analysis:** Pinpoints files with high commit velocity (churn rate) and correlates them with structural complexity to identify bug-prone modules.
+- 🔗 **Test Coverage Graph:** Automatically maps test files to core implementation functions in the graph database.
+- 🌐 **Cross-Service Traceability:** Discovers backend API endpoints (e.g. `@app.get`, `router.post`) and links frontend HTTP client calls (`fetch`, `axios`) to their exact backend handlers.
+
+### 3. Interactive AI Assistant & NL2Cypher
+- 💬 **GraphRAG Chat:** Architectural queries grounded in call graphs and symbol contracts, preventing hallucinations.
+- 🤖 **Text-to-Cypher (NL2Cypher):** Ask questions like: `/cypher which authentication functions call the database directly without caching?`. The AI writes and runs precise Cypher queries against Neo4j, returning verified database results.
+
+### 4. Architectural Health & Code Smell Diagnostics
+- 🔄 **Circular Dependency Chains:** Detects cyclic dependency loops (e.g. `fnA -> fnB -> fnC -> fnA`).
+- ⚡ **Critical Bottlenecks & God Functions:** Identifies high fan-in/fan-out functions violating the Single Responsibility Principle.
+- 👻 **Dead Code Candidates:** Identifies functions and methods with 0 inbound callers across the repository.
+
+### 5. Blast Radius & Automated Pull Request Reviews
+- Automatically analyzes Git Diffs against the knowledge graph to assess breaking change impact and calculate the blast radius up to 3 hops deep.
+- 📝 **Auto-Doc Engine:** Dispatches background workers to generate standard docstrings for undocumented functions using local LLMs.
+
+### 6. Dynamic LLM Configuration (Air-Gapped / Offline)
+- **Zero Vendor Lock-in:** Easily configure your local AI endpoints (`Ollama`, `vLLM`, `LM Studio`) or enterprise models via the web dashboard with custom `Base URL`, `Model Name`, and `API Key`.
+
+### 7. Full FastMCP Server Integration
+- Built-in Model Context Protocol server over `stdio` enabling AI coding assistants (Cursor, Claude Desktop, Antigravity) to query code graphs using 11 specialized tools.
+
+---
+
+## 🏗 System Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["۱. درگاه‌های ورود و پارس کد"]
-        Repo["پروژه و تاریخچه Git"] --> Scanner["موتور AST و استخراج روابط + Git Authorship"]
-        Scanner --> Embedder["Hugging Face Local Embedder"]
+    subgraph Ingestion ["1. Code Ingestion & Parsing"]
+        Repo["Git Repository & History"] --> Scanner["Tree-sitter AST & Git Authorship Engine"]
+        Scanner --> Embedder["Hugging Face / Ollama Embedder"]
     end
 
-    subgraph Storage ["۲. گراف دانش Neo4j"]
-        Scanner --> Neo4j[("Neo4j Database")]
+    subgraph Storage ["2. Neo4j Knowledge Graph"]
+        Scanner --> Neo4j[("Neo4j Graph Database")]
         Embedder --> VectorIndex[("Vector Index (768-dim)")]
         Neo4j <--> VectorIndex
     end
 
-    subgraph Analytics ["۳. هوشمندی پیشرفته"]
-        Neo4j --> Smells["تشخیص چرخه‌ها و کدهای مرده"]
-        Neo4j --> Clones["سیستم Code Clones"]
-        Neo4j --> CrossService["پیوند API بک‌اند و فرانت‌اند"]
+    subgraph Analytics ["3. Advanced Analytics Engine"]
+        Neo4j --> Smells["Circular Calls & Dead Code Detector"]
+        Neo4j --> Clones["Code Clone Detection"]
+        Neo4j --> CrossService["API Route & Client Linking"]
     end
 
-    subgraph AI ["۴. موتور هوش مصنوعی و LLM"]
+    subgraph AI ["4. AI & Synthesis Engine"]
         VectorIndex --> RAG["GraphRAG (Vector + 2-Hop Cypher)"]
         Neo4j --> NL2Cypher["Text-to-Cypher Engine"]
         Neo4j --> AutoDoc["Auto-Doc Background Worker"]
@@ -97,34 +97,34 @@ flowchart TD
 
 ---
 
-## 🛠 راه‌اندازی سریع با Docker
+## 🛠 Quick Start with Docker
 
-تنظیمات پلتفرم در قالب کانتینرها در `docker-compose.yml` پیکربندی شده است. استخراج وکتورها و تولید Embedding از طریق سرویس Ollama و مدل مخصوص کد `jina-embeddings-v2-code:latest` انجام می‌شود. این مدل بر پایه `jina-embeddings-v2-base-code` بوده و بردارهای 768 بعدی تولید می‌کند.
+The entire platform is containerized using `docker-compose.yml`. Code embedding extraction is powered by Ollama and the code-specialized model `jina-embeddings-v2-code:latest` (based on `jina-embeddings-v2-base-code`, generating 768-dimensional embeddings).
 
 ```bash
-# ۱. کلون پروژه
+# 1. Clone the repository
 git clone https://github.com/mohamadreza1368/code_brian.git
 cd code_brian
 
-# ۲. ایجاد فایل تنظیمات محیطی
+# 2. Configure environment variables
 cp .env.example .env
 
-# ۳. اجرای کامل استک سازمانی
+# 3. Launch the enterprise stack
 docker compose up -d --build
 ```
 
-### وضعیت سرویس‌ها:
-- **داشبورد وب و مدیریت پروژه:** `http://localhost:8001`
-- **مستندات تعاملی API (Swagger):** `http://localhost:8001/docs`
+### Services Status:
+- **Web Dashboard & Graph Explorer:** `http://localhost:8001`
+- **Interactive OpenAPI Documentation (Swagger):** `http://localhost:8001/docs`
 
-> **تنظیمات LLM:** بعد از اجرا، از طریق داشبورد وب (گزینه LLM Settings در بالا سمت راست) می‌توانید اتصال خود را به مدل دلخواه برقرار کنید.
+> **LLM Settings:** After starting, click **"LLM Settings"** in the top-right corner of the web dashboard to configure your model endpoint and provider.
 
 ---
 
-## 📚 مستندات بیشتر
+## 📚 Documentation
 
-برای مطالعه راهنمای جامع گام‌به‌گام کار با سیستم، سناریوهای بازبینی کد و نمونه کوئری‌های Cypher، فایل **[USER_GUIDE.md](USER_GUIDE.md)** را مطالعه کنید.
+For a comprehensive step-by-step user guide, architectural workflows, and sample Cypher queries, refer to **[USER_GUIDE.md](USER_GUIDE.md)**.
 
 <div align="center">
-  <sub>CodeGraph Brain Enterprise © 2026 — طراحی و توسعه یافته برای هوشمندسازی و امنیت معماری نرم‌افزارهای سازمانی</sub>
+  <sub>CodeGraph Brain Enterprise © 2026 — Built for software architects, security leads, and engineering teams.</sub>
 </div>

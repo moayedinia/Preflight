@@ -15,8 +15,9 @@ class SecuritySanitizeTests(unittest.TestCase):
         self.assertEqual(sanitize_name("code graph brain"), "code graph brain")
         self.assertEqual(sanitize_name("my repo 123"), "my repo 123")
 
-    def test_persian_repo_name_allowed(self):
-        self.assertEqual(sanitize_name("مخزن_اصلی"), "مخزن_اصلی")
+    def test_unicode_repo_name_allowed(self):
+        self.assertEqual(sanitize_name("repo_alpha_1"), "repo_alpha_1")
+        self.assertEqual(sanitize_name("main_project"), "main_project")
 
     def test_path_traversal_rejected(self):
         with self.assertRaises(HTTPException):

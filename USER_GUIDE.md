@@ -1,128 +1,136 @@
-# راهنمای جامع کاربری و آموزش سامانه CodeGraph Brain Enterprise
+# Comprehensive User Guide: CodeGraph Brain Enterprise
 ### (Universal Code Knowledge Graph, Polyglot GraphRAG & AI Architectural Review Platform)
 
 ---
 
-## فهرست مطالب
-1. [معرفی سامانه و معماری سازمانی](#1-معرفی-سامانه-و-معماری-سازمانی)
-2. [پیش‌نیازها و راه‌اندازی با Docker Compose](#2-پیش‌نیازها-و-راه‌اندازی-با-docker-compose)
-3. [آموزش بخش‌های داشبورد مدیریتی](#3-آموزش-بخش‌های-داشبورد-مدیریتی)
-4. [تنظیمات هوش مصنوعی و مدل محلی (LLM Settings)](#4-تنظیمات-هوش-مصنوعی-و-مدل-محلی-llm-settings)
-5. [دستیار هوشمند و چت تعاملی معماری (Chat RAG & NL2Cypher)](#5-دستیار-هوشمند-و-چت-تعاملی-معماری-chat-rag--nl2cypher)
-6. [کشف کدهای تکراری و نقاط داغ گیت (Clones & Hotspots)](#6-کشف-کدهای-تکراری-و-نقاط-داغ-گیت-clones--hotspots)
-7. [تولید مستندات خودکار (Auto-Doc)](#7-تولید-مستندات-خودکار-auto-doc)
-8. [بررسی خودکار پول ریکوئست و شعاع تخریب (PR Diff Review)](#8-بررسی-خودکار-پول-ریکوئست-و-شعاع-تخریب-pr-diff-review)
-9. [ردیابی میکروسرویس‌ها و تست‌ها (Cross-Service Traceability)](#9-ردیابی-میکروسرویس‌ها-و-تست‌ها-cross-service-traceability)
-10. [آموزش اتصال ایجنت‌های هوش مصنوعی با پروتکل MCP](#10-آموزش-اتصال-ایجنت‌های-هوش-مصنوعی-با-پروتکل-mcp)
-11. [مستندات REST API و اندپوینت‌های کلیدی](#11-مستندات-rest-api-و-اندپوینت‌های-کلیدی)
+## Table of Contents
+1. [Introduction & Architectural Overview](#1-introduction--architectural-overview)
+2. [Prerequisites & Docker Deployment](#2-prerequisites--docker-deployment)
+3. [Dashboard Walkthrough & Navigation](#3-dashboard-walkthrough--navigation)
+4. [Configuring Local AI / LLM Providers](#4-configuring-local-ai--llm-providers)
+5. [Interactive Architecture Chat (GraphRAG & NL2Cypher)](#5-interactive-architecture-chat-graphrag--nl2cypher)
+6. [Code Clones & Git Hotspots Discovery](#6-code-clones--git-hotspots-discovery)
+7. [Automated Documentation Engine (Auto-Doc)](#7-automated-documentation-engine-auto-doc)
+8. [Pull Request Diff Review & Blast Radius Analysis](#8-pull-request-diff-review--blast-radius-analysis)
+9. [Microservices & Test Traceability](#9-microservices--test-traceability)
+10. [Model Context Protocol (MCP) Integration](#10-model-context-protocol-mcp-integration)
+11. [REST API Documentation & Key Endpoints](#11-rest-api-documentation--key-endpoints)
 
 ---
 
-## ۱. معرفی سامانه و معماری سازمانی
+## 1. Introduction & Architectural Overview
 
-سامانه **CodeGraph Brain Enterprise** یک پلتفرم جامع جهت مهندسی معکوس ساختار کدهای سازمانی و تبدیل آن‌ها به **گراف دانش رابطه‌ای و معنایی** است.
+**CodeGraph Brain Enterprise** is an enterprise-grade platform designed to reverse-engineer software architectures and construct a **hybrid relational and semantic code knowledge graph**.
 
-### قابلیت‌های اصلی سامانه:
-- **موتور چندزبانه:** پارس ساختاری زبان‌های مختلف نظیر Python, JS/TS, Go, Java, C, C++, C#, Rust.
-- **گراف دانش ترکیبی:** ادغام ساختار درختی با بردارهای ۷۶۸ بعدی (تهیه شده توسط Hugging Face) در پایگاه داده Neo4j.
-- **مدیریت داینامیک هوش مصنوعی:** اتصال منعطف به مدل‌های لوکال (نظیر Ollama یا vLLM) از داخل داشبورد بدون نیاز به تغییر کد.
-- **موتور تحلیل سلامت معماری و بوی کد:** کشف چرخه‌های دوری، شناسایی توابع گلوگاه، کدهای مرده، توابع تکراری (Clones) و فایل‌های مستعد باگ (Hotspots).
-- **بازبینی معماری PR:** تولید گزارش ریسک شکست با تلفیق گراف و مدل زبانی.
-- **تولید مستندات خودکار:** ایجاد خودکار داک‌استرینگ (Docstring) برای توابع فاقد مستند.
-- **تبدیل زبان طبیعی به دیتابیس (NL2Cypher):** پرسش به زبان انسان و استخراج دیتای ساختاری گراف.
+### Core Platform Capabilities:
+- **Polyglot AST Engine:** Parses diverse programming languages including Python, JavaScript/TypeScript, Go, Java, C, C++, C#, and Rust using Tree-sitter.
+- **Unified Knowledge Graph:** Integrates structural AST hierarchies with 768-dimensional code embeddings in Neo4j.
+- **Dynamic AI Configuration:** Seamlessly connects to local LLM engines (Ollama, vLLM, LM Studio) or enterprise endpoints directly from the UI without service restarts.
+- **Architecture Health & Code Smell Diagnostics:** Pinpoints circular dependency chains, god functions, bottlenecks, dead code, duplicates (clones), and bug hotspots.
+- **PR Risk & Blast Radius Review:** Evaluates code modifications in pull requests up to 3 hops deep to predict breaking impacts and guide regression testing.
+- **Automated Docstring Generation:** Dispatches asynchronous workers to enrich undocumented functions with standardized docstrings.
+- **Natural Language to Graph Queries (NL2Cypher):** Translates free-form questions into precise Cypher graph queries and executes them safely against Neo4j.
 
 ---
 
-## ۲. پیش‌نیازها و راه‌اندازی با Docker Compose
+## 2. Prerequisites & Docker Deployment
 
-### نیازمندی‌ها:
-- **Docker** و **Docker Compose**
-- حداقل ۴ گیگابایت حافظه رم آزاد
-- نصب و در حال اجرا بودن **Ollama** و مدل embedding مخصوص کد:
+### Requirements:
+- **Docker** and **Docker Compose**
+- Minimum 4 GB of available system memory
+- Local **Ollama** instance running with the code embedding model:
   `jina-embeddings-v2-code:latest`
 
-> این مدل بر پایه `jina-embeddings-v2-base-code` است و بردارهای ۷۶۸ بعدی استاندارد تولید می‌کند.
+> This embedding model generates standardized 768-dimensional vectors tailored for programming source code.
 
-### گام‌های راه‌اندازی:
+### Deployment Commands:
 ```bash
 git clone https://github.com/mohamadreza1368/code_brian.git
 cd code_brian
 cp .env.example .env
 docker compose up -d --build
 ```
-> داشبورد شما روی پورت `8001` بالا می‌آید. `http://localhost:8001`
+> The dashboard will be available at `http://localhost:8001`.
 
 ---
 
-## ۳. آموزش بخش‌های داشبورد مدیریتی
+## 3. Dashboard Walkthrough & Navigation
 
-داشبورد دارای بخش‌های زیر است:
-1. 🌐 **Knowledge Graph:** بوم تعاملی Cytoscape برای مشاهده و فیلتر گراف، و همچنین مشاهده کدهای تکراری و ارتباطات API.
-2. 💬 **AI Chat:** دستیار تعاملی برای پرسش‌های معنایی و تولید کوئری‌های دیتابیس.
-3. 📊 **Architecture Health:** پنل تخصصی شناسایی کدهای تکراری، کدهای مرده، توابع پر ریسک و اجرای Auto-Doc.
-4. 📁 **Repositories Hub:** مدیریت لیست پروژه‌ها و Ingest پروژه‌های جدید.
-5. 🔍 **Diff Impact & PR Review:** کپی/پیست کردن Git Diff و بررسی معماری ریسک‌ها.
-6. 🤖 **MCP Agent Connect:** دریافت تنظیمات برای اتصال ابزارهای هوش مصنوعی مانند Cursor و Claude Desktop.
-
----
-
-## ۴. تنظیمات هوش مصنوعی و مدل محلی (LLM Settings)
-
-این سامانه به گونه‌ای طراحی شده تا **کاملاً آفلاین** کار کند:
-1. در داشبورد وب، از بالای صفحه سمت راست روی دکمه بنفش **"LLM Settings"** کلیک کنید.
-2. آدرس سرور LLM خود را وارد کنید. (مثلاً اگر Ollama نصب دارید: `http://host.docker.internal:11434/v1`)
-3. نام مدل خود را وارد کنید (مثلاً `llama3` یا `qwen2.5:7b`).
-4. فیلد API Key برای مدل‌های لوکال اختیاری است.
-
-*از این پس تمام امکانات Auto-Doc، PR Review و Chat از این مدل لوکال استفاده می‌کنند.*
+The platform features six primary operational views:
+1. 🌐 **Knowledge Graph:** Interactive force-directed canvas (Vis.js / Cytoscape) to inspect symbol relationships, code clones, and API route links.
+2. 💬 **AI Chat:** Interactive architectural assistant supporting GraphRAG retrieval, direct code assistance, and natural language Cypher execution.
+3. 📊 **Architecture Health:** Specialized panel to detect code clones, dead code candidates, high-risk hubs, and trigger background Auto-Doc workers.
+4. 📁 **Repositories Hub:** Manage indexed repositories, clone remote Git URLs, or upload zip archives.
+5. 🔍 **Diff Impact & PR Review:** Paste Git diffs to compute blast radius, identify affected callers, and receive AI-guided risk reports.
+6. 🤖 **MCP Agent Connect:** Copy ready-to-use configuration blocks to connect Cursor, Claude Desktop, or custom AI coding agents.
 
 ---
 
-## ۵. دستیار هوشمند و چت تعاملی معماری (Chat RAG & NL2Cypher)
+## 4. Configuring Local AI / LLM Providers
 
-در تب **AI Chat** دو حالت پرسش و پاسخ وجود دارد:
-- **حالت عادی (Semantic Search):** کافیست بپرسید *"نحوه کار احراز هویت سیستم چگونه است؟"*. سیستم با استفاده از بردارهای محلی، مرتبط‌ترین کدها را پیدا کرده و با LLM جواب می‌دهد.
-- **حالت تحلیل ساختاری (Text-to-Cypher):** کلمه `/cypher` را اول سوال خود بگذارید.
-  مثال: `/cypher find all functions in auth.py that call the database`
-  هوش مصنوعی ساختار پایگاه داده را بررسی کرده، یک کوئری دقیق (Cypher) می‌نویسد، آن را اجرا می‌کند و نتایج قطعی را به شما گزارش می‌دهد.
+CodeGraph Brain Enterprise is engineered to operate **100% offline and air-gapped**:
+1. In the web dashboard, click the purple **"LLM Settings"** button in the top navigation bar.
+2. Enter your LLM provider base URL (e.g. for Ollama on the host machine: `http://host.docker.internal:11434/v1`).
+3. Enter your model name (e.g. `llama3`, `qwen2.5-coder`, or `mistral`).
+4. Enter an API key if using an enterprise or authenticated provider (optional for local Ollama).
+5. Click **"Save Settings"**.
 
----
-
-## ۶. کشف کدهای تکراری و نقاط داغ گیت (Clones & Hotspots)
-
-یکی از ویژگی‌های سطح Enterprise، یافتن کدهای دردسرساز است. در تب **Architecture Health**:
-- **Code Clones (کدهای کپی شده):** روی دکمه *Find Clones* کلیک کنید. سیستم توابعی که بیش از ۹۵٪ از نظر منطقی شبیه هم هستند را پیدا می‌کند.
-- **Git Hotspots (نقاط مستعد باگ):** روی دکمه *Git Hotspots* کلیک کنید. سیستم فایل‌هایی که بیشترین تعداد تغییر و Commit (Churn Rate) را داشته‌اند شناسایی کرده و به عنوان نقاط داغ علامت می‌زند.
+*All subsequent operations—including GraphRAG, PR Reviews, and Auto-Doc—will immediately utilize the configured model.*
 
 ---
 
-## ۷. تولید مستندات خودکار (Auto-Doc)
+## 5. Interactive Architecture Chat (GraphRAG & NL2Cypher)
 
-در تب **Architecture Health** روی دکمه سبز رنگ **"Run Auto-Doc"** کلیک کنید. 
-پلتفرم به صورت خودکار یک ورکر در پس‌زمینه اجرا می‌کند که تمام توابعِ بدون کامنت و Docstring را پیدا کرده و LLM شما را صدا می‌زند تا برای آن‌ها مستندات استاندارد بنویسد و مستقیماً داخل گراف ذخیره کند.
-
----
-
-## ۸. بررسی خودکار پول ریکوئست و شعاع تخریب (PR Diff Review)
-
-1. دیف گیت را با دستور `git diff main...feature` کپی کنید.
-2. متن دیف را در بخش **Diff Impact & PR Review** داشبورد قرار دهید.
-3. سیستم توابع و فایل‌های تحت تاثیر را تا ۳ سطح عمق گرافیک می‌کند و LLM شما گزارش ریسک و نحوه تست رگرسیون را صادر می‌نماید.
+The **AI Chat** interface offers three distinct operational modes:
+- **GraphRAG Mode (Recommended):** Combines vector similarity search with 2-hop relational graph traversal to answer questions with verifiable structural context (e.g., *"How is authentication implemented across services?"*).
+- **Direct Mode:** Direct chat with the LLM for general software engineering queries, code snippet formatting, and algorithmic logic.
+- **Natural Language to Cypher (NL2Cypher):** Prefix your query with `/cypher` to generate and run real-time graph queries.
+  *Example:* `/cypher find all functions in auth.py that call the database`
+  The model inspects schema metadata, synthesizes a read-only Cypher query, executes it against Neo4j, and returns verified facts.
 
 ---
 
-## ۹. ردیابی میکروسرویس‌ها و تست‌ها (Cross-Service Traceability)
+## 6. Code Clones & Git Hotspots Discovery
 
-موتور پارسر این سیستم اکنون از زبان‌های مختلف ردیابی می‌کند:
-- تمام API Routeها (مانند `@app.get` در FastAPI یا `router.post` در Express) استخراج شده و به عنوان گره‌های `ApiRoute` با رابطه `EXPOSES_API` در گراف ذخیره می‌شوند.
-- تمام فراخوانی‌های فرانت‌اند (نظیر `fetch` و `axios`) شناسایی شده و با رابطه `CALLS_API` به گراف اضافه می‌شوند.
-- فایل‌های تست نرم‌افزار به صورت خودکار شناسایی شده و با رابطه `TESTS` به سورس کدهای اصلی متصل می‌گردند.
+### Code Clones (Duplicate Logic)
+Under the **Architecture Health** view, click **"Find Clones"**. The engine computes cosine similarity across all function embedding vectors in the repository and displays pairs with $\ge 95\%$ semantic similarity, allowing you to eliminate redundant implementations.
+
+### Git Hotspots & High Churn
+Click **"Git Hotspots"** to inspect files with high commit frequency (churn rate). Modules that undergo frequent modifications while maintaining high structural fan-in/fan-out are flagged as high-risk hotspots requiring regression test suites.
 
 ---
 
-## ۱۰. آموزش اتصال ایجنت‌های هوش مصنوعی با پروتکل MCP
+## 7. Automated Documentation Engine (Auto-Doc)
 
-سرور اختصاصی MCP روی پورت **8002** قرار دارد. می‌توانید Cursor، Claude Desktop یا Antigravity را با پیکربندی زیر به گراف متصل کنید تا ایجنت‌ها بتوانند کدها را جستجو و تحلیل کنند:
+1. Navigate to **Architecture Health** and click the green **"Run Auto-Doc"** button.
+2. An asynchronous Celery worker scans the codebase for functions lacking docstrings or explanatory comments.
+3. The worker queries your configured LLM to generate descriptive docstrings adhering to standard formatting conventions (e.g., Google or Sphinx style) and writes them back into the graph database.
+
+---
+
+## 8. Pull Request Diff Review & Blast Radius Analysis
+
+1. Generate a Git diff for your proposed changes:
+   ```bash
+   git diff main...feature-branch
+   ```
+2. Paste the diff output into the **Diff Impact & PR Review** view.
+3. The platform parses modified files and functions, traces incoming and outgoing dependency paths up to 3 hops deep, and generates an automated risk assessment with regression testing suggestions.
+
+---
+
+## 9. Microservices & Test Traceability
+
+The ingestion engine establishes architectural links across services:
+- **API Endpoints:** Handlers such as `@app.get` in FastAPI, `router.post` in Express, and route annotations are indexed as `ApiRoute` nodes with `EXPOSES_API` relationships.
+- **Frontend Clients:** HTTP calls (`fetch`, `axios.get`, `axios.post`) are linked to corresponding `ApiRoute` nodes via `CALLS_API`.
+- **Test Coverage:** Automated test files and test suites are mapped to target implementation classes and functions via `TESTS` relationships.
+
+---
+
+## 10. Model Context Protocol (MCP) Integration
+
+The platform includes a dedicated FastMCP server over `stdio`. To connect AI coding assistants such as Cursor or Claude Desktop, insert the following configuration block into your MCP client settings:
 
 ```json
 {
@@ -144,30 +152,39 @@ docker compose up -d --build
 }
 ```
 
+### Available MCP Tools:
+- `search_code`: Perform hybrid vector and symbol search over the codebase.
+- `get_call_hierarchy`: Retrieve callers and callees for any method.
+- `calculate_blast_radius`: Analyze breaking change risks before editing a function.
+- `detect_code_smells`: Audit God functions, circular dependencies, and dead code.
+- `execute_cypher`: Execute verified read-only queries directly against the graph database.
+
 ---
 
-## ۱۱. مستندات REST API و اندپوینت‌های کلیدی
+## 11. REST API Documentation & Key Endpoints
 
-مستندات تعاملی Swagger در آدرس `http://localhost:8001/docs` موجود است. نمونه استفاده از APIهای جدید:
+Interactive Swagger documentation is available at `http://localhost:8001/docs`. Common API operations:
 
 ```bash
-# تنظیم مدل هوش مصنوعی لوکال
+# Update LLM configuration
 curl -X POST "http://localhost:8001/api/v1/config/llm" \
   -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
   -d '{"base_url": "http://host.docker.internal:11434/v1", "model": "llama3", "api_key": ""}'
 
-# دریافت لیست کدهای تکراری (Clones)
+# Retrieve detected code clones
 curl -X GET "http://localhost:8001/api/v1/analytics/clones?repo_name=MyProject" \
   -H "X-API-Key: your-api-key"
 
-# اجرای مستندسازی خودکار در پس‌زمینه
+# Trigger background Auto-Doc task
 curl -X POST "http://localhost:8001/api/v1/tasks/autodoc" \
   -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
   -d '{"repo_name": "MyProject"}'
 ```
 
 ---
 
 <div align="center">
-  <sub>CodeGraph Brain Enterprise — همراه مطمئن معماران نرم‌افزار و مهندسان ارشد</sub>
+  <sub>CodeGraph Brain Enterprise — Built for software architects, security leads, and engineering teams.</sub>
 </div>

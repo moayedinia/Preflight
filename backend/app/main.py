@@ -398,16 +398,16 @@ def chat_rag_endpoint(payload: ChatRequest):
         system_prompt = (
             "You are CodeGraph Brain AI Assistant, an expert software engineer and software architect. "
             "Help the user with programming, system architecture, debugging, dead code analysis, and code reviews. "
-            "Provide clean, well-formatted code snippets and practical explanations in Persian or the user's language."
+            "Provide clean, well-formatted code snippets and practical explanations in English."
         )
         try:
             answer = call_llm(payload.message, system_prompt)
             return {"response": answer, "sources": [], "mode": "direct"}
         except Exception as e:
             fallback_msg = (
-                "⚠️ **سرویس مدل زبانی (LLM) در حال حاضر در دسترس نیست.**\n\n"
-                f"جزئیات ارتباط: `{str(e)}`\n\n"
-                "💡 **راهنما:** لطفاً بررسی کنید که آیا Ollama یا سرور LLM محلی در حال اجراست و در بخش **LLM Config** آدرس و نام مدل به درستی تنظیم شده است."
+                "⚠️ **Language Model (LLM) service is currently unavailable.**\n\n"
+                f"Connection details: `{str(e)}`\n\n"
+                "💡 **Help:** Please verify that Ollama or your local LLM server is running and the host and model name are configured properly in **LLM Config**."
             )
             return {"response": fallback_msg, "sources": [], "mode": "direct", "warning": str(e)}
 
@@ -419,9 +419,9 @@ def chat_rag_endpoint(payload: ChatRequest):
             return {"response": result["answer"], "sources": result.get("retrieved_nodes", []), "mode": "nl2cypher"}
         except Exception as e:
             fallback_msg = (
-                "⚠️ **خطا در تبدیل و اجرای کوئری گراف (NL2Cypher):**\n\n"
-                f"جزئیات: `{str(e)}`\n\n"
-                "💡 لطفاً کوئری خود را مجدداً به صورت شفاف‌تر بنویسید یا وضعیت سرور پایگاه داده Neo4j را بررسی کنید."
+                "⚠️ **Error converting and executing Graph Query (NL2Cypher):**\n\n"
+                f"Details: `{str(e)}`\n\n"
+                "💡 Please rephrase your query clearly or verify the Neo4j database server status."
             )
             return {"response": fallback_msg, "sources": [], "mode": "nl2cypher", "warning": str(e)}
 
@@ -435,9 +435,9 @@ def chat_rag_endpoint(payload: ChatRequest):
             return {"response": result["answer"], "sources": result.get("retrieved_nodes", []), "mode": "graphrag"}
         except Exception as e:
             fallback_msg = (
-                "⚠️ **خطا در اجرای جستجوی ترکیبی GraphRAG:**\n\n"
-                f"جزئیات: `{str(e)}`\n\n"
-                "💡 وضعیت ایندکس شدن مخزن، اتصال Neo4j و سرویس مدل زبانی را بررسی نمایید."
+                "⚠️ **Error executing GraphRAG retrieval:**\n\n"
+                f"Details: `{str(e)}`\n\n"
+                "💡 Please check repository indexing status, Neo4j connectivity, and LLM configuration."
             )
             return {"response": fallback_msg, "sources": [], "mode": "graphrag", "warning": str(e)}
 

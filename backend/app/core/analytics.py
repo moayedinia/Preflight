@@ -76,46 +76,46 @@ def detect_high_risk_hubs(repo_name: Optional[str] = None, limit: int = 15) -> L
             # Categorize into distinct architectural smells
             if (out_deg >= 5 and loc >= 35) or out_deg >= 7:
                 smell_type = "God Function"
-                smell_type_fa = "تابع همه‌کاره (God Function)"
+                smell_type_fa = "God Function"
                 severity = "CRITICAL"
                 badge_color = "rose"
-                desc = f"این تابع با {out_deg} فراخوانی خروجی و {loc} خط کد، اصل تک‌مسئولیتی (SRP) را نقض کرده و وظایف متعددی را در خود جای داده است."
-                rec = "شکستن تابع به متدهای کوچکتر (Extract Method) و تفکیک وظایف با الگوهای طراحی شیءگرا."
+                desc = f"This function has {out_deg} outbound calls and {loc} lines of code, violating the Single Responsibility Principle (SRP) by accumulating too many duties."
+                rec = "Break into smaller helper methods (Extract Method) and separate concerns using object-oriented design patterns."
             elif in_deg >= 4 and out_deg <= 3:
                 smell_type = "Critical Bottleneck Hub"
-                smell_type_fa = "نقطه گلوگاه بحرانی (Bottleneck Hub)"
+                smell_type_fa = "Critical Bottleneck Hub"
                 severity = "CRITICAL" if in_deg >= 6 else "HIGH"
                 badge_color = "amber"
-                desc = f"این تابع توسط {in_deg} تابع مختلف در پروژه فراخوانی می‌شود و به عنوان یک نقطه اتکای مرکزی و پرریسک عمل می‌کند."
-                rec = "ایجاد لایه اینترفیس (Abstraction Layer) یا الگوی Facade جهت کاهش وابستگی مستقیم سایر توابع."
+                desc = f"This function is invoked by {in_deg} different functions across the project, acting as a high-risk central dependency and bottleneck."
+                rec = "Introduce an abstraction interface or apply the Facade pattern to reduce direct coupling."
             elif in_deg >= 3 and out_deg >= 3:
                 smell_type = "Spaghetti Coupling Hub"
-                smell_type_fa = "کوپلینگ اسپاگتی (Spaghetti Coupling)"
+                smell_type_fa = "Spaghetti Coupling Hub"
                 severity = "CRITICAL"
                 badge_color = "purple"
-                desc = f"این تابع دارای {in_deg} فراخواننده و {out_deg} فراخوانی خروجی است و در یک شبکه درهم‌تنیده با کوپلینگ دوطرفه قرار دارد."
-                rec = "جداسازی جریان‌های ورودی و خروجی با الگوی Mediator یا معماری رویدادمحور (Event-Driven)."
+                desc = f"This function has {in_deg} callers and {out_deg} outgoing calls, residing within an entangled network with bidirectional coupling."
+                rec = "Decouple inbound and outbound flows using the Mediator pattern or event-driven architecture."
             elif churn >= 3 and (in_deg + out_deg) >= 3:
                 smell_type = "High-Churn Risky Hub"
-                smell_type_fa = "هاب ناپایدار و پرتغییر (High Churn)"
+                smell_type_fa = "High-Churn Risky Hub"
                 severity = "HIGH"
                 badge_color = "orange"
-                desc = f"فایل این تابع نرخ تغییرات بالایی در گیت دارد (Churn: {churn}) و همزمان دارای اتصالات ساختاری قابل توجه است."
-                rec = "تثبیت امضای متد و پیاده‌سازی تست‌های رگرسیون قبل از اعمال تغییرات جدید."
+                desc = f"This file exhibits high git churn ({churn} commits) while maintaining significant architectural connections."
+                rec = "Stabilize method contracts and implement regression tests before introducing further modifications."
             elif out_deg >= 4:
                 smell_type = "Brain Method / Coordinator"
-                smell_type_fa = "متد هماهنگ‌کننده سنگین (Brain Method)"
+                smell_type_fa = "Brain Method / Coordinator"
                 severity = "HIGH"
                 badge_color = "sky"
-                desc = f"این متد با فراخوانی {out_deg} زیرسیستم، جریان کنترلی پیچیده‌ای را در پروژه مدیریت می‌کند."
-                rec = "استفاده از الگوی Chain of Responsibility یا State جهت تفکیک سناریوهای شرطی."
+                desc = f"This method orchestrates complex control flow by invoking {out_deg} distinct subroutines."
+                rec = "Apply the Chain of Responsibility or State pattern to split conditional logic branches."
             else:
                 smell_type = "High-Fanout Hub"
-                smell_type_fa = "هاب با اتصالات بالا (High Fan-Out)"
+                smell_type_fa = "High-Fanout Hub"
                 severity = "MEDIUM"
                 badge_color = "yellow"
-                desc = f"این تابع دارای اتصالات بالایی در گراف کد است (In: {in_deg}, Out: {out_deg})."
-                rec = "بررسی مجدد مرزهای معماری و کاهش اتصالات غیرضروری."
+                desc = f"This function has high connectivity in the code graph (In: {in_deg}, Out: {out_deg})."
+                rec = "Review architectural boundaries and minimize unnecessary inter-module connections."
 
             item["smell_type"] = smell_type
             item["smell_type_fa"] = smell_type_fa
@@ -151,7 +151,7 @@ def detect_dead_code_candidates(repo_name: Optional[str] = None, limit: int = 30
                fn.code AS code,
                fn.docstring AS docstring,
                callers_count,
-               'این تابع توسط هیچ تابع یا متد دیگری در سراسر مخزن فراخوانی نشده است (تعداد فراخواننده‌ها: ۰).' AS reason
+               'This function is not invoked by any other function or method across the repository (inbound callers: 0).' AS reason
         LIMIT $limit
         """
         records = session.run(query, repo_name=repo_name, limit=limit)
