@@ -2357,8 +2357,10 @@ asyncio.run(run())`;
 
     async function loadGraph() {
       const selectedRepo = document.getElementById('repo-filter-select').value;
-      let url = `${API_BASE}/api/v1/graph/elements?limit=450`;
-      if (selectedRepo) url += `&repo_name=${encodeURIComponent(selectedRepo)}`;
+      let url = `${API_BASE}/api/v1/graph/elements?limit=1000`;
+      if (selectedRepo && selectedRepo !== 'All Repositories' && selectedRepo !== 'ALL') {
+        url += `&repo_name=${encodeURIComponent(selectedRepo)}`;
+      }
 
       try {
         const res = await fetch(url, { headers: getAuthHeaders() });
@@ -2372,80 +2374,108 @@ asyncio.run(run())`;
           visEdges.clear();
 
           if (rawNodes.length > 0) {
-            const formattedNodes = rawNodes.map(n => {
-              const nodeType = n.type || n.group || 'Node';
-              let displayLabel = n.label;
-              if (nodeType === 'Function') {
-                displayLabel = cleanFunctionName(n.label, n.id);
-              } else if (nodeType === 'File') {
-                displayLabel = (n.label || '').split('/').pop().split('\\').pop() || n.label;
-              } else if (nodeType === 'Class') {
-                displayLabel = cleanFunctionName(n.label, n.id);
-              }
-
-              return {
-                id: n.id,
-                label: displayLabel,
-                title: `${nodeType}: ${displayLabel} (${(n.properties && n.properties.file_path) || displayLabel})`,
-                group: nodeType,
-                type: nodeType,
-                properties: n.properties || {}
-              };
-            });
-
-            // Filter edges: Only keep edges where BOTH source and target exist in formattedNodes
-            const nodeIds = new Set(formattedNodes.map(n => n.id));
-            const validEdges = rawEdges
-              .filter(e => {
-                const s = e.from || e.source;
-                const t = e.to || e.target;
-                return s && t && nodeIds.has(s) && nodeIds.has(t);
-              })
-              .map(e => {
-                const edgeType = e.label || e.type || '';
-                let edgeColor = '#64748b';
-                let edgeWidth = 1.6;
-                let dashes = false;
-                let arrowScale = 0.75;
-
-                if (edgeType === 'CALLS') {
-                  edgeColor = '#10b981'; // Bright emerald green for function calls
-                  edgeWidth = 2.4;
-                  arrowScale = 0.9;
-                } else if (edgeType === 'DEPENDS_ON') {
-                  edgeColor = '#818cf8'; // Indigo for file-to-file imports
-                  edgeWidth = 2.0;
-                  dashes = [5, 4];
-                } else if (edgeType === 'HAS_METHOD') {
-                  edgeColor = '#f59e0b'; // Warm amber for class methods
-                  edgeWidth = 1.8;
-                } else if (edgeType === 'INHERITS_FROM') {
-                  edgeColor = '#ec4899'; // Vibrant pink for class inheritance
-                  edgeWidth = 2.2;
-                } else if (edgeType === 'CONTAINS') {
-                  edgeColor = '#38bdf8'; // Sky blue for containment
-                  edgeWidth = 1.4;
-                } else if (edgeType === 'EXPOSES_API' || edgeType === 'CALLS_API') {
-                  edgeColor = '#06b6d4'; // Cyan for API endpoints
-                  edgeWidth = 2.0;
+            // Deduplicate nodes strictly by ID
+            const uniqueNodesMap = new Map();
+            rawNodes.forEach(n => {
+              if (!n || !n.id) return;
+              const nid = String(n.id);
+              if (!uniqueNodesMap.has(nid)) {
+                const nodeType = n.type || n.group || 'Node';
+                let displayLabel = n.label || nid;
+                if (nodeType === 'Function') {
+                  displayLabel = cleanFunctionName(displayLabel, nid);
+                } else if (nodeType === 'File') {
+                  displayLabel = (displayLabel || '').split('/').pop().split('\\').pop() || displayLabel;
+                } else if (nodeType === 'Class') {
+                  displayLabel = cleanFunctionName(displayLabel, nid);
                 }
 
-                return {
-                  id: e.id || `${e.from || e.source}-${e.to || e.target}`,
-                  from: e.from || e.source,
-                  to: e.to || e.target,
-                  label: edgeType,
-                  title: `${edgeType}: ${(e.from || e.source).split(':').pop()} → ${(e.to || e.target).split(':').pop()}`,
-                  color: { color: edgeColor, highlight: '#ffffff', hover: edgeColor },
-                  width: edgeWidth,
-                  dashes: dashes,
-                  arrows: { to: { enabled: true, scaleFactor: arrowScale, type: 'arrow' } },
-                  font: { color: edgeColor, size: 9, align: 'middle', background: '#0b1120', strokeWidth: 0 }
-                };
-              });
+                uniqueNodesMap.set(nid, {
+                  id: nid,
+                  label: displayLabel,
+                  title: `${nodeType}: ${displayLabel} (${(n.properties && (n.properties.file_path || n.properties.path)) || displayLabel})`,
+                  group: nodeType,
+                  type: nodeType,
+                  properties: n.properties || {}
+                });
+              }
+            });
 
-            visNodes.add(formattedNodes);
-            visEdges.add(validEdges);
+            const formattedNodes = Array.from(uniqueNodesMap.values());
+            const nodeIds = new Set(formattedNodes.map(n => n.id));
+
+            // Deduplicate edges and ensure both endpoints exist in node set
+            const uniqueEdgesMap = new Map();
+            rawEdges.forEach(e => {
+              const s = String(e.from || e.source || '');
+              const t = String(e.to || e.target || '');
+              if (s && t && s !== t && nodeIds.has(s) && nodeIds.has(t)) {
+                const edgeType = e.label || e.type || 'CONNECTED_TO';
+                const edgeKey = `${s}->${t}:${edgeType}`;
+                if (!uniqueEdgesMap.has(edgeKey)) {
+                  let edgeColor = '#64748b';
+                  let edgeWidth = 1.6;
+                  let dashes = false;
+                  let arrowScale = 0.8;
+
+                  if (edgeType === 'CALLS') {
+                    edgeColor = '#10b981'; // Emerald green for function calls
+                    edgeWidth = 2.4;
+                    arrowScale = 0.9;
+                  } else if (edgeType === 'DEPENDS_ON') {
+                    edgeColor = '#818cf8'; // Indigo for file-to-file module imports
+                    edgeWidth = 2.0;
+                    dashes = [5, 4];
+                  } else if (edgeType === 'HAS_METHOD') {
+                    edgeColor = '#f59e0b'; // Warm amber for class methods
+                    edgeWidth = 2.0;
+                  } else if (edgeType === 'INHERITS_FROM') {
+                    edgeColor = '#ec4899'; // Vibrant pink for class inheritance
+                    edgeWidth = 2.2;
+                  } else if (edgeType === 'CONTAINS') {
+                    edgeColor = '#38bdf8'; // Sky blue for containment (Repo->File, File->Class/Function)
+                    edgeWidth = 1.5;
+                  } else if (edgeType === 'EXPOSES_API' || edgeType === 'CALLS_API') {
+                    edgeColor = '#06b6d4'; // Cyan for API endpoints
+                    edgeWidth = 2.0;
+                  } else if (edgeType === 'IMPORTS') {
+                    edgeColor = '#a855f7';
+                    edgeWidth = 1.6;
+                    dashes = [4, 4];
+                  }
+
+                  const edgeId = e.id || `edge-${edgeKey}`;
+                  uniqueEdgesMap.set(edgeKey, {
+                    id: edgeId,
+                    from: s,
+                    to: t,
+                    label: edgeType,
+                    title: `${edgeType}: ${s.split(':').pop()} → ${t.split(':').pop()}`,
+                    color: { color: edgeColor, highlight: '#ffffff', hover: edgeColor },
+                    width: edgeWidth,
+                    dashes: dashes,
+                    arrows: { to: { enabled: true, scaleFactor: arrowScale, type: 'arrow' } },
+                    font: { color: edgeColor, size: 9, align: 'middle', background: '#0b1120', strokeWidth: 0 }
+                  });
+                }
+              }
+            });
+
+            const validEdges = Array.from(uniqueEdgesMap.values());
+
+            try {
+              visNodes.add(formattedNodes);
+            } catch (nErr) {
+              console.warn('visNodes bulk add error, recovering item by item:', nErr);
+              formattedNodes.forEach(fn => { try { visNodes.add(fn); } catch (_) {} });
+            }
+
+            try {
+              visEdges.add(validEdges);
+            } catch (eErr) {
+              console.warn('visEdges bulk add error, recovering item by item:', eErr);
+              validEdges.forEach(ve => { try { visEdges.add(ve); } catch (_) {} });
+            }
 
             const countBadge = document.getElementById('node-count-badge');
             if (countBadge) countBadge.innerText = `${formattedNodes.length} nodes / ${validEdges.length} edges`;

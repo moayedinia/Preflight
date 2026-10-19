@@ -450,8 +450,8 @@ def graph_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/graph/elements", dependencies=[Depends(verify_api_key)])
-def graph_elements(repo_name: Optional[str] = None, limit: Optional[int] = 300):
-    clean_limit = min(max(limit or 300, 10), 1000)
+def graph_elements(repo_name: Optional[str] = None, limit: Optional[int] = 1000):
+    clean_limit = min(max(limit or 1000, 10), 2000)
     clean_repo = sanitize_name(repo_name) if repo_name else None
     try:
         return get_graph_elements(repo_name=clean_repo, limit=clean_limit)
