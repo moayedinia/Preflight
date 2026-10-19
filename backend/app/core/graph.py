@@ -788,7 +788,7 @@ def resolve_cross_references(repo_name: str = None):
                     WHERE (caller.id = row.caller_id OR elementId(caller) = row.caller_id)
                     MATCH (target:Function)
                     WHERE (target.id = row.target_id OR elementId(target) = row.target_id)
-                    WHERE caller <> target
+                      AND caller <> target
                     MERGE (caller)-[:CALLS]->(target)
                     """,
                     rows=merge_rows,
