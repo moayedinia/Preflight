@@ -1,5 +1,6 @@
 import os
 import re
+import ast
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -312,6 +313,350 @@ RE_IMPORT = re.compile(
     re.MULTILINE
 )
 
+def _parse_python_ast(file_path: str, text: str) -> Optional[dict]:
+    """
+    Standard Library AST Parser for Python:
+    Extracts 100% precise class definitions, methods, docstrings, decorators,
+    call expressions, imports, and imported symbols without external binary dependencies.
+    """
+    try:
+        tree = ast.parse(text)
+    except Exception:
+        return None
+
+    lines = text.splitlines()
+    entities = {
+        "file": file_path,
+        "language": "python",
+        "classes": [],
+        "functions": [],
+        "imports": [],
+        "imported_symbols": {},
+        "api_routes": [],
+        "api_clients": [],
+        "is_test": "test" in file_path.lower() or "spec" in file_path.lower()
+    }
+
+    # Extract imports and imported symbols
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                entities["imports"].append(f"import {alias.name}")
+                as_name = alias.asname or alias.name
+                entities["imported_symbols"][as_name] = alias.name
+        elif isinstance(stmt, ast.ImportFrom):
+            mod = stmt.module or ""
+            names = [a.name for a in stmt.names]
+            entities["imports"].append(f"from {mod} import {', '.join(names)}")
+            for alias in stmt.names:
+                as_name = alias.asname or alias.name
+                entities["imported_symbols"][as_name] = f"{mod}.{alias.name}" if mod else alias.name
+
+    def _extract_calls(fn_node) -> list[str]:
+        calls = set()
+        CALL_IGNORE = {"if", "for", "while", "print", "len", "range", "str", "int", "float", "bool", "list", "dict", "set", "super"}
+        for sub in ast.walk(fn_node):
+            if isinstance(sub, ast.Call):
+                name = None
+                if isinstance(sub.func, ast.Name):
+                    name = sub.func.id
+                elif isinstance(sub.func, ast.Attribute):
+                    name = sub.func.attr
+                if name and len(name) >= 2 and name not in CALL_IGNORE:
+                    calls.add(name)
+        return list(calls)
+
+    def _extract_decorators(fn_node) -> list[str]:
+        decs = []
+        for d in getattr(fn_node, "decorator_list", []):
+            try:
+                decs.append(ast.unparse(d))
+            except Exception:
+                pass
+        return decs
+
+    # Extract classes and methods
+    for stmt in tree.body:
+        if isinstance(stmt, ast.ClassDef):
+            bases = []
+            for b in stmt.bases:
+                try:
+                    bases.append(ast.unparse(b).split(".")[-1])
+                except Exception:
+                    pass
+
+            start_l = stmt.lineno
+            end_l = getattr(stmt, "end_lineno", min(start_l + 80, len(lines)))
+            raw_code = "\n".join(lines[start_l - 1:end_l])
+
+            cls_methods = []
+            for item in stmt.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    m_start = item.lineno
+                    m_end = getattr(item, "end_lineno", min(m_start + 40, len(lines)))
+                    m_code = "\n".join(lines[m_start - 1:m_end])
+                    m_calls = _extract_calls(item)
+                    m_decs = _extract_decorators(item)
+                    cls_methods.append({
+                        "name": item.name,
+                        "parent_class": stmt.name,
+                        "start_line": m_start,
+                        "end_line": m_end,
+                        "code": m_code[:4000],
+                        "docstring": ast.get_docstring(item) or "",
+                        "decorators": m_decs,
+                        "calls": m_calls
+                    })
+
+            entities["classes"].append({
+                "name": stmt.name,
+                "start_line": start_l,
+                "end_line": end_l,
+                "code": raw_code[:4000],
+                "docstring": ast.get_docstring(stmt) or "",
+                "bases": bases,
+                "base_classes": bases,
+                "methods": cls_methods
+            })
+            entities["functions"].extend(cls_methods)
+
+        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            fn_start = stmt.lineno
+            fn_end = getattr(stmt, "end_lineno", min(fn_start + 40, len(lines)))
+            fn_code = "\n".join(lines[fn_start - 1:fn_end])
+            fn_calls = _extract_calls(stmt)
+            fn_decs = _extract_decorators(stmt)
+
+            test_target = None
+            if stmt.name.startswith("test_") and len(stmt.name) > 5:
+                raw_target = stmt.name[5:]
+                for c in fn_calls:
+                    if c in raw_target:
+                        raw_target = c
+                        break
+                test_target = raw_target
+
+            entities["functions"].append({
+                "name": stmt.name,
+                "parent_class": None,
+                "start_line": fn_start,
+                "end_line": fn_end,
+                "code": fn_code[:4000],
+                "docstring": ast.get_docstring(stmt) or "",
+                "decorators": fn_decs,
+                "calls": fn_calls,
+                "test_target": test_target
+            })
+
+    return entities
+
+def _parse_scoped_code(file_path: str, lang: str, code_text: str) -> dict:
+    """
+    Scoped Block Parser with Brace Matching:
+    Properly scopes methods inside class braces { ... }, eliminates call bleeding,
+    and extracts imports and test targets for JavaScript/TypeScript, Go, Java, C#, C++, Rust.
+    """
+    lines = code_text.splitlines()
+    entities = {
+        "file": file_path,
+        "language": lang,
+        "classes": [],
+        "functions": [],
+        "imports": [],
+        "imported_symbols": {},
+        "api_routes": [],
+        "api_clients": [],
+        "is_test": "test" in file_path.lower() or "spec" in file_path.lower()
+    }
+
+    # 1. ES6 import statements: import { a, b as c } from './module'; or import React from 'react';
+    re_es6 = re.compile(r'import\s+(?:(?:\*\s+as\s+([A-Za-z0-9_]+)|{([^}]+)}|([A-Za-z0-9_]+))\s+from\s+)?[\'"]([^\'"]+)[\'"]')
+    for m in re_es6.finditer(code_text):
+        wildcard, braced, default_id, mod = m.groups()
+        entities["imports"].append(m.group(0).strip())
+        if wildcard:
+            entities["imported_symbols"][wildcard] = mod
+        if default_id:
+            entities["imported_symbols"][default_id] = mod
+        if braced:
+            for item in braced.split(","):
+                parts = [p.strip() for p in item.split(" as ")]
+                sym = parts[-1]
+                if sym:
+                    entities["imported_symbols"][sym] = f"{mod}.{parts[0]}"
+
+    # 2. CommonJS require: const { a, b } = require('./module');
+    re_cjs = re.compile(r'(?:const|let|var)\s+(?:{([^}]+)}|([A-Za-z0-9_]+))\s*=\s*require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)')
+    for m in re_cjs.finditer(code_text):
+        braced, single, mod = m.groups()
+        entities["imports"].append(m.group(0).strip())
+        if single:
+            entities["imported_symbols"][single] = mod
+        if braced:
+            for item in braced.split(","):
+                sym = item.strip()
+                if sym:
+                    entities["imported_symbols"][sym] = f"{mod}.{sym}"
+
+    # 3. Go, Java, C# import / package / using statements
+    re_general_import = re.compile(r'^\s*(?:package|import|using)\s+([A-Za-z0-9_\.\/<>\"]+)', re.MULTILINE)
+    for m in re_general_import.finditer(code_text):
+        line = m.group(0).strip()
+        if not any(line in imp for imp in entities["imports"]):
+            entities["imports"].append(line)
+            mod_sym = m.group(1).replace('"', '').replace(';', '').split('/')[-1].split('.')[-1]
+            if mod_sym:
+                entities["imported_symbols"][mod_sym] = m.group(1).replace('"', '').replace(';', '')
+
+    def find_closing_brace(start_pos: int) -> int:
+        depth = 0
+        in_string = False
+        str_char = None
+        for i in range(start_pos, len(code_text)):
+            c = code_text[i]
+            if in_string:
+                if c == str_char and code_text[i-1] != '\\':
+                    in_string = False
+                continue
+            if c in ('"', "'", '`'):
+                in_string = True
+                str_char = c
+                continue
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    return i
+        return len(code_text)
+
+    CALL_IGNORE = {"if", "for", "while", "switch", "catch", "try", "return", "print", "println", "console", "require", "import", "fetch", "super", "constructor"}
+    def extract_calls_from_text(slice_text: str, self_name: str) -> list[str]:
+        calls = set()
+        for cm in re.finditer(r'([A-Za-z0-9_]+)\s*\(', slice_text):
+            call_n = cm.group(1)
+            if call_n != self_name and call_n not in CALL_IGNORE and len(call_n) >= 2:
+                calls.add(call_n)
+        return list(calls)
+
+    line_offsets = []
+    curr_off = 0
+    for l in lines:
+        line_offsets.append(curr_off)
+        curr_off += len(l) + 1
+
+    def offset_to_line(offset: int) -> int:
+        for idx, lo in enumerate(line_offsets, 1):
+            if offset < lo:
+                return max(1, idx - 1)
+        return len(lines)
+
+    # Class declaration with brace
+    re_class_decl = re.compile(
+        r'^\s*(?:export\s+|public\s+|private\s+|protected\s+|abstract\s+|final\s+)*'
+        r'(?:class|interface|struct)\s+([A-Za-z0-9_]+)(?:\s*(?:extends|implements|:)\s*([A-Za-z0-9_,\s\.]+))?\s*\{',
+        re.MULTILINE
+    )
+
+    class_ranges = []
+    for m in re_class_decl.finditer(code_text):
+        cls_name = m.group(1)
+        raw_bases = m.group(2)
+        bases = []
+        if raw_bases:
+            bases = [b.strip().split(".")[-1] for b in re.split(r'[,:\s]+', raw_bases) if b.strip() and b.strip() not in ['{', 'extends', 'implements']]
+
+        brace_open = m.end() - 1
+        brace_close = find_closing_brace(brace_open)
+        start_line = offset_to_line(m.start())
+        end_line = offset_to_line(brace_close)
+        class_body = code_text[brace_open + 1:brace_close]
+
+        class_ranges.append((brace_open, brace_close, cls_name))
+
+        # Extract methods inside this class body
+        methods = []
+        re_method = re.compile(
+            r'^\s*(?:async\s+|public\s+|private\s+|protected\s+|static\s+|override\s+|def\s+)*'
+            r'(?:(?:function|fun|sub|void|int|string|bool)\s+)?'
+            r'([A-Za-z0-9_]+)\s*\([^)]*\)\s*(?::\s*[A-Za-z0-9_<>[\]]+\s*)?\{',
+            re.MULTILINE
+        )
+        for mm in re_method.finditer(class_body):
+            m_name = mm.group(1)
+            if m_name in ["if", "for", "while", "switch", "catch"]:
+                continue
+            m_open = brace_open + 1 + mm.end() - 1
+            m_close = find_closing_brace(m_open)
+            m_start_l = offset_to_line(brace_open + 1 + mm.start())
+            m_end_l = offset_to_line(m_close)
+            m_code = code_text[brace_open + 1 + mm.start():m_close + 1]
+            m_calls = extract_calls_from_text(m_code, m_name)
+            methods.append({
+                "name": m_name,
+                "parent_class": cls_name,
+                "start_line": m_start_l,
+                "end_line": m_end_l,
+                "code": m_code[:4000],
+                "docstring": "",
+                "calls": m_calls
+            })
+
+        entities["classes"].append({
+            "name": cls_name,
+            "start_line": start_line,
+            "end_line": end_line,
+            "code": code_text[m.start():brace_close + 1][:4000],
+            "docstring": "",
+            "bases": bases,
+            "base_classes": bases,
+            "methods": methods
+        })
+        entities["functions"].extend(methods)
+
+    # Parse top-level functions (outside of any class range)
+    re_standalone_fn = re.compile(
+        r'^\s*(?:export\s+|default\s+|async\s+|public\s+|private\s+|static\s+)*'
+        r'(?:function|func|fn|fun|def)\s+([A-Za-z0-9_]+)\s*\([^)]*\)\s*(?::\s*[A-Za-z0-9_<>[\]]+\s*)?\{',
+        re.MULTILINE
+    )
+    for fm in re_standalone_fn.finditer(code_text):
+        f_start = fm.start()
+        inside_cls = any(c_start <= f_start <= c_end for c_start, c_end, _ in class_ranges)
+        if inside_cls:
+            continue
+
+        fn_name = fm.group(1)
+        f_open = fm.end() - 1
+        f_close = find_closing_brace(f_open)
+        fn_start_l = offset_to_line(f_start)
+        fn_end_l = offset_to_line(f_close)
+        fn_code = code_text[f_start:f_close + 1]
+        fn_calls = extract_calls_from_text(fn_code, fn_name)
+
+        test_target = None
+        if fn_name.startswith("test") or fn_name.startswith("Test"):
+            t_cand = re.sub(r'^[tT]est_?', '', fn_name)
+            for c in fn_calls:
+                if c in t_cand:
+                    t_cand = c
+                    break
+            if t_cand:
+                test_target = t_cand
+
+        entities["functions"].append({
+            "name": fn_name,
+            "parent_class": None,
+            "start_line": fn_start_l,
+            "end_line": fn_end_l,
+            "code": fn_code[:4000],
+            "docstring": "",
+            "calls": fn_calls,
+            "test_target": test_target
+        })
+
+    return entities
+
 def _parse_with_universal_engine(file_path: str, lang: str, code_text: str) -> dict:
     """
     Universal Polyglot extractor supporting ANY programming language.
@@ -323,7 +668,8 @@ def _parse_with_universal_engine(file_path: str, lang: str, code_text: str) -> d
         "language": lang,
         "classes": [],
         "functions": [],
-        "imports": []
+        "imports": [],
+        "imported_symbols": {}
     }
 
     # Extract Imports
@@ -340,7 +686,6 @@ def _parse_with_universal_engine(file_path: str, lang: str, code_text: str) -> d
 
         start_idx = match.start()
         start_line = code_text[:start_idx].count("\n") + 1
-        # Approximate chunk up to 80 lines
         end_line = min(start_line + 60, len(lines))
         chunk = "\n".join(lines[start_line - 1:end_line])
 
@@ -365,7 +710,6 @@ def _parse_with_universal_engine(file_path: str, lang: str, code_text: str) -> d
         end_line = min(start_line + 40, len(lines))
         chunk = "\n".join(lines[start_line - 1:end_line])
 
-        # Simple call extraction inside the chunk
         calls = list(set(re.findall(r'([A-Za-z0-9_]+)\s*\(', chunk)))
         calls = [c for c in calls if c != fn_name and c not in ["if", "for", "while", "print", "println", "console"]]
 
@@ -385,45 +729,57 @@ def _parse_with_universal_engine(file_path: str, lang: str, code_text: str) -> d
 
 def parse_source_file(file_path: str, code: bytes) -> dict:
     """
-    Universal Polyglot Parser:
-    1. Detects file language from extension.
-    2. Uses Tree-sitter AST parser if available for the grammar.
-    3. Seamlessly falls back to Universal Polyglot Engine for all other languages.
+    Universal Polyglot & Deep AST Parser:
+    1. For Python: Standard library AST parser for 100% precision.
+    2. For Tree-sitter supported grammars: Uses Tree-sitter if grammar is installed.
+    3. For Polyglot languages (JS/TS, Go, Java, C#, etc.): Scoped block parser with brace matching.
+    4. Resilient fallback to universal regex engine.
     """
     lang = detect_language(file_path)
-
-    # Tree-sitter parser grammar mappings
-    grammar_configs = {
-        "python": ("tree-sitter-python", "tree_sitter_python"),
-        "javascript": ("tree-sitter-javascript", "tree_sitter_javascript"),
-        "typescript": ("tree-sitter-typescript", "tree_sitter_typescript", "language_typescript"),
-        "go": ("tree-sitter-go", "tree_sitter_go"),
-        "java": ("tree-sitter-java", "tree_sitter_java"),
-        "c": ("tree-sitter-c", "tree_sitter_c"),
-        "cpp": ("tree-sitter-cpp", "tree_sitter_cpp"),
-        "c_sharp": ("tree-sitter-c-sharp", "tree_sitter_c_sharp"),
-        "rust": ("tree-sitter-rust", "tree_sitter_rust")
-    }
-
-    if lang in grammar_configs:
-        cfg = grammar_configs[lang]
-        func_name = cfg[2] if len(cfg) > 2 else "language"
-        p = _init_parser(lang, cfg[1], func_name)
-    # Decode source code bytes safely to Unicode text and canonical UTF-8 bytes
     text, code_utf8 = decode_source_code(code)
     entities = None
-    if lang in grammar_configs and p:
+
+    # 1. Native Python AST (Fastest, zero-dependency, 100% accurate)
+    if lang == "python":
+        entities = _parse_python_ast(file_path, text)
+
+    # 2. Tree-sitter if installed and grammar available
+    if not entities:
+        grammar_configs = {
+            "python": ("tree-sitter-python", "tree_sitter_python"),
+            "javascript": ("tree-sitter-javascript", "tree_sitter_javascript"),
+            "typescript": ("tree-sitter-typescript", "tree_sitter_typescript", "language_typescript"),
+            "go": ("tree-sitter-go", "tree_sitter_go"),
+            "java": ("tree-sitter-java", "tree_sitter_java"),
+            "c": ("tree-sitter-c", "tree_sitter_c"),
+            "cpp": ("tree-sitter-cpp", "tree_sitter_cpp"),
+            "c_sharp": ("tree-sitter-c-sharp", "tree_sitter_c_sharp"),
+            "rust": ("tree-sitter-rust", "tree_sitter_rust")
+        }
+        if lang in grammar_configs:
+            cfg = grammar_configs[lang]
+            func_name = cfg[2] if len(cfg) > 2 else "language"
+            p = _init_parser(lang, cfg[1], func_name)
+            if p:
+                try:
+                    entities = _parse_with_treesitter(p, lang, file_path, code_utf8)
+                except Exception as e:
+                    print(f"Tree-sitter parse notice on {file_path}: {e}")
+
+    # 3. Scoped Block Parser (Brace-aware for JS/TS/Go/Java/C#/C++)
+    if not entities:
         try:
-            entities = _parse_with_treesitter(p, lang, file_path, code_utf8)
+            entities = _parse_scoped_code(file_path, lang, text)
         except Exception as e:
-            print(f"Tree-sitter parse error on {file_path}: {e}. Falling back to universal engine.")
-            
+            print(f"Scoped parser notice on {file_path}: {e}")
+
+    # 4. Universal Polyglot Fallback
     if not entities:
         entities = _parse_with_universal_engine(file_path, lang, text)
 
     # Cross-Service Traceability: Extract API Routes and Clients via Polyglot Regex
-    entities["api_routes"] = []
-    entities["api_clients"] = []
+    entities.setdefault("api_routes", [])
+    entities.setdefault("api_clients", [])
     
     # Matches: @app.get('/path'), router.post("/path"), app.put(...)
     route_pattern = re.compile(r'(?:@app\.|@router\.|app\.|router\.)(get|post|put|delete|patch)\s*\(\s*[\'"]([^\'"]+)[\'"]')

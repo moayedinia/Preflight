@@ -312,6 +312,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     "file_path": file_path, "repo_name": repo_name, "lang": lang,
                     "start_line": method["start_line"], "end_line": method["end_line"],
                     "docstring": method.get("docstring", ""), "code": method.get("code", "")[:4000],
+                    "decorators": method.get("decorators", []),
                     "embedding": m_embedding,
                 })
                 for call_name in method.get("calls", []):
@@ -360,6 +361,7 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     fn.end_line = r.end_line,
                     fn.docstring = r.docstring,
                     fn.code = r.code,
+                    fn.decorators = r.decorators,
                     fn.embedding = r.embedding
                 MERGE (c)-[:HAS_METHOD]->(fn)
                 """,
@@ -388,6 +390,8 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                 "file_path": file_path, "repo_name": repo_name, "lang": lang,
                 "start_line": func["start_line"], "end_line": func["end_line"],
                 "docstring": func.get("docstring", ""), "code": func.get("code", "")[:4000],
+                "decorators": func.get("decorators", []),
+                "test_target": func.get("test_target"),
                 "embedding": func_embedding,
             })
             for call_name in func.get("calls", []):
@@ -407,6 +411,8 @@ def ingest_parsed_data(repo_name: str, parsed_data: dict):
                     fn.end_line = r.end_line,
                     fn.docstring = r.docstring,
                     fn.code = r.code,
+                    fn.decorators = r.decorators,
+                    fn.test_target = r.test_target,
                     fn.embedding = r.embedding
                 MERGE (f)-[:CONTAINS]->(fn)
                 """,
@@ -847,6 +853,21 @@ def resolve_cross_references(repo_name: str = None):
         except Exception as e:
             print(f"[Graph] resolve_cross_references Step 9 notice: {e}", flush=True)
 
+        # Step 10: Resolve Test -> Implementation relationships (TESTS)
+        try:
+            session.run("""
+                MATCH (test_fn:Function)
+                WHERE test_fn.test_target IS NOT NULL
+                  AND ($repo_name IS NULL OR test_fn.repo = $repo_name)
+                MATCH (target:Function)
+                WHERE ($repo_name IS NULL OR target.repo = $repo_name)
+                  AND (target.name = test_fn.test_target OR toLower(target.name) = toLower(test_fn.test_target))
+                  AND test_fn <> target
+                MERGE (test_fn)-[:TESTS]->(target)
+            """, repo_name=repo_name)
+        except Exception as e:
+            print(f"[Graph] resolve_cross_references Step 10 notice: {e}", flush=True)
+
 def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
     """
     Exports nodes and edges formatted for Vis.js Network and Cytoscape.js visual rendering.
@@ -893,16 +914,29 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
         
         node_id = str(node_obj.get("id") or (node_obj.element_id if hasattr(node_obj, "element_id") else node_obj.id))
 
+        level_map = {
+            "Repository": 0,
+            "File": 1,
+            "Class": 2,
+            "Function": 3,
+            "ApiRoute": 4,
+            "Module": 1,
+            "Developer": 0
+        }
+        level = level_map.get(label, 2)
+
         return {
             "id": node_id,
             "label": name,
             "type": label,
             "group": label,
+            "level": level,
             "properties": raw_props,
             "data": {
                 "id": node_id,
                 "label": name,
                 "type": label,
+                "level": level,
                 "properties": raw_props
             }
         }
@@ -974,10 +1008,10 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
         struct_records = list(session.run(struct_query, repo_name=repo_name, limit=effective_limit))
         process_records(struct_records)
 
-        # Step 2: Query semantic code relationships (CALLS, DEPENDS_ON, INHERITS_FROM, EXPOSES_API, CALLS_API)
+        # Step 2: Query semantic code relationships (CALLS, DEPENDS_ON, INHERITS_FROM, EXPOSES_API, CALLS_API, TESTS)
         code_query = """
         MATCH (n)-[r]->(m)
-        WHERE type(r) IN ['CALLS', 'DEPENDS_ON', 'INHERITS_FROM', 'EXPOSES_API', 'CALLS_API']
+        WHERE type(r) IN ['CALLS', 'DEPENDS_ON', 'INHERITS_FROM', 'EXPOSES_API', 'CALLS_API', 'TESTS']
           AND ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
           AND (n:Function OR n:File OR n:Class)
           AND (m:Function OR m:File OR m:Class OR m:ApiRoute)

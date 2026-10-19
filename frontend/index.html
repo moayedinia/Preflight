@@ -217,18 +217,60 @@
         <div id="cy" class="w-full h-full absolute inset-0 hidden"></div>
 
         <!-- Floating Controls (Top Left) -->
-        <div class="absolute top-4 left-4 z-10 flex items-center gap-2">
-          <button onclick="toggleGraphFullscreen()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2.5 rounded-xl border border-slate-800 shadow-2xl transition hover:scale-105" title="Full Screen">
-            <i data-lucide="maximize-2" class="w-4 h-4 text-sky-400"></i>
-          </button>
-          <button onclick="fitGraph()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2.5 rounded-xl border border-slate-800 shadow-2xl transition hover:scale-105" title="Fit to Screen">
-            <i data-lucide="scan" class="w-4 h-4 text-slate-300"></i>
-          </button>
-          <button id="btn-toggle-physics" onclick="togglePhysics()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2.5 rounded-xl border border-slate-800 shadow-2xl transition hover:scale-105" title="Toggle Physics Simulation">
-            <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
-          </button>
-          <button onclick="loadGraph()" class="bg-slate-900/90 backdrop-blur hover:bg-slate-800 text-slate-200 p-2.5 rounded-xl border border-slate-800 shadow-2xl transition hover:scale-105" title="Reload Graph">
-            <i data-lucide="rotate-cw" class="w-4 h-4 text-slate-300"></i>
+        <div class="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2">
+          <!-- Standard View Controls -->
+          <div class="flex items-center gap-1 bg-slate-900/90 backdrop-blur p-1 rounded-xl border border-slate-800 shadow-2xl">
+            <button onclick="toggleGraphFullscreen()" class="hover:bg-slate-800 text-slate-200 p-2 rounded-lg transition" title="Full Screen">
+              <i data-lucide="maximize-2" class="w-4 h-4 text-sky-400"></i>
+            </button>
+            <button onclick="fitGraph()" class="hover:bg-slate-800 text-slate-200 p-2 rounded-lg transition" title="Fit to Screen">
+              <i data-lucide="scan" class="w-4 h-4 text-slate-300"></i>
+            </button>
+            <button onclick="loadGraph()" class="hover:bg-slate-800 text-slate-200 p-2 rounded-lg transition" title="Reload Graph">
+              <i data-lucide="rotate-cw" class="w-4 h-4 text-slate-300"></i>
+            </button>
+            <button id="btn-toggle-physics" onclick="togglePhysics()" class="hover:bg-slate-800 text-slate-200 p-2 rounded-lg transition" title="Toggle Physics Simulation">
+              <i data-lucide="zap-off" class="w-4 h-4 text-slate-400"></i>
+            </button>
+          </div>
+
+          <!-- Layout Switcher Toolbar -->
+          <div class="flex items-center gap-1 bg-slate-900/90 backdrop-blur p-1 rounded-xl border border-slate-800 shadow-2xl text-xs">
+            <button id="layout-btn-hierarchy" onclick="switchGraphLayout('hierarchy')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-sky-600 text-white shadow transition flex items-center gap-1.5" title="Architectural Hierarchy (Dagre/Tiers)">
+              <i data-lucide="git-merge" class="w-3.5 h-3.5"></i>
+              <span>Hierarchy</span>
+            </button>
+            <button id="layout-btn-neighborhood" onclick="switchGraphLayout('neighborhood')" class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition flex items-center gap-1.5" title="Sourcetrail Neighborhood Focus">
+              <i data-lucide="crosshair" class="w-3.5 h-3.5"></i>
+              <span>Focus</span>
+            </button>
+            <button id="layout-btn-cluster" onclick="switchGraphLayout('cluster')" class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition flex items-center gap-1.5" title="Cluster Force Map">
+              <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+              <span>Cluster</span>
+            </button>
+          </div>
+
+          <!-- Hierarchy Direction Controls (Top-Down vs Left-Right) -->
+          <div id="hierarchy-direction-controls" class="flex items-center gap-1 bg-slate-900/90 backdrop-blur p-1 rounded-xl border border-slate-800 shadow-2xl text-xs">
+            <button id="btn-dir-ud" onclick="setHierarchyDirection('UD')" class="px-2 py-1 rounded-lg text-xs font-semibold bg-sky-600 text-white shadow transition flex items-center gap-1" title="Top-Down Hierarchy">
+              <i data-lucide="arrow-down" class="w-3 h-3"></i> Top-Down
+            </button>
+            <button id="btn-dir-lr" onclick="setHierarchyDirection('LR')" class="px-2 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition flex items-center gap-1" title="Left-to-Right Hierarchy">
+              <i data-lucide="arrow-right" class="w-3 h-3"></i> Left-Right
+            </button>
+          </div>
+        </div>
+
+        <!-- Floating Neighborhood Focus Mode Banner -->
+        <div id="neighborhood-focus-banner" class="hidden absolute top-16 left-1/2 -translate-x-1/2 z-10 bg-slate-900/95 backdrop-blur border border-sky-500/50 shadow-2xl rounded-2xl px-4 py-2 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="text-xs text-slate-300">Neighborhood:</span>
+            <span id="focus-banner-node-name" class="text-xs font-bold font-mono text-sky-400">FunctionName</span>
+            <span id="focus-banner-counts" class="text-[11px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800">0 callers &middot; 0 callees</span>
+          </div>
+          <button onclick="exitNeighborhoodFocus(true)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1 border border-slate-700 transition" title="Exit Focus Mode">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i> Exit Focus
           </button>
         </div>
 
@@ -283,6 +325,7 @@
             <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-pink-500"></span> <strong>EXTENDS</strong> (Inheritance)</div>
             <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-sky-400"></span> <strong>CONTAINS</strong> (Hierarchy)</div>
             <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-cyan-400"></span> <strong>API</strong> (Routes)</div>
+            <div class="flex items-center gap-1.5"><span class="w-3.5 h-1 rounded bg-green-500"></span> <strong>TESTS</strong> (Coverage)</div>
           </div>
         </div>
       </div>
@@ -385,7 +428,10 @@
               <pre class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 overflow-x-auto text-[11px] text-emerald-400 max-h-52 custom-scrollbar"><code id="insp-code"></code></pre>
             </div>
 
-            <div class="pt-2">
+            <div class="pt-2 flex flex-col gap-2">
+              <button id="insp-focus-btn" onclick="focusSelectedNodeNeighborhood()" class="w-full py-2 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition">
+                <i data-lucide="crosshair" class="w-3.5 h-3.5 text-emerald-400"></i> Focus Neighborhood
+              </button>
               <button id="insp-blast-btn" onclick="analyzeSelectedNodeBlast()" class="w-full py-2 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition">
                 <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-indigo-400"></i> Calculate Blast Radius
               </button>
@@ -1107,9 +1153,14 @@
 
       <!-- Modal Footer -->
       <div class="px-6 py-3 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between">
-        <button onclick="calculateModalNodeBlastRadius()" class="px-3.5 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
-          <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-indigo-400"></i> Calculate Blast Radius
-        </button>
+        <div class="flex items-center gap-2">
+          <button onclick="focusCurrentModalNodeNeighborhood()" class="px-3.5 py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition" title="Inspect callers and dependencies in 3-column focus mode">
+            <i data-lucide="crosshair" class="w-3.5 h-3.5 text-emerald-400"></i> Focus Neighborhood
+          </button>
+          <button onclick="calculateModalNodeBlastRadius()" class="px-3.5 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-indigo-400"></i> Calculate Blast Radius
+          </button>
+        </div>
         <button onclick="closeNodeModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition">
           Close
         </button>
@@ -1538,8 +1589,13 @@
     let currentModalNodeData = null;
     let currentVectorRaw = [];
     let isSidebarOpen = false;
-    let physicsEnabled = true;
+    let physicsEnabled = false;
     let currentTypeFilter = 'ALL';
+    let currentGraphLayout = 'hierarchy'; // 'hierarchy' | 'neighborhood' | 'cluster'
+    let currentHierarchyDirection = 'UD'; // 'UD' | 'LR'
+    let focusedNodeId = null;
+    let allLoadedNodes = [];
+    let allLoadedEdges = [];
 
     // --- Authentication & Headers ---
     function getApiKey() {
@@ -1934,8 +1990,21 @@ asyncio.run(run())`;
             roundness: 0.4
           }
         },
+        layout: {
+          hierarchical: {
+            enabled: true,
+            direction: 'UD',
+            sortMethod: 'directed',
+            levelSeparation: 140,
+            nodeSpacing: 160,
+            treeSpacing: 220,
+            blockShifting: true,
+            edgeMinimization: true,
+            parentCentralization: true
+          }
+        },
         physics: {
-          enabled: true,
+          enabled: false,
           solver: 'forceAtlas2Based',
           forceAtlas2Based: {
             gravitationalConstant: -50,
@@ -1986,13 +2055,16 @@ asyncio.run(run())`;
           }
         });
 
-        // Node Click Handler -> Update sidebar inspector and highlight connected edges
+        // Node Click Handler -> Update sidebar inspector and handle neighborhood focus
         network.on('click', function(params) {
           if (params.nodes && params.nodes.length > 0) {
             const nodeId = params.nodes[0];
-            const nodeData = visNodes.get(nodeId);
+            const nodeData = (allLoadedNodes && allLoadedNodes.find(n => n.id === nodeId)) || (visNodes && visNodes.get(nodeId));
             if (nodeData) {
               inspectNode(nodeData);
+            }
+            if (currentGraphLayout === 'neighborhood' && nodeId !== focusedNodeId) {
+              enterNeighborhoodFocus(nodeId);
             }
           }
         });
@@ -2008,6 +2080,246 @@ asyncio.run(run())`;
       } catch (err) {
         console.error('Vis.js Network initialization failed, falling back to Cytoscape:', err);
         initCytoscape();
+      }
+    }
+
+    // --- Graph Layout Switcher & Sourcetrail Focus Engine ---
+    function getHierarchicalOptions(direction = currentHierarchyDirection) {
+      return {
+        layout: {
+          hierarchical: {
+            enabled: true,
+            direction: direction,
+            sortMethod: 'directed',
+            levelSeparation: direction === 'UD' ? 140 : 220,
+            nodeSpacing: direction === 'UD' ? 160 : 100,
+            treeSpacing: 220,
+            blockShifting: true,
+            edgeMinimization: true,
+            parentCentralization: true
+          }
+        },
+        physics: {
+          enabled: false
+        }
+      };
+    }
+
+    function getClusterOptions() {
+      return {
+        layout: {
+          hierarchical: {
+            enabled: false
+          }
+        },
+        physics: {
+          enabled: true,
+          solver: 'forceAtlas2Based',
+          forceAtlas2Based: {
+            gravitationalConstant: -50,
+            centralGravity: 0.01,
+            springLength: 85,
+            springConstant: 0.06,
+            damping: 0.5,
+            avoidOverlap: 0.8
+          },
+          stabilization: {
+            enabled: true,
+            iterations: 200,
+            fit: true
+          }
+        }
+      };
+    }
+
+    function switchGraphLayout(layoutMode) {
+      if (!network) return;
+      currentGraphLayout = layoutMode;
+
+      ['hierarchy', 'neighborhood', 'cluster'].forEach(mode => {
+        const btn = document.getElementById(`layout-btn-${mode}`);
+        if (btn) {
+          if (mode === layoutMode) {
+            btn.className = 'px-2.5 py-1 rounded-lg text-xs font-semibold bg-sky-600 text-white shadow transition flex items-center gap-1.5';
+          } else {
+            btn.className = 'px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition flex items-center gap-1.5';
+          }
+        }
+      });
+
+      const dirControls = document.getElementById('hierarchy-direction-controls');
+      if (dirControls) {
+        dirControls.style.display = layoutMode === 'hierarchy' ? 'flex' : 'none';
+      }
+
+      if (layoutMode === 'hierarchy') {
+        exitNeighborhoodFocus(false);
+        network.setOptions(getHierarchicalOptions(currentHierarchyDirection));
+        network.redraw();
+        setTimeout(() => network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } }), 100);
+      } else if (layoutMode === 'cluster') {
+        exitNeighborhoodFocus(false);
+        network.setOptions(getClusterOptions());
+        network.redraw();
+        setTimeout(() => network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } }), 100);
+      } else if (layoutMode === 'neighborhood') {
+        let targetId = focusedNodeId || (currentSelectedNode && currentSelectedNode.id) || currentModalNodeId;
+        if (!targetId && allLoadedNodes.length > 0) {
+          const fnNode = allLoadedNodes.find(n => n.type === 'Function' || n.group === 'Function');
+          targetId = fnNode ? fnNode.id : allLoadedNodes[0].id;
+        }
+        if (targetId) {
+          enterNeighborhoodFocus(targetId);
+        } else {
+          alert('No entities available to focus. Please load a repository first.');
+        }
+      }
+    }
+
+    function setHierarchyDirection(direction) {
+      currentHierarchyDirection = direction;
+      const btnUd = document.getElementById('btn-dir-ud');
+      const btnLr = document.getElementById('btn-dir-lr');
+      if (btnUd && btnLr) {
+        if (direction === 'UD') {
+          btnUd.className = 'px-2 py-1 rounded-lg text-xs font-semibold bg-sky-600 text-white shadow transition flex items-center gap-1';
+          btnLr.className = 'px-2 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition flex items-center gap-1';
+        } else {
+          btnLr.className = 'px-2 py-1 rounded-lg text-xs font-semibold bg-sky-600 text-white shadow transition flex items-center gap-1';
+          btnUd.className = 'px-2 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition flex items-center gap-1';
+        }
+      }
+      if (currentGraphLayout === 'hierarchy' && network) {
+        network.setOptions(getHierarchicalOptions(direction));
+        network.redraw();
+        setTimeout(() => network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } }), 100);
+      }
+    }
+
+    function enterNeighborhoodFocus(centerNodeId) {
+      if (!allLoadedNodes || allLoadedNodes.length === 0) return;
+      const targetNode = allLoadedNodes.find(n => n.id === centerNodeId);
+      if (!targetNode) return;
+
+      focusedNodeId = centerNodeId;
+      currentGraphLayout = 'neighborhood';
+
+      ['hierarchy', 'neighborhood', 'cluster'].forEach(mode => {
+        const btn = document.getElementById(`layout-btn-${mode}`);
+        if (btn) {
+          if (mode === 'neighborhood') {
+            btn.className = 'px-2.5 py-1 rounded-lg text-xs font-semibold bg-sky-600 text-white shadow transition flex items-center gap-1.5';
+          } else {
+            btn.className = 'px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition flex items-center gap-1.5';
+          }
+        }
+      });
+      const dirControls = document.getElementById('hierarchy-direction-controls');
+      if (dirControls) dirControls.style.display = 'none';
+
+      const inboundEdges = allLoadedEdges.filter(e => e.to === centerNodeId);
+      const outboundEdges = allLoadedEdges.filter(e => e.from === centerNodeId);
+
+      const inboundNodeIds = new Set(inboundEdges.map(e => e.from));
+      const outboundNodeIds = new Set(outboundEdges.map(e => e.to));
+      const neighborhoodNodeIds = new Set([centerNodeId, ...inboundNodeIds, ...outboundNodeIds]);
+
+      const focusNodes = [];
+      allLoadedNodes.forEach(n => {
+        if (neighborhoodNodeIds.has(n.id)) {
+          let lvl = 1;
+          let borderWidth = 2;
+          let size = n.size || 18;
+
+          if (n.id === centerNodeId) {
+            lvl = 1;
+            borderWidth = 4;
+            size = (n.size || 18) * 1.35;
+          } else if (inboundNodeIds.has(n.id)) {
+            lvl = 0;
+          } else if (outboundNodeIds.has(n.id)) {
+            lvl = 2;
+          }
+
+          focusNodes.push({
+            ...n,
+            level: lvl,
+            borderWidth: borderWidth,
+            size: size,
+            shadow: n.id === centerNodeId ? { enabled: true, color: '#38bdf8', size: 16, x: 0, y: 0 } : n.shadow
+          });
+        }
+      });
+
+      const focusEdges = allLoadedEdges.filter(e => neighborhoodNodeIds.has(e.from) && neighborhoodNodeIds.has(e.to));
+
+      visNodes.clear();
+      visEdges.clear();
+      visNodes.add(focusNodes);
+      visEdges.add(focusEdges);
+
+      network.setOptions({
+        layout: {
+          hierarchical: {
+            enabled: true,
+            direction: 'LR',
+            sortMethod: 'directed',
+            levelSeparation: 260,
+            nodeSpacing: 80,
+            treeSpacing: 120,
+            blockShifting: true,
+            edgeMinimization: true,
+            parentCentralization: true
+          }
+        },
+        physics: {
+          enabled: false
+        }
+      });
+
+      const banner = document.getElementById('neighborhood-focus-banner');
+      const nameEl = document.getElementById('focus-banner-node-name');
+      const countsEl = document.getElementById('focus-banner-counts');
+      if (banner && nameEl && countsEl) {
+        nameEl.innerText = targetNode.label || targetNode.id;
+        countsEl.innerText = `${inboundNodeIds.size} callers · ${outboundNodeIds.size} dependencies`;
+        banner.classList.remove('hidden');
+      }
+
+      network.redraw();
+      setTimeout(() => {
+        network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+      }, 100);
+
+      inspectNode(targetNode);
+    }
+
+    function exitNeighborhoodFocus(restoreHierarchy = true) {
+      const banner = document.getElementById('neighborhood-focus-banner');
+      if (banner) banner.classList.add('hidden');
+      focusedNodeId = null;
+
+      if (!restoreHierarchy) return;
+
+      if (allLoadedNodes.length > 0) {
+        visNodes.clear();
+        visEdges.clear();
+        visNodes.add(allLoadedNodes);
+        visEdges.add(allLoadedEdges);
+        switchGraphLayout('hierarchy');
+      }
+    }
+
+    function focusSelectedNodeNeighborhood() {
+      if (currentSelectedNode && currentSelectedNode.id) {
+        enterNeighborhoodFocus(currentSelectedNode.id);
+      }
+    }
+
+    function focusCurrentModalNodeNeighborhood() {
+      if (currentModalNodeId) {
+        closeNodeModal();
+        enterNeighborhoodFocus(currentModalNodeId);
       }
     }
 
@@ -2390,12 +2702,14 @@ asyncio.run(run())`;
                   displayLabel = cleanFunctionName(displayLabel, nid);
                 }
 
+                const nodeLevel = typeof n.level === 'number' ? n.level : (n.data && typeof n.data.level === 'number' ? n.data.level : 2);
                 uniqueNodesMap.set(nid, {
                   id: nid,
                   label: displayLabel,
                   title: `${nodeType}: ${displayLabel} (${(n.properties && (n.properties.file_path || n.properties.path)) || displayLabel})`,
                   group: nodeType,
                   type: nodeType,
+                  level: nodeLevel,
                   properties: n.properties || {}
                 });
               }
@@ -2442,6 +2756,10 @@ asyncio.run(run())`;
                     edgeColor = '#a855f7';
                     edgeWidth = 1.6;
                     dashes = [4, 4];
+                  } else if (edgeType === 'TESTS') {
+                    edgeColor = '#22c55e'; // Green for unit/integration tests coverage
+                    edgeWidth = 2.2;
+                    dashes = [6, 4];
                   }
 
                   const edgeId = e.id || `edge-${edgeKey}`;
@@ -2477,19 +2795,34 @@ asyncio.run(run())`;
               validEdges.forEach(ve => { try { visEdges.add(ve); } catch (_) {} });
             }
 
+            allLoadedNodes = formattedNodes;
+            allLoadedEdges = validEdges;
+
             const countBadge = document.getElementById('node-count-badge');
             if (countBadge) countBadge.innerText = `${formattedNodes.length} nodes / ${validEdges.length} edges`;
             
             if (network) {
               network.setSize('100%', '100%');
-              network.redraw();
-              network.setOptions({ physics: { enabled: true } });
-              network.stabilize(80);
-              setTimeout(() => {
-                network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
-              }, 150);
+              if (currentGraphLayout === 'neighborhood' && focusedNodeId) {
+                enterNeighborhoodFocus(focusedNodeId);
+              } else if (currentGraphLayout === 'cluster') {
+                network.setOptions(getClusterOptions());
+                network.redraw();
+                setTimeout(() => {
+                  network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+                }, 150);
+              } else {
+                // Hierarchy (Dagre/Tiers) - Default layout without physics jitter
+                network.setOptions(getHierarchicalOptions(currentHierarchyDirection));
+                network.redraw();
+                setTimeout(() => {
+                  network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+                }, 150);
+              }
             }
           } else {
+            allLoadedNodes = [];
+            allLoadedEdges = [];
             const countBadge = document.getElementById('node-count-badge');
             if (countBadge) countBadge.innerText = '0 nodes';
           }
@@ -2639,7 +2972,11 @@ asyncio.run(run())`;
 
     function jumpToConnectedNode(nodeId) {
       closeNodeModal();
-      locateEntityInGraph(nodeId);
+      if (currentGraphLayout === 'neighborhood') {
+        enterNeighborhoodFocus(nodeId);
+      } else {
+        locateEntityInGraph(nodeId);
+      }
     }
 
     function copyModalSourceCode() {
@@ -2663,6 +3000,10 @@ asyncio.run(run())`;
 
     function locateEntityInGraph(nodeId) {
       switchMainView('graph');
+      if (currentGraphLayout === 'neighborhood') {
+        enterNeighborhoodFocus(nodeId);
+        return;
+      }
       if (!network || !visNodes) return;
       
       const item = visNodes.get(nodeId) || visNodes.get({
