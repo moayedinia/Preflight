@@ -8,7 +8,7 @@ from pathlib import Path
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 from app.core.llm import call_llm
 
-RED_SYSTEM_PROMPT = """You are the Preflight Autonomous Security & Blocker Arbiter for web applications.
+RED_SYSTEM_PROMPT = """You are the Preflight Autonomous Security & Crash Arbiter for web applications.
 Your job is to evaluate suspected 🔴 RED (Critical / Blocker) vulnerabilities.
 Inspection Rules for Red Defect Family:
 1. Leaked Keys / Secrets: Are API keys (OpenAI, AWS, Stripe) hardcoded or accessible in client-side code?
@@ -316,10 +316,9 @@ def get_candidate_directories(repo_name: Optional[str] = None) -> List[Path]:
 
 def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, Any]:
     """
-    Scans the repository codebase files on disk and executes a targeted, deep inspection
-    for the selected tier (RED, ORANGE, or YELLOW).
-    Returns exact file paths, line numbers, code snippets, rule violations,
-    plain English explanation, business consequence, and AI repair prompt.
+    Exclusively and independently audits the specified tier (RED, ORANGE, or YELLOW).
+    Executes AST and regex code inspection across project files for that tier's exact defect rules,
+    and then invokes the LLM Arbiter using the user's exact tier system prompt.
     """
     tier_lower = (tier or "red").strip().lower()
     directories = get_candidate_directories(repo_name)
@@ -406,7 +405,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                     if not line_str or line_str.startswith("//") or line_str.startswith("#"):
                         continue
 
-                    # 1. 🔴 RED INSPECTIONS
+                    # 1. 🔴 RED INSPECTIONS ONLY
                     if tier_lower == "red":
                         if not is_test_file and re_secret.search(line_str):
                             all_defects.append({
@@ -446,7 +445,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                                     "detail": "API route handler does not enclose execution in a try/except error boundary."
                                 })
 
-                    # 2. 🟠 ORANGE INSPECTIONS
+                    # 2. 🟠 ORANGE INSPECTIONS ONLY
                     elif tier_lower == "orange":
                         if re_unbounded_input.search(line_str):
                             all_defects.append({
@@ -475,7 +474,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                                 "detail": "Search input fires queries directly without debounce throttling."
                             })
 
-                    # 3. 🟡 YELLOW INSPECTIONS
+                    # 3. 🟡 YELLOW INSPECTIONS ONLY
                     elif tier_lower == "yellow":
                         if not is_test_file and re_console_log.search(line_str):
                             all_defects.append({
@@ -511,10 +510,19 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
         "orange": ORANGE_RULES,
         "yellow": YELLOW_RULES
     }
+    system_prompt_map = {
+        "red": RED_SYSTEM_PROMPT,
+        "orange": ORANGE_SYSTEM_PROMPT,
+        "yellow": YELLOW_SYSTEM_PROMPT
+    }
+    
     rules = rules_map.get(tier_lower, RED_RULES)
+    system_prompt = system_prompt_map.get(tier_lower, RED_SYSTEM_PROMPT)
     defect_count = len(all_defects)
     is_defect = defect_count > 0
+    confidence = 0.95 if is_defect else 0.90
 
+    # Default rule-based explanation / consequence / repair
     if tier_lower == "red":
         tier_title = "RED: Critical / Blocker Vulnerabilities"
         if is_defect:
@@ -547,6 +555,38 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
             explanation = f"Project scan passed! Codebase hygiene is clean with zero stray debug statements or missing documentation detected across {total_files_scanned} files."
             consequence = "Ensures clean production runtime output and professional maintainability."
             repair_prompt = "Maintain production build stripping of debug logs and adhere to team documentation standards."
+
+    # Invoke LLM with the exact tier system prompt using real findings context
+    try:
+        defect_sample = "\n".join([f"- {d['file']}:{d['line']} [{d['rule']}]: {d['snippet']}" for d in all_defects[:12]])
+        user_prompt = f"""Evaluate the following project inspection findings for {tier_title}:
+Repository: {repo_name or 'Current Project'}
+Files scanned: {total_files_scanned}
+Defects found: {defect_count}
+
+Findings:
+{defect_sample or 'No defect patterns detected.'}
+
+Respond strictly in valid JSON format matching your system prompt schema."""
+
+        raw_llm = call_llm(user_prompt, system_prompt, timeout=6)
+        llm_eval = extract_json_defect(raw_llm, {
+            "is_defect": is_defect,
+            "confidence": confidence,
+            "plain_english_explanation": explanation,
+            "business_consequence": consequence,
+            "repair_prompt": repair_prompt
+        })
+        if llm_eval.get("plain_english_explanation"):
+            explanation = llm_eval["plain_english_explanation"]
+        if llm_eval.get("business_consequence"):
+            consequence = llm_eval["business_consequence"]
+        if llm_eval.get("repair_prompt"):
+            repair_prompt = llm_eval["repair_prompt"]
+        if "confidence" in llm_eval:
+            confidence = llm_eval["confidence"]
+    except Exception:
+        pass
 
     # Generate Markdown Report for this Tier
     md_lines = [
@@ -604,7 +644,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
         "is_defect": is_defect,
         "defect_count": defect_count,
         "total_defects_found": defect_count,
-        "confidence": 0.95 if is_defect else 0.90,
+        "confidence": confidence,
         "repository": repo_name or "All Repositories",
         "files_scanned": total_files_scanned,
         "defects": all_defects[:50],
