@@ -84,11 +84,11 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8007/v1/models || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8007/v1/models', timeout=5)\" || curl -f http://localhost:8007/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 15
-      start_period: 25s
+      retries: 25
+      start_period: 90s
     networks:
       codegraph_net:
         aliases:
@@ -144,7 +144,7 @@ services:
       redis:
         condition: service_healthy
       vllm:
-        condition: service_healthy
+        condition: service_started
     networks:
       codegraph_net:
         aliases:
@@ -197,7 +197,7 @@ services:
       redis:
         condition: service_healthy
       vllm:
-        condition: service_healthy
+        condition: service_started
       api:
         condition: service_started
     networks:
@@ -252,7 +252,7 @@ services:
       redis:
         condition: service_healthy
       vllm:
-        condition: service_healthy
+        condition: service_started
     networks:
       codegraph_net:
         aliases:
