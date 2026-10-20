@@ -59,6 +59,29 @@ services:
           - redis_broker
     restart: unless-stopped
 
+  ollama:
+    image: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}ollama/ollama:latest
+    container_name: graphrag_ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 4s
+      timeout: 3s
+      retries: 8
+      start_period: 5s
+    networks:
+      codegraph_net:
+        aliases:
+          - ollama
+          - graphrag_ollama
+    restart: unless-stopped
+
   api:
     build:
       context: ./backend
@@ -90,11 +113,11 @@ services:
       - ALLOWED_REPO_DIR=/app/repos
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-unclemusclez/jina-embeddings-v2-base-code:latest}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
@@ -105,6 +128,8 @@ services:
       neo4j:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     networks:
       codegraph_net:
@@ -141,11 +166,11 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-RedisSecurePass2026!}@redis:6379/0
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-unclemusclez/jina-embeddings-v2-base-code:latest}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
@@ -156,6 +181,8 @@ services:
       neo4j:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
       api:
         condition: service_started
@@ -194,11 +221,11 @@ services:
       - NEO4J_AUTH=${NEO4J_AUTH:-none}
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jina-embeddings-v2-code:latest}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-unclemusclez/jina-embeddings-v2-base-code:latest}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
@@ -209,6 +236,8 @@ services:
       neo4j:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     networks:
       codegraph_net:
@@ -233,20 +262,6 @@ services:
         aliases:
           - frontend
           - graphrag_dashboard
-    restart: unless-stopped
-
-  ollama:
-    image: dockerhub.ime.co.ir/ollama/ollama:latest
-    container_name: graphrag_ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_models:/root/.ollama
-    networks:
-      codegraph_net:
-        aliases:
-          - ollama
-          - graphrag_ollama
     restart: unless-stopped
 
 networks:

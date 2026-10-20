@@ -25,7 +25,7 @@ def normalize_ollama_base_url(value: str | None) -> str:
 
 
 OLLAMA_BASE_URL = normalize_ollama_base_url(
-    os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+    os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 )
 DEFAULT_EMBEDDING_MODEL = "unclemusclez/jina-embeddings-v2-base-code:latest"
 PREFERRED_EMBEDDING_MODELS = [
