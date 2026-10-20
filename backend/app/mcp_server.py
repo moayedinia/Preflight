@@ -8,7 +8,22 @@ except (ImportError, ModuleNotFoundError):
     try:
         from mcp.server.mcpserver import MCPServer as FastMCP
     except (ImportError, ModuleNotFoundError):
-        raise ImportError("FastMCP is required to run CodeGraph Brain MCP Server. Ensure 'mcp<2' is installed.")
+        class FastMCP:
+            """Fallback FastMCP implementation when mcp package is not installed in local environment."""
+            def __init__(self, name="CodeGraph-Brain-MCP", **kwargs):
+                self.name = name
+                self._tools = {}
+                self.settings = None
+
+            def tool(self, name: Optional[str] = None):
+                def decorator(fn):
+                    tool_name = name or fn.__name__
+                    self._tools[tool_name] = fn
+                    return fn
+                return decorator
+
+            def run(self, transport="stdio"):
+                print(f"[Notice] MCP package not installed. Cannot start {transport} listener.")
 
 from app.core.graph import (
     driver,
@@ -200,10 +215,11 @@ def index_local_repository(directory_path: str, repo_name: Optional[str] = None)
         return f"Failed to index repository: {str(e)}"
 
 @mcp.tool()
-def clone_and_index_git_repository(
+def clone_and_index_git(
     git_url: str,
     repo_name: Optional[str] = None,
-    branch: Optional[str] = None
+    branch: Optional[str] = None,
+    token: Optional[str] = None
 ) -> str:
     """
     Automated tool for AI agents: Clones a remote Git repository, parses its AST structure,
@@ -211,17 +227,19 @@ def clone_and_index_git_repository(
     
     Args:
         git_url: HTTPS or SSH URL of the git repository (e.g. 'https://github.com/fastapi/fastapi.git').
-        repo_name: Optional name for the project.
-        branch: Optional branch name (defaults to default branch).
+        repo_name: Optional custom name for the repository. If omitted, inferred from the URL.
+        branch: Optional branch name to checkout (e.g. 'main', 'master', 'dev').
+        token: Optional personal access token (PAT) for private repositories.
     """
     try:
         from app.core.cloner import clone_git_repo
-        cloned_path = clone_git_repo(git_url=git_url, repo_name=repo_name, branch=branch)
+        cloned_path = clone_git_repo(git_url=git_url, repo_name=repo_name, branch=branch, token=token)
         actual_name = repo_name or cloned_path.name
         res = scan_and_ingest_directory(str(cloned_path), actual_name)
         return (
             f"Successfully cloned and indexed Git repository '{res['repo_name']}':\n"
             f"- Source URL: {git_url}\n"
+            f"- Branch: {branch or 'default'}\n"
             f"- Total Files Scanned: {res['total_files_scanned']}\n"
             f"- Files Parsed: {res['parsed_files']}\n"
             f"- Classes Indexed: {res['classes_indexed']}\n"
@@ -230,6 +248,16 @@ def clone_and_index_git_repository(
         )
     except Exception as e:
         return f"Failed to clone and index repository: {str(e)}"
+
+@mcp.tool()
+def clone_and_index_git_repository(
+    git_url: str,
+    repo_name: Optional[str] = None,
+    branch: Optional[str] = None,
+    token: Optional[str] = None
+) -> str:
+    """Alias for clone_and_index_git."""
+    return clone_and_index_git(git_url=git_url, repo_name=repo_name, branch=branch, token=token)
 
 @mcp.tool()
 def ingest_code_snippet(repo_name: str, file_path: str, code_content: str) -> str:
@@ -531,6 +559,398 @@ def get_full_project_code_and_docs(repo_name: Optional[str] = None, max_files: i
         lines.append("")
 
     return "\n".join(lines)
+
+
+# ==================== MCP TOOL REGISTRY & RUNNER ====================
+MCP_TOOLS = {
+    "clone_and_index_git": clone_and_index_git,
+    "clone_and_index_git_repository": clone_and_index_git_repository,
+    "analyze_change_impact": analyze_change_impact,
+    "search_code_graph": search_code_graph,
+    "get_function_details": get_function_details,
+    "find_callers": find_callers,
+    "get_codebase_stats": get_codebase_stats,
+    "index_local_repository": index_local_repository,
+    "ingest_code_snippet": ingest_code_snippet,
+    "list_repositories": list_repositories,
+    "detect_code_smells": detect_code_smells,
+    "review_code_diff": review_code_diff,
+    "get_documentation_coverage": get_documentation_coverage,
+    "run_auto_documentation": run_auto_documentation,
+    "get_full_project_code_and_docs": get_full_project_code_and_docs,
+}
+
+
+def get_mcp_tools_metadata() -> list:
+    """Returns interactive schemas and descriptions for all registered MCP tools."""
+    return [
+        {
+            "name": "clone_and_index_git",
+            "display_name": "Clone & Index Git Repo",
+            "category": "Ingest",
+            "description": "Clones a remote Git repository, parses its AST structure, generates vector embeddings, and builds the Knowledge Graph.",
+            "color": "sky",
+            "parameters": [
+                {
+                    "name": "git_url",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "https://github.com/fastapi/fastapi.git",
+                    "description": "HTTPS or SSH URL of the git repository to clone"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "fastapi (optional)",
+                    "description": "Custom name for the repository in graph"
+                },
+                {
+                    "name": "branch",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "main or master (optional)",
+                    "description": "Git branch to checkout"
+                },
+                {
+                    "name": "token",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "ghp_... (optional)",
+                    "description": "Personal access token for private repos"
+                }
+            ]
+        },
+        {
+            "name": "analyze_change_impact",
+            "display_name": "Blast Radius & Impact Analysis",
+            "category": "Safety",
+            "description": "Calculates downstream Blast Radius before modifying a function: reports cascading callers up to 3 degrees away and list of affected enterprise files.",
+            "color": "rose",
+            "parameters": [
+                {
+                    "name": "function_name",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "e.g. get_embedding or sanitize_name",
+                    "description": "Target function name to evaluate"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository name filter (optional)",
+                    "description": "Filter by repository name"
+                }
+            ]
+        },
+        {
+            "name": "search_code_graph",
+            "display_name": "Semantic Graph Search",
+            "category": "Search",
+            "description": "Semantically searches the codebase knowledge graph for relevant functions and classes using vector embeddings + graph relations.",
+            "color": "emerald",
+            "parameters": [
+                {
+                    "name": "query",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "e.g. JWT token authentication or database session",
+                    "description": "Natural language or code query"
+                },
+                {
+                    "name": "top_k",
+                    "type": "integer",
+                    "required": False,
+                    "default": 5,
+                    "placeholder": "5",
+                    "description": "Number of matching code entities to return (1-25)"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository filter (optional)",
+                    "description": "Repository filter"
+                }
+            ]
+        },
+        {
+            "name": "get_function_details",
+            "display_name": "Function Details & AST",
+            "category": "Inspect",
+            "description": "Retrieves full source code, docstrings, callers, and callees for a specific function.",
+            "color": "emerald",
+            "parameters": [
+                {
+                    "name": "function_name",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "e.g. run_auto_documentation",
+                    "description": "Name of function or method"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository filter (optional)",
+                    "description": "Repository filter"
+                }
+            ]
+        },
+        {
+            "name": "find_callers",
+            "display_name": "Trace Inbound Callers",
+            "category": "Traverse",
+            "description": "Traces all functions and files that call a given symbol across the codebase.",
+            "color": "amber",
+            "parameters": [
+                {
+                    "name": "function_name",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "e.g. sanitize_name",
+                    "description": "Target function to trace callers for"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository filter (optional)",
+                    "description": "Repository filter"
+                }
+            ]
+        },
+        {
+            "name": "get_documentation_coverage",
+            "display_name": "Documentation Coverage",
+            "category": "Docs",
+            "description": "Computes documentation percentage of the codebase and lists undocumented functions.",
+            "color": "blue",
+            "parameters": [
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository filter (optional)",
+                    "description": "Repository filter"
+                }
+            ]
+        },
+        {
+            "name": "run_auto_documentation",
+            "display_name": "Run Auto-Docstrings",
+            "category": "Docs",
+            "description": "Automatically generates missing technical docstrings using LLM and updates graph nodes.",
+            "color": "purple",
+            "parameters": [
+                {
+                    "name": "limit",
+                    "type": "integer",
+                    "required": False,
+                    "default": 10,
+                    "placeholder": "10",
+                    "description": "Max number of functions to document (1-50)"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository filter (optional)",
+                    "description": "Repository filter"
+                }
+            ]
+        },
+        {
+            "name": "get_full_project_code_and_docs",
+            "display_name": "Export Full Project Code & Docs",
+            "category": "Docs",
+            "description": "Extracts the complete codebase dossier, classes, methods, docstrings, and structure.",
+            "color": "indigo",
+            "parameters": [
+                {
+                    "name": "max_files",
+                    "type": "integer",
+                    "required": False,
+                    "default": 50,
+                    "placeholder": "50",
+                    "description": "Maximum files to export (1-200)"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository filter (optional)",
+                    "description": "Repository filter"
+                }
+            ]
+        },
+        {
+            "name": "detect_code_smells",
+            "display_name": "Detect Code Smells & Cycles",
+            "category": "Audit",
+            "description": "Detects circular dependencies, bottleneck hub functions, and dead code candidates.",
+            "color": "purple",
+            "parameters": [
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository filter (optional)",
+                    "description": "Repository filter"
+                }
+            ]
+        },
+        {
+            "name": "review_code_diff",
+            "display_name": "Architectural PR Diff Review",
+            "category": "Review",
+            "description": "Analyzes unified git diff against the Knowledge Graph to produce an architectural risk assessment.",
+            "color": "indigo",
+            "parameters": [
+                {
+                    "name": "diff_text",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "diff --git a/app.py b/app.py...",
+                    "description": "Unified Git diff text"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "Repository filter (optional)",
+                    "description": "Repository filter"
+                }
+            ]
+        },
+        {
+            "name": "ingest_code_snippet",
+            "display_name": "Ingest Code Snippet",
+            "category": "Ingest",
+            "description": "Immediately parses and indexes a single source file or snippet into the Knowledge Graph.",
+            "color": "sky",
+            "parameters": [
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "my-project",
+                    "description": "Target repository name"
+                },
+                {
+                    "name": "file_path",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "services/auth.py",
+                    "description": "Relative file path"
+                },
+                {
+                    "name": "code_content",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "def login(): ...",
+                    "description": "Full source code text"
+                }
+            ]
+        },
+        {
+            "name": "index_local_repository",
+            "display_name": "Index Local Directory",
+            "category": "Ingest",
+            "description": "Scans and indexes a directory on disk within the sandboxed repository folder.",
+            "color": "sky",
+            "parameters": [
+                {
+                    "name": "directory_path",
+                    "type": "string",
+                    "required": True,
+                    "default": "",
+                    "placeholder": "repos/my-project",
+                    "description": "Directory path inside allowed sandbox"
+                },
+                {
+                    "name": "repo_name",
+                    "type": "string",
+                    "required": False,
+                    "default": "",
+                    "placeholder": "my-project (optional)",
+                    "description": "Identifier for the repository"
+                }
+            ]
+        },
+        {
+            "name": "get_codebase_stats",
+            "display_name": "Codebase Knowledge Overview",
+            "category": "Inspect",
+            "description": "Returns counts of repositories, files, classes, functions, and graph relationships.",
+            "color": "emerald",
+            "parameters": []
+        },
+        {
+            "name": "list_repositories",
+            "display_name": "List All Repositories",
+            "category": "Inspect",
+            "description": "Lists all indexed repositories with their file counts and languages.",
+            "color": "emerald",
+            "parameters": []
+        }
+    ]
+
+
+def execute_mcp_tool(tool_name: str, arguments: dict = None) -> dict:
+    """Executes a registered MCP tool dynamically with argument validation."""
+    arguments = arguments or {}
+    tool_fn = MCP_TOOLS.get(tool_name)
+    if not tool_fn:
+        raise ValueError(f"MCP tool '{tool_name}' not found. Available tools: {list(MCP_TOOLS.keys())}")
+
+    import inspect
+    sig = inspect.signature(tool_fn)
+    valid_args = {}
+    for p_name, p in sig.parameters.items():
+        if p_name in arguments and arguments[p_name] is not None and str(arguments[p_name]).strip() != "":
+            val = arguments[p_name]
+            if p.annotation == int or p.annotation == Optional[int]:
+                try:
+                    valid_args[p_name] = int(val)
+                except (ValueError, TypeError):
+                    valid_args[p_name] = val
+            elif p.annotation == bool or p.annotation == Optional[bool]:
+                valid_args[p_name] = str(val).lower() in ("true", "1", "yes")
+            else:
+                valid_args[p_name] = str(val).strip()
+        elif p.default is inspect.Parameter.empty:
+            raise ValueError(f"Missing required parameter '{p_name}' for MCP tool '{tool_name}'")
+
+    result = tool_fn(**valid_args)
+    return {
+        "tool_name": tool_name,
+        "arguments": valid_args,
+        "result": result
+    }
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CodeGraph Brain MCP Server")

@@ -258,6 +258,265 @@
       }
     }
 
+
+    // --- MCP INTERACTIVE RUNNER & CATALOG LOGIC ---
+    let mcpToolsCatalog = [];
+
+    async function loadMcpTools() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/mcp/tools`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        mcpToolsCatalog = data.tools || [];
+        renderMcpToolsDropdown();
+        renderMcpCatalogCards();
+      } catch (e) {
+        console.error('Failed to fetch MCP tools metadata:', e);
+      }
+    }
+
+    function renderMcpToolsDropdown() {
+      const select = document.getElementById('mcp-tool-select');
+      const counter = document.getElementById('mcp-runner-tool-count');
+      if (!select) return;
+      
+      select.innerHTML = '';
+      mcpToolsCatalog.forEach((tool) => {
+        const opt = document.createElement('option');
+        opt.value = tool.name;
+        opt.textContent = `${tool.name} (${tool.category})`;
+        select.appendChild(opt);
+      });
+
+      if (counter) counter.innerText = `${mcpToolsCatalog.length} Tools Available`;
+      if (mcpToolsCatalog.length > 0) {
+        onMcpToolSelected();
+      }
+    }
+
+    function onMcpToolSelected() {
+      const select = document.getElementById('mcp-tool-select');
+      if (!select) return;
+      const toolName = select.value;
+      const tool = mcpToolsCatalog.find(t => t.name === toolName);
+      if (!tool) return;
+
+      const nameEl = document.getElementById('mcp-tool-desc-name');
+      const catEl = document.getElementById('mcp-tool-desc-cat');
+      const descEl = document.getElementById('mcp-tool-desc-text');
+      if (nameEl) nameEl.innerText = tool.name;
+      if (catEl) {
+        catEl.innerText = tool.category;
+        catEl.className = `px-1.5 py-0.5 rounded text-[10px] bg-${tool.color || 'sky'}-950 text-${tool.color || 'sky'}-400 border border-${tool.color || 'sky'}-800 font-mono`;
+      }
+      if (descEl) descEl.innerText = tool.description;
+
+      renderMcpParameters(tool);
+    }
+
+    function renderMcpParameters(tool) {
+      const container = document.getElementById('mcp-tool-params-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const activeRepo = document.getElementById('repo-filter-select')?.value || '';
+      const cleanRepo = (activeRepo && activeRepo !== 'All Repositories' && activeRepo !== 'ALL') ? activeRepo : '';
+
+      if (!tool.parameters || tool.parameters.length === 0) {
+        container.innerHTML = '<div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 italic">This tool does not require any input parameters. Click "Execute MCP Tool" to run it.</div>';
+        return;
+      }
+
+      tool.parameters.forEach(p => {
+        const paramWrapper = document.createElement('div');
+        paramWrapper.className = 'space-y-1';
+
+        const labelDiv = document.createElement('div');
+        labelDiv.className = 'flex items-center justify-between text-[11px]';
+        labelDiv.innerHTML = `<span class="font-mono font-medium text-slate-300">${escapeHtml(p.name)} ${p.required ? '<span class="text-rose-400 font-bold">*</span>' : '<span class="text-slate-500">(optional)</span>'}</span><span class="text-[10px] text-slate-500 font-mono">${p.type}</span>`;
+        paramWrapper.appendChild(labelDiv);
+
+        let inputEl;
+        if (p.name === 'diff_text' || p.name === 'code_content') {
+          inputEl = document.createElement('textarea');
+          inputEl.rows = 3;
+          inputEl.className = 'w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500 resize-y';
+        } else if (p.type === 'integer') {
+          inputEl = document.createElement('input');
+          inputEl.type = 'number';
+          inputEl.className = 'w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500';
+        } else {
+          inputEl = document.createElement('input');
+          inputEl.type = 'text';
+          inputEl.className = 'w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500';
+        }
+
+        inputEl.id = `mcp-input-${p.name}`;
+        inputEl.placeholder = p.placeholder || '';
+        if (p.default !== undefined && p.default !== '') {
+          inputEl.value = p.default;
+        } else if (p.name === 'repo_name' && cleanRepo) {
+          inputEl.value = cleanRepo;
+        }
+
+        paramWrapper.appendChild(inputEl);
+        if (p.description) {
+          const helpP = document.createElement('p');
+          helpP.className = 'text-[10px] text-slate-500';
+          helpP.innerText = p.description;
+          paramWrapper.appendChild(helpP);
+        }
+
+        container.appendChild(paramWrapper);
+      });
+    }
+
+    function selectMcpToolInPlayground(toolName) {
+      const select = document.getElementById('mcp-tool-select');
+      if (select) {
+        select.value = toolName;
+        onMcpToolSelected();
+      }
+      const container = document.getElementById('mcp-playground-container');
+      if (container) {
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      // Focus first input
+      setTimeout(() => {
+        const firstInput = document.querySelector('#mcp-tool-params-container input, #mcp-tool-params-container textarea');
+        if (firstInput) firstInput.focus();
+      }, 300);
+    }
+
+    async function executeSelectedMcpTool() {
+      const select = document.getElementById('mcp-tool-select');
+      if (!select) return;
+      const toolName = select.value;
+      const tool = mcpToolsCatalog.find(t => t.name === toolName);
+      if (!tool) return;
+
+      const btn = document.getElementById('btn-execute-mcp-tool');
+      const label = document.getElementById('btn-execute-mcp-label');
+      const statusBadge = document.getElementById('mcp-exec-status');
+      const outputEl = document.getElementById('mcp-exec-output');
+
+      const args = {};
+      if (tool.parameters) {
+        for (const p of tool.parameters) {
+          const el = document.getElementById(`mcp-input-${p.name}`);
+          const val = el ? el.value.trim() : '';
+          if (p.required && !val) {
+            alert(`Please enter required parameter: ${p.name}`);
+            if (el) el.focus();
+            return;
+          }
+          if (val !== '') {
+            args[p.name] = (p.type === 'integer') ? parseInt(val, 10) : val;
+          }
+        }
+      }
+
+      if (btn) btn.disabled = true;
+      if (label) label.innerText = `Executing ${toolName}...`;
+      if (statusBadge) {
+        statusBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-400 border border-sky-800';
+        statusBadge.innerText = 'RUNNING';
+        statusBadge.classList.remove('hidden');
+      }
+      if (outputEl) {
+        outputEl.innerText = `[${new Date().toLocaleTimeString()}] Calling MCP tool "${toolName}" with arguments:
+${JSON.stringify(args, null, 2)}
+
+Waiting for Knowledge Graph execution response...`;
+      }
+
+      const startTime = performance.now();
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/mcp/execute`, {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tool_name: toolName,
+            arguments: args
+          })
+        });
+
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        const data = await res.json();
+
+        if (res.ok) {
+          if (statusBadge) {
+            statusBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-800';
+            statusBadge.innerText = `SUCCESS (${elapsed}s)`;
+          }
+          if (outputEl) {
+            outputEl.innerText = data.result || JSON.stringify(data, null, 2);
+          }
+        } else {
+          if (statusBadge) {
+            statusBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-rose-950 text-rose-400 border border-rose-800';
+            statusBadge.innerText = `ERROR (${elapsed}s)`;
+          }
+          if (outputEl) {
+            outputEl.innerText = `Execution Error: ${data.detail || JSON.stringify(data)}`;
+          }
+        }
+      } catch (err) {
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        if (statusBadge) {
+          statusBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-rose-950 text-rose-400 border border-rose-800';
+          statusBadge.innerText = `FAILED (${elapsed}s)`;
+        }
+        if (outputEl) {
+          outputEl.innerText = `Network or Server Exception: ${err.message || String(err)}`;
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+        if (label) label.innerText = 'Execute MCP Tool';
+      }
+    }
+
+    function renderMcpCatalogCards() {
+      const grid = document.getElementById('mcp-catalog-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      mcpToolsCatalog.forEach((tool) => {
+        const card = document.createElement('div');
+        card.className = 'bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2.5 hover:border-slate-700 transition flex flex-col justify-between';
+
+        const paramBadges = (tool.parameters || []).map(p => {
+          return `<span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-950 border border-slate-800 text-slate-300 font-mono">${escapeHtml(p.name)}${p.required ? '<span class="text-rose-400">*</span>' : ''}</span>`;
+        }).join(' ');
+
+        card.innerHTML = `
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-sky-400 truncate" title="${escapeHtml(tool.name)}">${escapeHtml(tool.name)}</span>
+              <span class="px-1.5 py-0.5 rounded text-[9px] bg-sky-950 text-sky-400 border border-sky-800 font-mono">${escapeHtml(tool.category)}</span>
+            </div>
+            <p class="text-slate-400 text-[11px] leading-relaxed line-clamp-3">${escapeHtml(tool.description)}</p>
+            ${paramBadges ? `<div class="flex flex-wrap gap-1 pt-1">${paramBadges}</div>` : ''}
+          </div>
+          <button onclick="selectMcpToolInPlayground('${escapeHtml(tool.name)}')" class="w-full mt-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border border-slate-700 transition">
+            <i data-lucide="play" class="w-3 h-3 text-sky-400"></i> Run in Playground &rarr;
+          </button>
+        `;
+        grid.appendChild(card);
+      });
+
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function copyMcpOutput() {
+      const outputEl = document.getElementById('mcp-exec-output');
+      if (outputEl) {
+        navigator.clipboard.writeText(outputEl.innerText).then(() => {
+          alert('Execution output copied to clipboard.');
+        });
+      }
+    }
+
   </script>
   <style>
     #vis-network-container, #cy {
@@ -1332,103 +1591,105 @@
         </div>
       </div>
 
-      <!-- Autonomous Agent Tools Catalog -->
-      <div class="space-y-3">
+      <!-- Clones & Hotspots Box -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <i data-lucide="layers" class="w-4 h-4 text-pink-400"></i> Code Clones & Git Hotspots (Phase 4)
+          </h3>
+          <div class="flex gap-2">
+            <button onclick="loadClones()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700">Find Clones</button>
+            <button onclick="loadHotspots()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5"><i data-lucide="flame" class="w-3.5 h-3.5 text-rose-500"></i> Git Hotspots</button>
+          </div>
+        </div>
+        <div id="advanced-analytics-results" class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <!-- Results injected here -->
+        </div>
+      </div>
+
+      <!-- ================= INTERACTIVE MCP TOOL RUNNER & PLAYGROUND ================= -->
+      <div id="mcp-playground-container" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
+              <i data-lucide="terminal" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+                Interactive MCP Tool Runner & Inspector
+                <span class="px-2 py-0.5 rounded-full text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 font-normal">Live SSE & API</span>
+              </h3>
+              <p class="text-[11px] text-slate-400">Select any Model Context Protocol tool, provide live parameters (e.g. Git URL, Function Name), and execute directly.</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span id="mcp-runner-tool-count" class="text-xs font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800">14 Tools Loaded</span>
+          </div>
+        </div>
+
+        <!-- Tool Selector & Parameter Form -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- Left: Tool Selection & Form -->
+          <div class="lg:col-span-5 space-y-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Select MCP Tool</label>
+              <select id="mcp-tool-select" onchange="onMcpToolSelected()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500">
+                <!-- Dynamically populated via JS -->
+              </select>
+            </div>
+
+            <!-- Tool Description Box -->
+            <div id="mcp-tool-desc-box" class="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 text-xs text-slate-300 space-y-1">
+              <div class="flex items-center justify-between">
+                <span id="mcp-tool-desc-name" class="font-mono font-bold text-sky-400">clone_and_index_git</span>
+                <span id="mcp-tool-desc-cat" class="px-1.5 py-0.5 rounded text-[10px] bg-sky-950 text-sky-400 border border-sky-800 font-mono">Ingest</span>
+              </div>
+              <p id="mcp-tool-desc-text" class="text-[11px] text-slate-400"></p>
+            </div>
+
+            <!-- Dynamic Parameters Container -->
+            <div id="mcp-tool-params-container" class="space-y-2.5">
+              <!-- Dynamically rendered input fields -->
+            </div>
+
+            <!-- Execute Button -->
+            <button id="btn-execute-mcp-tool" onclick="executeSelectedMcpTool()" class="w-full py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-sky-950/50 transition">
+              <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+              <span id="btn-execute-mcp-label">Execute MCP Tool</span>
+            </button>
+          </div>
+
+          <!-- Right: Result Output Console -->
+          <div class="lg:col-span-7 flex flex-col space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+                <i data-lucide="file-text" class="w-3.5 h-3.5 text-slate-400"></i> Execution Output
+              </span>
+              <div class="flex items-center gap-2">
+                <span id="mcp-exec-status" class="hidden px-2 py-0.5 rounded text-[10px] font-mono"></span>
+                <button onclick="copyMcpOutput()" class="text-slate-400 hover:text-slate-200 text-xs flex items-center gap-1 transition" title="Copy Output">
+                  <i data-lucide="copy" class="w-3 h-3"></i> Copy
+                </button>
+              </div>
+            </div>
+            <div class="relative flex-1 min-h-[260px] max-h-[420px] bg-slate-950 border border-slate-800 rounded-xl p-3.5 overflow-y-auto custom-scrollbar font-mono text-xs text-slate-300">
+              <pre id="mcp-exec-output" class="whitespace-pre-wrap leading-relaxed select-text">Select an MCP tool, fill any required arguments (e.g. Git URL or Function Name), and click "Execute MCP Tool" to view live output.</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Autonomous Agent Tools Catalog Grid -->
+      <div class="space-y-3 pt-2">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
-            <i data-lucide="wrench" class="w-4 h-4 text-amber-400"></i> Autonomous Agent Tool Catalog (Self-Service)
+            <i data-lucide="wrench" class="w-4 h-4 text-amber-400"></i> Autonomous Agent Tool Catalog
           </h3>
-          <span class="text-[11px] text-slate-500">11 Tools Available to Connected Agents</span>
+          <span class="text-[11px] text-slate-500">Click any tool to run with live inputs</span>
         </div>
 
-        <!-- Clones & Hotspots Box -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-4">
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
-              <i data-lucide="layers" class="w-4 h-4 text-pink-400"></i> Code Clones & Git Hotspots (Phase 4)
-            </h3>
-            <div class="flex gap-2">
-              <button onclick="loadClones()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700">Find Clones</button>
-              <button onclick="loadHotspots()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5"><i data-lucide="flame" class="w-3.5 h-3.5 text-rose-500"></i> Git Hotspots</button>
-            </div>
-          </div>
-          <div id="advanced-analytics-results" class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <!-- Results injected here -->
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-          <!-- Tool 1: Self Service Git Clone -->
-          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
-            <div class="flex items-center justify-between">
-              <span class="font-mono font-bold text-sky-400">clone_and_index_git</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] bg-sky-950 text-sky-400 border border-sky-800">Ingest</span>
-            </div>
-            <p class="text-slate-400 text-[11px]">Allows the agent to clone any public/private Git repository, parse its AST, generate Jina embeddings, and register it in the graph autonomously.</p>
-          </div>
-
-          <!-- Tool 2: Snippet Ingestion -->
-          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
-            <div class="flex items-center justify-between">
-              <span class="font-mono font-bold text-sky-400">ingest_code_snippet</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] bg-sky-950 text-sky-400 border border-sky-800">Ingest</span>
-            </div>
-            <p class="text-slate-400 text-[11px]">Indexes newly written or modified source files in real-time, keeping the knowledge graph up to date as the agent codes.</p>
-          </div>
-
-          <!-- Tool 3: Semantic Graph Search -->
-          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
-            <div class="flex items-center justify-between">
-              <span class="font-mono font-bold text-emerald-400">search_code_graph</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800">Search</span>
-            </div>
-            <p class="text-slate-400 text-[11px]">Hybrid semantic search with Jina vector embeddings + Neo4j relational expansion (parent classes, callers, and callees).</p>
-          </div>
-
-          <!-- Tool 4: Function Details -->
-          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
-            <div class="flex items-center justify-between">
-              <span class="font-mono font-bold text-emerald-400">get_function_details</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800">Inspect</span>
-            </div>
-            <p class="text-slate-400 text-[11px]">Retrieves complete code implementation, docstring, file path, lines, and call signatures for a target symbol.</p>
-          </div>
-
-          <!-- Tool 5: Find Callers -->
-          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
-            <div class="flex items-center justify-between">
-              <span class="font-mono font-bold text-amber-400">find_callers</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] bg-amber-950 text-amber-400 border border-amber-800">Traverse</span>
-            </div>
-            <p class="text-slate-400 text-[11px]">Traces all functions and files that call a given symbol across the entire enterprise codebase before refactoring.</p>
-          </div>
-
-          <!-- Tool 6: Blast Radius -->
-          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
-            <div class="flex items-center justify-between">
-              <span class="font-mono font-bold text-rose-400">analyze_change_impact</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] bg-rose-950 text-rose-400 border border-rose-800">Safety</span>
-            </div>
-            <p class="text-slate-400 text-[11px]">Calculates cumulative blast radius (1-3 hops away) and outputs the list of files requiring regression testing.</p>
-          </div>
-
-          <!-- Tool 7: Code Review -->
-          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
-            <div class="flex items-center justify-between">
-              <span class="font-mono font-bold text-indigo-400">review_code_diff</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] bg-indigo-950 text-indigo-400 border border-indigo-800">Review</span>
-            </div>
-            <p class="text-slate-400 text-[11px]">Takes a Git unified diff, maps touched symbols against the Knowledge Graph, and outputs architectural risk review.</p>
-          </div>
-
-          <!-- Tool 8: Code Smells -->
-          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 hover:border-slate-700 transition">
-            <div class="flex items-center justify-between">
-              <span class="font-mono font-bold text-purple-400">detect_code_smells</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] bg-purple-950 text-purple-400 border border-purple-800">Audit</span>
-            </div>
-            <p class="text-slate-400 text-[11px]">Audits the codebase for circular dependencies, bottleneck hub functions, and dead code candidates.</p>
-          </div>
+        <div id="mcp-catalog-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 text-xs">
+          <!-- Dynamically populated tool cards -->
         </div>
       </div>
     </div>
@@ -2235,6 +2496,7 @@
       const endpointEl = document.getElementById('mcp-endpoint-display');
       if (endpointEl) endpointEl.innerText = sseUrl;
       renderMcpConfigCode();
+      loadMcpTools();
     }
 
     function switchMcpClientTab(tab) {

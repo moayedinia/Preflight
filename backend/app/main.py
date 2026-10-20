@@ -936,4 +936,34 @@ def check_llm_status():
     return status_info
 
 
+# ==================== MCP AGENT HUB & INTERACTIVE RUNNER ====================
+class McpToolExecuteRequest(BaseModel):
+    tool_name: str
+    arguments: Optional[Dict[str, Any]] = None
+
+
+@app.get("/api/v1/mcp/tools", tags=["MCP"])
+async def list_mcp_tools():
+    """Returns all available MCP tools with their argument schemas, types, and descriptions."""
+    try:
+        from app.mcp_server import get_mcp_tools_metadata
+        return {"tools": get_mcp_tools_metadata()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load MCP tools: {str(e)}")
+
+
+@app.post("/api/v1/mcp/execute", tags=["MCP"])
+async def run_mcp_tool_endpoint(payload: McpToolExecuteRequest):
+    """Executes any registered MCP tool on-demand with validated arguments."""
+    try:
+        from app.mcp_server import execute_mcp_tool
+        res = execute_mcp_tool(payload.tool_name, payload.arguments or {})
+        return {"status": "success", **res}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"MCP tool execution failed: {str(e)}")
+
+
+
 

@@ -105,5 +105,61 @@ class AnalyticsCoverageTests(unittest.TestCase):
             self.assertIn("markdown_report", res)
             self.assertIn("defects", res)
 
+    def test_mcp_tools_metadata(self):
+        from app.mcp_server import get_mcp_tools_metadata
+        tools = get_mcp_tools_metadata()
+        self.assertGreaterEqual(len(tools), 12)
+        tool_names = [t["name"] for t in tools]
+        self.assertIn("clone_and_index_git", tool_names)
+        self.assertIn("analyze_change_impact", tool_names)
+        self.assertIn("search_code_graph", tool_names)
+
+        # Check clone_and_index_git parameter schema
+        clone_tool = next(t for t in tools if t["name"] == "clone_and_index_git")
+        param_names = [p["name"] for p in clone_tool["parameters"]]
+        self.assertIn("git_url", param_names)
+        git_url_param = next(p for p in clone_tool["parameters"] if p["name"] == "git_url")
+        self.assertTrue(git_url_param["required"])
+
+        # Check analyze_change_impact parameter schema
+        impact_tool = next(t for t in tools if t["name"] == "analyze_change_impact")
+        impact_params = [p["name"] for p in impact_tool["parameters"]]
+        self.assertIn("function_name", impact_params)
+        fn_param = next(p for p in impact_tool["parameters"] if p["name"] == "function_name")
+        self.assertTrue(fn_param["required"])
+
+    def test_execute_mcp_tool_validation_and_execution(self):
+        from app.mcp_server import execute_mcp_tool
+
+        # 1. Missing required parameter raises error
+        with self.assertRaises(ValueError) as ctx:
+            execute_mcp_tool("clone_and_index_git", {})
+        self.assertIn("Missing required parameter 'git_url'", str(ctx.exception))
+
+        with self.assertRaises(ValueError) as ctx:
+            execute_mcp_tool("analyze_change_impact", {})
+        self.assertIn("Missing required parameter 'function_name'", str(ctx.exception))
+
+        # 2. Unknown tool raises error
+        with self.assertRaises(ValueError) as ctx:
+            execute_mcp_tool("non_existent_tool", {})
+        self.assertIn("not found", str(ctx.exception))
+
+        # 3. Successful execution with mock
+        with patch("app.mcp_server.calculate_blast_radius") as mock_blast:
+            mock_blast.return_value = {
+                "found": True,
+                "target_name": "test_func",
+                "target_file": "app.py",
+                "risk_level": "LOW",
+                "total_affected_count": 0,
+                "affected_functions": [],
+                "affected_files": []
+            }
+            res = execute_mcp_tool("analyze_change_impact", {"function_name": "test_func"})
+            self.assertEqual(res["tool_name"], "analyze_change_impact")
+            self.assertEqual(res["arguments"]["function_name"], "test_func")
+            self.assertIn("Blast Radius Report for `test_func`", res["result"])
+
 if __name__ == "__main__":
     unittest.main()
