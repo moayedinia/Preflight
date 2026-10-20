@@ -76,7 +76,7 @@
       const chips = document.getElementById('embedding-available-models-chips');
       const originalText = btn ? btn.innerHTML : '';
 
-      const host = (document.getElementById('embedding-ollama-host').value || '').trim();
+      let host = (document.getElementById('embedding-ollama-host').value || '').trim();
       const model = (document.getElementById('embedding-model-name').value || '').trim();
 
       if (!host) {
@@ -86,6 +86,11 @@
           resBox.classList.remove('hidden');
         }
         return;
+      }
+
+      if (!host.startsWith('http://') && !host.startsWith('https://')) {
+        host = 'http://' + host;
+        document.getElementById('embedding-ollama-host').value = host;
       }
 
       if (btn) {
@@ -163,7 +168,7 @@
     }
 
     async function saveEmbeddingConfig() {
-      const host = (document.getElementById('embedding-ollama-host').value || '').trim();
+      let host = (document.getElementById('embedding-ollama-host').value || '').trim();
       const model = (document.getElementById('embedding-model-name').value || '').trim();
       const dim = parseInt(document.getElementById('embedding-dim').value || 768, 10);
       const allowFallback = document.getElementById('embedding-allow-fallback').checked;
@@ -171,6 +176,11 @@
       if (!host) {
         alert('Please enter an Ollama Host IP or URL.');
         return;
+      }
+
+      if (!host.startsWith('http://') && !host.startsWith('https://')) {
+        host = 'http://' + host;
+        document.getElementById('embedding-ollama-host').value = host;
       }
 
       try {

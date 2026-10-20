@@ -502,7 +502,10 @@ def get_embedding_config() -> dict:
 def set_embedding_config(ollama_host: str, model: str, dimension: int = None, allow_fallback: bool = None):
     """Updates and persists the dedicated Ollama embedding engine configuration."""
     global OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
-    clean_host = normalize_ollama_base_url(ollama_host)
+    raw_host = (ollama_host or "").strip()
+    if raw_host and "://" not in raw_host:
+        raw_host = f"http://{raw_host}"
+    clean_host = normalize_ollama_base_url(raw_host)
     OLLAMA_BASE_URL = clean_host
     if model:
         EMBEDDING_MODEL = model.strip()
@@ -530,17 +533,51 @@ def set_embedding_config(ollama_host: str, model: str, dimension: int = None, al
 
 def test_ollama_embedding_connection(ollama_host: str = None, model: str = None) -> dict:
     """Directly tests reachability, models list, and embedding generation for a specified Ollama host IP."""
-    host = normalize_ollama_base_url(ollama_host or OLLAMA_BASE_URL or get_active_ollama_url())
+    raw_host = (ollama_host or OLLAMA_BASE_URL or get_active_ollama_url() or "").strip()
+    if raw_host and "://" not in raw_host:
+        raw_host = f"http://{raw_host}"
+
+    try:
+        host = normalize_ollama_base_url(raw_host)
+    except Exception as e:
+        return {
+            "status": "error",
+            "host": raw_host,
+            "target_model": model or EMBEDDING_MODEL,
+            "available_models": [],
+            "message": f"Invalid Ollama URL '{ollama_host}': {str(e)}. Example: http://172.17.80.1:11434 or http://host.docker.internal:11434"
+        }
+
     target_model = model or EMBEDDING_MODEL
     
     models = list_ollama_models(host, timeout=3)
     if not models:
+        suggested_msg = f"Cannot connect to Ollama at {host}."
+        try:
+            parsed = urlparse(host)
+            if parsed.hostname in ("localhost", "127.0.0.1"):
+                active = get_active_ollama_url()
+                if active and "localhost" not in active and "127.0.0.1" not in active:
+                    suggested_msg += (
+                        f" Note: Inside Docker, 'localhost' refers to the container itself. "
+                        f"Ollama was detected on your host machine at '{active}'! "
+                        f"Please set Host to '{active}' or 'http://host.docker.internal:11434'."
+                    )
+                else:
+                    suggested_msg += (
+                        " Note: Inside Docker, 'localhost' refers to the container itself, not your Windows host. "
+                        "Please use 'http://host.docker.internal:11434' or your host IP (e.g. 'http://172.17.80.1:11434'), "
+                        "and ensure Ollama on Windows is started with OLLAMA_HOST=0.0.0.0."
+                    )
+        except Exception:
+            pass
+
         return {
             "status": "offline",
             "host": host,
             "target_model": target_model,
             "available_models": [],
-            "message": f"Cannot connect to Ollama at {host}. Please verify Ollama is running and accessible."
+            "message": suggested_msg
         }
         
     model_present = target_model in models or any(target_model.split(":")[0] in m for m in models)
@@ -571,7 +608,18 @@ def test_ollama_embedding_connection(ollama_host: str = None, model: str = None)
 
 def pull_ollama_model_action(ollama_host: str = None, model: str = None) -> dict:
     """Triggers download/pull of the specified embedding model on the Ollama host."""
-    host = normalize_ollama_base_url(ollama_host or OLLAMA_BASE_URL or get_active_ollama_url())
+    raw_host = (ollama_host or OLLAMA_BASE_URL or get_active_ollama_url() or "").strip()
+    if raw_host and "://" not in raw_host:
+        raw_host = f"http://{raw_host}"
+    try:
+        host = normalize_ollama_base_url(raw_host)
+    except Exception as e:
+        return {
+            "status": "failed",
+            "host": raw_host,
+            "model": model or EMBEDDING_MODEL,
+            "message": f"Invalid Ollama URL '{ollama_host}': {str(e)}"
+        }
     target_model = model or EMBEDDING_MODEL
     ok = pull_ollama_model(host, target_model, timeout=300)
     return {

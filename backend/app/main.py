@@ -787,13 +787,29 @@ def update_embedding_settings(payload: EmbeddingConfigRequest):
 def test_embedding_endpoint(payload: EmbeddingTestRequest):
     """Tests connectivity to a specified Ollama host IP and embedding model without saving."""
     from app.core.embedder import test_ollama_embedding_connection
-    return test_ollama_embedding_connection(payload.ollama_host, payload.model)
+    try:
+        return test_ollama_embedding_connection(payload.ollama_host, payload.model)
+    except Exception as e:
+        return {
+            "status": "error",
+            "host": payload.ollama_host,
+            "target_model": payload.model,
+            "message": f"Connection test failed: {str(e)}"
+        }
 
 @app.post("/api/v1/embedding/pull", dependencies=[Depends(verify_api_key)])
 def pull_embedding_model_endpoint(payload: EmbeddingTestRequest):
     """Requests Ollama to pull/download the specified embedding model."""
     from app.core.embedder import pull_ollama_model_action
-    return pull_ollama_model_action(payload.ollama_host, payload.model)
+    try:
+        return pull_ollama_model_action(payload.ollama_host, payload.model)
+    except Exception as e:
+        return {
+            "status": "failed",
+            "host": payload.ollama_host,
+            "model": payload.model,
+            "message": f"Failed to initiate pull: {str(e)}"
+        }
 
 @app.post("/api/v1/embedding/reembed", dependencies=[Depends(verify_api_key)])
 def reembed_codebase_endpoint(payload: EmbeddingReembedRequest):
