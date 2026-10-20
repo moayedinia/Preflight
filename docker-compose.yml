@@ -235,6 +235,20 @@ services:
           - graphrag_dashboard
     restart: unless-stopped
 
+  ollama:
+    image: dockerhub.ime.co.ir/ollama/ollama:latest
+    container_name: graphrag_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      codegraph_net:
+        aliases:
+          - ollama
+          - graphrag_ollama
+    restart: unless-stopped
+
 networks:
   codegraph_net:
     name: codegraph_net
@@ -242,3 +256,4 @@ networks:
 
 volumes:
   neo4j_data:
+  ollama_models:

@@ -76,7 +76,7 @@ def get_active_ollama_url() -> str:
     if _VERIFIED_WORKING_OLLAMA_URL:
         return _VERIFIED_WORKING_OLLAMA_URL
 
-    configured_url = OLLAMA_BASE_URL
+    configured_url = (OLLAMA_BASE_URL or "").strip()
     port = 11434
     try:
         parsed = urlparse(configured_url)
@@ -86,23 +86,16 @@ def get_active_ollama_url() -> str:
         pass
 
     candidates = []
-    # 1. Configured URL
     if configured_url:
         candidates.append(configured_url)
-    # 2. Known WSL2/Hyper-V host gateway
-    candidates.append(f"http://172.17.80.1:{port}")
-    # 3. Gateway from Linux routing table (Docker container default gateway to host)
+    candidates.append(f"http://ollama:{port}")
+    candidates.append(f"http://graphrag_ollama:{port}")
+    candidates.append(f"http://host.docker.internal:{port}")
     gw_ip = _get_linux_default_gateway()
     if gw_ip:
         candidates.append(f"http://{gw_ip}:{port}")
-    # 4. Standard host adapters
-    candidates.append(f"http://172.26.0.1:{port}")
-    candidates.append(f"http://10.164.1.43:{port}")
-    candidates.append(f"http://host.docker.internal:{port}")
-    candidates.append(f"http://host-gateway:{port}")
-    candidates.append(f"http://172.17.0.1:{port}")
+    candidates.append(f"http://172.17.80.1:{port}")
     candidates.append(f"http://127.0.0.1:{port}")
-    candidates.append(f"http://localhost:{port}")
 
     seen = set()
     for cand in candidates:
@@ -111,17 +104,14 @@ def get_active_ollama_url() -> str:
         seen.add(cand)
         try:
             req = urllib.request.Request(f"{cand}/api/tags", headers={"Accept": "application/json"})
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
+            with urllib.request.urlopen(req, timeout=0.6) as resp:
                 if resp.status == 200:
                     _VERIFIED_WORKING_OLLAMA_URL = cand
-                    if cand != configured_url:
-                        print(f"[Embedder] Connected to Ollama endpoint at {cand} (primary '{configured_url}' deferred).", flush=True)
                     return _VERIFIED_WORKING_OLLAMA_URL
         except Exception:
             continue
 
-    # Fallback to configured URL if all probes fail
-    return configured_url or "http://127.0.0.1:11434"
+    return configured_url or "http://host.docker.internal:11434"
 
 def pull_ollama_model(base_url: str, model_name: str, timeout: int = 300) -> bool:
     """
@@ -550,25 +540,26 @@ def test_ollama_embedding_connection(ollama_host: str = None, model: str = None)
 
     target_model = model or EMBEDDING_MODEL
     
-    models = list_ollama_models(host, timeout=3)
+    models = list_ollama_models(host, timeout=2.5)
     if not models:
-        suggested_msg = f"Cannot connect to Ollama at {host}."
+        suggested_msg = f"Cannot connect to Ollama at {host}. Please verify Ollama is running and accessible."
         try:
             parsed = urlparse(host)
-            if parsed.hostname in ("localhost", "127.0.0.1"):
-                active = get_active_ollama_url()
-                if active and "localhost" not in active and "127.0.0.1" not in active:
-                    suggested_msg += (
-                        f" Note: Inside Docker, 'localhost' refers to the container itself. "
-                        f"Ollama was detected on your host machine at '{active}'! "
-                        f"Please set Host to '{active}' or 'http://host.docker.internal:11434'."
-                    )
-                else:
-                    suggested_msg += (
-                        " Note: Inside Docker, 'localhost' refers to the container itself, not your Windows host. "
-                        "Please use 'http://host.docker.internal:11434' or your host IP (e.g. 'http://172.17.80.1:11434'), "
-                        "and ensure Ollama on Windows is started with OLLAMA_HOST=0.0.0.0."
-                    )
+            hostname = parsed.hostname or ""
+            if hostname in ("localhost", "127.0.0.1"):
+                suggested_msg = (
+                    f"Cannot reach Ollama at {host}. Inside Docker, 'localhost' refers to the container itself, "
+                    "not your host machine! If Ollama is running on your host machine, use "
+                    "'http://host.docker.internal:11434' (or your host IP) and make sure OLLAMA_HOST=0.0.0.0 is set on the host. "
+                    "If running as a Docker container, use 'http://ollama:11434'."
+                )
+            elif "host.docker.internal" in hostname or "host-gateway" in hostname:
+                suggested_msg = (
+                    f"Connection refused at {host}. Ollama was reached on the host, "
+                    "but it rejected the connection because Ollama by default binds only to 127.0.0.1! "
+                    "Solution: On your host machine, set environment variable OLLAMA_HOST=0.0.0.0 and restart Ollama "
+                    "so it accepts incoming requests from Docker."
+                )
         except Exception:
             pass
 

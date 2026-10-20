@@ -2091,13 +2091,13 @@ Waiting for Knowledge Graph execution response...`;
           <div class="flex items-center justify-between mb-1">
             <label class="block text-slate-400">Ollama Server Host IP / URL</label>
             <div class="flex items-center gap-1">
-              <button type="button" onclick="setEmbeddingHostPreset('http://172.17.80.1:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">WSL / Host IP</button>
-              <button type="button" onclick="setEmbeddingHostPreset('http://127.0.0.1:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">127.0.0.1</button>
               <button type="button" onclick="setEmbeddingHostPreset('http://host.docker.internal:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Docker Host</button>
+              <button type="button" onclick="setEmbeddingHostPreset('http://ollama:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Docker Ollama</button>
+              <button type="button" onclick="setEmbeddingHostPreset('http://172.17.80.1:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Host IP</button>
             </div>
           </div>
-          <input id="embedding-ollama-host" type="text" placeholder="http://172.17.80.1:11434" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
-          <p class="text-[10px] text-slate-500 mt-1">Dedicated Ollama IP for Vector DB & Graph embeddings (e.g. <code class="text-cyan-400">http://172.17.80.1:11434</code> or <code class="text-cyan-400">http://127.0.0.1:11434</code>).</p>
+          <input id="embedding-ollama-host" type="text" placeholder="http://host.docker.internal:11434" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+          <p class="text-[10px] text-slate-500 mt-1">Docker to Host: use <code class="text-cyan-400">http://host.docker.internal:11434</code> (requires <code class="text-amber-400">OLLAMA_HOST=0.0.0.0</code> on host). Docker service: <code class="text-cyan-400">http://ollama:11434</code>.</p>
         </div>
 
         <div>
