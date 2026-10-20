@@ -59,11 +59,22 @@ from app.core.reviewer import generate_architectural_code_review
 from app.core.preflight import run_3tier_preflight_evaluation, compile_pure_english_markdown_report, audit_single_tier
 
 
-app = FastAPI(
-    title="Enterprise Code Knowledge Graph & GraphRAG API",
-    description="Automated Git cloning, ZIP extraction, AST ingestion, vector embeddings, GraphRAG retrieval, Code Smells analysis, and PR Review.",
-    version="2.0.0"
-)
+try:
+    import orjson
+    from fastapi.responses import ORJSONResponse
+except ImportError:
+    orjson = None
+    ORJSONResponse = None
+
+app_kwargs = {
+    "title": "Enterprise Code Knowledge Graph & GraphRAG API",
+    "description": "Automated Git cloning, ZIP extraction, AST ingestion, vector embeddings, GraphRAG retrieval, Code Smells analysis, and PR Review.",
+    "version": "2.0.0"
+}
+if orjson is not None and ORJSONResponse is not None:
+    app_kwargs["default_response_class"] = ORJSONResponse
+
+app = FastAPI(**app_kwargs)
 
 # Configure CORS securely from environment
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
