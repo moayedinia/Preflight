@@ -24,8 +24,8 @@
 
 ### Core Platform Capabilities:
 - **Polyglot AST Engine:** Parses diverse programming languages including Python, JavaScript/TypeScript, Go, Java, C, C++, C#, and Rust using Tree-sitter.
-- **Unified Knowledge Graph:** Integrates structural AST hierarchies with 768-dimensional code embeddings in Neo4j.
-- **Dynamic AI Configuration:** Seamlessly connects to local LLM engines (Ollama, vLLM, LM Studio) or enterprise endpoints directly from the UI without service restarts.
+- **Unified Knowledge Graph:** Integrates structural AST hierarchies with 512-dimensional code embeddings in Neo4j.
+- **Dynamic AI Configuration:** Seamlessly connects to local LLM engines (vLLM, LM Studio) or enterprise endpoints directly from the UI without service restarts.
 - **Architecture Health & Code Smell Diagnostics:** Pinpoints circular dependency chains, god functions, bottlenecks, dead code, duplicates (clones), and bug hotspots.
 - **PR Risk & Blast Radius Review:** Evaluates code modifications in pull requests up to 3 hops deep to predict breaking impacts and guide regression testing.
 - **Automated Docstring Generation:** Dispatches asynchronous workers to enrich undocumented functions with standardized docstrings.
@@ -38,10 +38,10 @@
 ### Requirements:
 - **Docker** and **Docker Compose**
 - Minimum 4 GB of available system memory
-- Local **Ollama** instance running with the code embedding model:
-  `jina-embeddings-v2-code:latest`
+- Local or Dockerized **vLLM** instance running with the code embedding model:
+  `jinaai/jina-embeddings-v5-text-small-retrieval`
 
-> This embedding model generates standardized 768-dimensional vectors tailored for programming source code.
+> This embedding model generates standardized 512-dimensional vectors tailored for programming source code.
 
 ### Deployment Commands:
 ```bash
@@ -70,9 +70,9 @@ The platform features six primary operational views:
 
 CodeGraph Brain Enterprise is engineered to operate **100% offline and air-gapped**:
 1. In the web dashboard, click the purple **"LLM Settings"** button in the top navigation bar.
-2. Enter your LLM provider base URL (e.g. for Ollama on the host machine: `http://host.docker.internal:11434/v1`).
+2. Enter your LLM provider base URL (e.g. for vLLM on the host machine: `http://host.docker.internal:8007/v1`).
 3. Enter your model name (e.g. `llama3`, `qwen2.5-coder`, or `mistral`).
-4. Enter an API key if using an enterprise or authenticated provider (optional for local Ollama).
+4. Enter an API key if using an enterprise or authenticated provider (optional for local vLLM).
 5. Click **"Save Settings"**.
 
 *All subsequent operations—including GraphRAG, PR Reviews, and Auto-Doc—will immediately utilize the configured model.*

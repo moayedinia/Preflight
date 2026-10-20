@@ -71,7 +71,7 @@ def normalize_llm_base_url(base_url: str) -> str:
     return _clean_slashes(normalized)
 
 def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
-    """Calls any OpenAI-compatible endpoint (Ollama, vLLM, LMStudio, LocalAI, OpenAI) with auto-fallbacks."""
+    """Calls any OpenAI-compatible endpoint (vLLM, LMStudio, LocalAI, OpenAI) with auto-fallbacks."""
     config = get_llm_config()
     headers = {"Content-Type": "application/json"}
     api_key = (config.get("api_key") or os.getenv("LLM_API_KEY") or "").strip()
@@ -114,23 +114,4 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
                         return data["choices"][0]["message"]["content"].strip()
                 except Exception:
                     pass
-            
-            # Fallback 2: Ollama native endpoint /api/chat
-            root_url = _clean_slashes(re.sub(r'/v1.*$', '', url))
-            ollama_url = f"{root_url}/api/chat"
-            ollama_payload = {
-                "model": config.get("model", ""),
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                "stream": False
-            }
-            try:
-                ol_resp = requests.post(ollama_url, headers=headers, json=ollama_payload, timeout=120)
-                if ol_resp.ok:
-                    data = ol_resp.json()
-                    return data.get("message", {}).get("content", "").strip()
-            except Exception:
-                pass
         raise

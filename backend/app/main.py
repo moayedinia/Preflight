@@ -166,14 +166,15 @@ def healthcheck():
         raise HTTPException(status_code=503, detail=payload)
     return payload
 
-@app.get("/api/v1/ollama/status")
-def check_ollama_status():
+@app.get("/api/v1/vllm/status")
+@app.get("/api/v1/embedding/status")
+def check_vllm_status():
     """
-    Diagnostic Endpoint: Verifies connectivity to the remote/internal Ollama server,
+    Diagnostic Endpoint: Verifies connectivity to the vLLM server,
     retrieves loaded model tags, and validates the Jina embeddings vector generation.
     """
-    from app.core.embedder import verify_ollama_status
-    return verify_ollama_status()
+    from app.core.embedder import verify_vllm_status
+    return verify_vllm_status()
 
 @app.get("/")
 def read_root():
@@ -410,7 +411,7 @@ def chat_rag_endpoint(payload: ChatRequest):
             fallback_msg = (
                 "⚠️ **Language Model (LLM) service is currently unavailable.**\n\n"
                 f"Connection details: `{str(e)}`\n\n"
-                "💡 **Help:** Please verify that Ollama or your local LLM server is running and the host and model name are configured properly in **LLM Config**."
+                "💡 **Help:** Please verify that vLLM or your local LLM server is running and the host and model name are configured properly in **LLM Config**."
             )
             return {"response": fallback_msg, "sources": [], "mode": "direct", "warning": str(e)}
 
@@ -742,15 +743,13 @@ def update_llm_settings(payload: LLMConfigRequest):
 
 # --- DEDICATED vLLM EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
 class EmbeddingConfigRequest(BaseModel):
-    vllm_host: Optional[str] = Field(None, description="vLLM server URL or IP:Port (e.g. http://vllm:8000/v1, http://host.docker.internal:8005/v1)")
-    ollama_host: Optional[str] = Field(None, description="Legacy Ollama server URL")
+    vllm_host: str = Field(..., description="vLLM server URL or IP:Port (e.g. http://vllm:8007/v1, http://host.docker.internal:8007/v1)")
     model: str = Field(..., description="Embedding model name (e.g. jinaai/jina-embeddings-v5-text-small-retrieval)")
     dimension: Optional[int] = Field(512, description="Vector embedding dimension (default 512)")
     allow_fallback: Optional[bool] = Field(False, description="Whether to allow deterministic fallback vectors")
 
 class EmbeddingTestRequest(BaseModel):
     vllm_host: Optional[str] = None
-    ollama_host: Optional[str] = None
     model: Optional[str] = None
 
 class EmbeddingReembedRequest(BaseModel):
@@ -772,14 +771,13 @@ def get_embedding_settings():
 def update_embedding_settings(payload: EmbeddingConfigRequest):
     """Updates dedicated vLLM host IP/URL and embedding model."""
     from app.core.embedder import set_embedding_config, test_vllm_embedding_connection
-    host = payload.vllm_host or payload.ollama_host
     set_embedding_config(
-        vllm_host=host,
+        vllm_host=payload.vllm_host,
         model=payload.model,
         dimension=payload.dimension,
         allow_fallback=payload.allow_fallback
     )
-    test_res = test_vllm_embedding_connection(host, payload.model)
+    test_res = test_vllm_embedding_connection(payload.vllm_host, payload.model)
     return {
         "status": "success",
         "message": "Embedding configuration saved successfully.",
@@ -790,30 +788,14 @@ def update_embedding_settings(payload: EmbeddingConfigRequest):
 def test_embedding_endpoint(payload: EmbeddingTestRequest):
     """Tests connectivity to a specified vLLM host IP and embedding model without saving."""
     from app.core.embedder import test_vllm_embedding_connection
-    host = payload.vllm_host or payload.ollama_host
     try:
-        return test_vllm_embedding_connection(host, payload.model)
+        return test_vllm_embedding_connection(payload.vllm_host, payload.model)
     except Exception as e:
         return {
             "status": "error",
-            "host": host,
+            "host": payload.vllm_host,
             "target_model": payload.model,
             "message": f"Connection test failed: {str(e)}"
-        }
-
-@app.post("/api/v1/embedding/pull", dependencies=[Depends(verify_api_key)])
-def pull_embedding_model_endpoint(payload: EmbeddingTestRequest):
-    """For vLLM, models are loaded at container startup."""
-    from app.core.embedder import pull_ollama_model_action
-    host = payload.vllm_host or payload.ollama_host
-    try:
-        return pull_ollama_model_action(host, payload.model)
-    except Exception as e:
-        return {
-            "status": "failed",
-            "host": host,
-            "model": payload.model,
-            "message": f"Failed to initiate pull: {str(e)}"
         }
 
 @app.post("/api/v1/embedding/reembed", dependencies=[Depends(verify_api_key)])
@@ -947,7 +929,7 @@ def check_llm_status():
             status_info["status"] = "offline"
             status_info["message"] = (
                 f"Could not connect to {base_url}. "
-                "If running inside Docker on Windows/Mac, set OLLAMA_HOST=0.0.0.0 on the host or use your host LAN IP."
+                "If running inside Docker on Windows/Mac, make sure port 8007 is mapped on the host or use your host LAN IP."
             )
     except Exception as e:
         status_info["status"] = "error"

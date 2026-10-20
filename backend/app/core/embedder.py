@@ -25,15 +25,9 @@ def normalize_vllm_base_url(value: str | None) -> str:
     return base
 
 
-def normalize_ollama_base_url(value: str | None) -> str:
-    """Backwards compatibility alias for normalize_vllm_base_url."""
-    return normalize_vllm_base_url(value)
-
-
 VLLM_BASE_URL = normalize_vllm_base_url(
-    os.getenv("VLLM_BASE_URL") or os.getenv("OLLAMA_BASE_URL") or "http://vllm:8000/v1"
+    os.getenv("VLLM_BASE_URL", "http://vllm:8007/v1")
 )
-OLLAMA_BASE_URL = VLLM_BASE_URL
 
 DEFAULT_EMBEDDING_MODEL = os.getenv(
     "EMBEDDING_MODEL", "jinaai/jina-embeddings-v5-text-small-retrieval"
@@ -42,8 +36,6 @@ PREFERRED_EMBEDDING_MODELS = [
     "jinaai/jina-embeddings-v5-text-small-retrieval",
     "jinaai/jina-embeddings-v5-text-small",
     "jinaai/jina-embeddings-v3",
-    "unclemusclez/jina-embeddings-v2-base-code:latest",
-    "unclemusclez/jina-embeddings-v2-base-code",
 ]
 EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "512"))
@@ -90,18 +82,14 @@ def get_active_vllm_url() -> str:
     if configured_url:
         candidates.append(configured_url)
     
-    candidates.append("http://vllm:8000/v1")
-    candidates.append("http://graphrag_vllm:8000/v1")
-    candidates.append("http://host.docker.internal:8005/v1")
-    candidates.append("http://host.docker.internal:8000/v1")
+    candidates.append("http://vllm:8007/v1")
+    candidates.append("http://graphrag_vllm:8007/v1")
+    candidates.append("http://host.docker.internal:8007/v1")
     gw_ip = _get_linux_default_gateway()
     if gw_ip:
-        candidates.append(f"http://{gw_ip}:8005/v1")
-        candidates.append(f"http://{gw_ip}:8000/v1")
-    candidates.append("http://172.17.80.1:8005/v1")
-    candidates.append("http://172.17.80.1:8000/v1")
-    candidates.append("http://127.0.0.1:8005/v1")
-    candidates.append("http://127.0.0.1:8000/v1")
+        candidates.append(f"http://{gw_ip}:8007/v1")
+    candidates.append("http://172.17.80.1:8007/v1")
+    candidates.append("http://127.0.0.1:8007/v1")
 
     seen = set()
     for cand in candidates:
@@ -117,17 +105,13 @@ def get_active_vllm_url() -> str:
         except Exception:
             continue
 
-    return configured_url or "http://vllm:8000/v1"
-
-def get_active_ollama_url() -> str:
-    """Backwards compatibility alias for get_active_vllm_url."""
-    return get_active_vllm_url()
+    return configured_url or "http://vllm:8007/v1"
 
 
 def ensure_embedding_model(base_url: str) -> str:
     """
     Finds the active embedding model on vLLM.
-    vLLM serves models defined at startup. If available, returns the loaded model id.
+    vLLM serves models loaded at startup.
     """
     global _ENSURED_EMBEDDING_MODEL
     if _ENSURED_EMBEDDING_MODEL:
@@ -139,7 +123,6 @@ def ensure_embedding_model(base_url: str) -> str:
             if pref in available:
                 _ENSURED_EMBEDDING_MODEL = pref
                 return pref
-        # Return first available model if any
         _ENSURED_EMBEDDING_MODEL = available[0]
         return available[0]
 
@@ -207,11 +190,6 @@ def list_vllm_models(base_url: str = None, timeout: int = 2) -> list[str]:
         return []
 
 
-def list_ollama_models(base_url: str = None, timeout: int = 2) -> list[str]:
-    """Backwards compatibility alias for list_vllm_models."""
-    return list_vllm_models(base_url, timeout=timeout)
-
-
 def _query_vllm(text: str, model: str, base_url: str, timeout: int = 60) -> tuple[list[float], str]:
     """
     Queries remote/internal vLLM OpenAI-compatible embeddings endpoint:
@@ -231,7 +209,6 @@ def _query_vllm(text: str, model: str, base_url: str, timeout: int = 60) -> tupl
     clean_text = text.replace("\n", " ")[:8000]
     errors = []
 
-    # 1. Primary: OpenAI standard POST {base}/embeddings
     try:
         url = f"{base}/embeddings"
         payload = json.dumps({"model": model, "input": clean_text}, ensure_ascii=False).encode("utf-8")
@@ -254,26 +231,7 @@ def _query_vllm(text: str, model: str, base_url: str, timeout: int = 60) -> tupl
     except Exception as e:
         errors.append(f"/embeddings: {e}")
 
-    # 2. Fallback for potential Ollama server endpoints if user still pointing at Ollama
-    raw_root = base[:-3] if base.endswith("/v1") else base
-    try:
-        url = f"{raw_root}/api/embed"
-        payload = json.dumps({"model": model, "input": clean_text}, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json; charset=utf-8"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            embs = data.get("embeddings")
-            if embs and len(embs) > 0 and len(embs[0]) > 0:
-                return embs[0], ""
-    except Exception:
-        pass
-
     return [], "; ".join(errors)
-
-
-def _query_ollama(text: str, model: str, base_url: str, timeout: int = 60) -> tuple[list[float], str]:
-    """Backwards compatibility alias for _query_vllm."""
-    return _query_vllm(text, model, base_url, timeout=timeout)
 
 
 def _generate_fallback_embedding(text: str, dim: int = None) -> list[float]:
@@ -415,26 +373,20 @@ def verify_vllm_status() -> dict:
     return res
 
 
-def verify_ollama_status() -> dict:
-    """Backwards compatibility alias for verify_vllm_status."""
-    return verify_vllm_status()
-
-
 # --- DEDICATED EMBEDDING ENGINE CONFIGURATION (vLLM / GPU Accelerated) ---
 def _init_saved_embedding_config():
     """Loads saved embedding host and model configuration from Redis if available."""
-    global VLLM_BASE_URL, OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
+    global VLLM_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
     try:
         from app.core.celery import CELERY_BROKER_URL
         import redis
         r = redis.from_url(CELERY_BROKER_URL, decode_responses=True)
-        raw = r.get("codegraph_embedding_config")
+        raw = r.get("codegraph_vllm_config") or r.get("codegraph_embedding_config")
         if raw and isinstance(raw, (str, bytes)):
             cfg = json.loads(raw)
-            host_val = cfg.get("vllm_host") or cfg.get("ollama_host")
+            host_val = cfg.get("vllm_host")
             if host_val:
                 VLLM_BASE_URL = normalize_vllm_base_url(host_val)
-                OLLAMA_BASE_URL = VLLM_BASE_URL
             if cfg.get("model"):
                 EMBEDDING_MODEL = cfg["model"].strip()
             if cfg.get("dimension"):
@@ -451,7 +403,6 @@ def get_embedding_config() -> dict:
     _init_saved_embedding_config()
     return {
         "vllm_host": VLLM_BASE_URL,
-        "ollama_host": VLLM_BASE_URL,
         "model": EMBEDDING_MODEL,
         "dimension": EMBEDDING_DIM,
         "allow_fallback": ALLOW_FAKE_EMBEDDINGS,
@@ -462,17 +413,15 @@ def set_embedding_config(
     vllm_host: str = None,
     model: str = None,
     dimension: int = None,
-    allow_fallback: bool = None,
-    ollama_host: str = None
+    allow_fallback: bool = None
 ):
     """Updates and persists the dedicated vLLM embedding engine configuration."""
-    global VLLM_BASE_URL, OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
-    raw_host = (vllm_host or ollama_host or "").strip()
+    global VLLM_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
+    raw_host = (vllm_host or "").strip()
     if raw_host and "://" not in raw_host:
         raw_host = f"http://{raw_host}"
     clean_host = normalize_vllm_base_url(raw_host) if raw_host else VLLM_BASE_URL
     VLLM_BASE_URL = clean_host
-    OLLAMA_BASE_URL = clean_host
     if model:
         EMBEDDING_MODEL = model.strip()
     if dimension:
@@ -488,20 +437,19 @@ def set_embedding_config(
         r = redis.from_url(CELERY_BROKER_URL, decode_responses=True)
         cfg_data = {
             "vllm_host": VLLM_BASE_URL,
-            "ollama_host": VLLM_BASE_URL,
             "model": EMBEDDING_MODEL,
             "dimension": EMBEDDING_DIM,
             "allow_fallback": ALLOW_FAKE_EMBEDDINGS,
             "provider": "vllm"
         }
-        r.set("codegraph_embedding_config", json.dumps(cfg_data))
+        r.set("codegraph_vllm_config", json.dumps(cfg_data))
     except Exception:
         pass
     return get_embedding_config()
 
-def test_vllm_embedding_connection(vllm_host: str = None, model: str = None, ollama_host: str = None) -> dict:
+def test_vllm_embedding_connection(vllm_host: str = None, model: str = None) -> dict:
     """Directly tests reachability, models list, and embedding generation for a specified vLLM host IP."""
-    raw_host = (vllm_host or ollama_host or VLLM_BASE_URL or get_active_vllm_url() or "").strip()
+    raw_host = (vllm_host or VLLM_BASE_URL or get_active_vllm_url() or "").strip()
     if raw_host and "://" not in raw_host:
         raw_host = f"http://{raw_host}"
 
@@ -513,7 +461,7 @@ def test_vllm_embedding_connection(vllm_host: str = None, model: str = None, oll
             "host": raw_host,
             "target_model": model or EMBEDDING_MODEL,
             "available_models": [],
-            "message": f"Invalid vLLM URL '{raw_host}': {str(e)}. Example: http://vllm:8000/v1 or http://host.docker.internal:8005/v1"
+            "message": f"Invalid vLLM URL '{raw_host}': {str(e)}. Example: http://vllm:8007/v1 or http://host.docker.internal:8007/v1"
         }
 
     target_model = model or EMBEDDING_MODEL
@@ -527,14 +475,14 @@ def test_vllm_embedding_connection(vllm_host: str = None, model: str = None, oll
             if hostname in ("localhost", "127.0.0.1"):
                 suggested_msg = (
                     f"Cannot reach vLLM at {host}. Inside Docker, 'localhost' refers to the container itself, "
-                    "not your host machine! If vLLM is running in Docker Compose, use 'http://vllm:8000/v1'. "
-                    "If running directly on your host machine, use 'http://host.docker.internal:8005/v1'."
+                    "not your host machine! If vLLM is running in Docker Compose, use 'http://vllm:8007/v1'. "
+                    "If running directly on your host machine, use 'http://host.docker.internal:8007/v1'."
                 )
             elif "host.docker.internal" in hostname or "host-gateway" in hostname:
                 suggested_msg = (
                     f"Connection refused at {host}. vLLM was reached on the host, "
-                    "but no service is listening on that port or host firewall blocked it. "
-                    "Make sure vLLM container is running and port is mapped."
+                    "but no service is listening on port 8007 or host firewall blocked it. "
+                    "Make sure vLLM container is running with -p 8007:8007."
                 )
         except Exception:
             pass
@@ -572,17 +520,6 @@ def test_vllm_embedding_connection(vllm_host: str = None, model: str = None, oll
             "error_detail": err or "Failed to generate embedding vector from vLLM.",
             "message": f"Connected to vLLM, but model '{target_model}' returned: {err}"
         }
-
-def test_ollama_embedding_connection(ollama_host: str = None, model: str = None) -> dict:
-    """Backwards compatibility alias for test_vllm_embedding_connection."""
-    return test_vllm_embedding_connection(vllm_host=ollama_host, model=model)
-
-def pull_ollama_model_action(ollama_host: str = None, model: str = None) -> dict:
-    """For vLLM, models are loaded at container startup."""
-    return {
-        "status": "info",
-        "message": "vLLM serves models loaded at container launch. Specify the model in docker-compose command."
-    }
 
 def reembed_graph_entities(repo_name: str = None, force: bool = False) -> dict:
     """

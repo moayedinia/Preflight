@@ -65,15 +65,15 @@ services:
     privileged: true
     ipc: host
     ports:
-      - "${VLLM_PORT:-8005}:8000"
+      - "${VLLM_PORT:-8007}:8007"
     command: >
       jinaai/jina-embeddings-v5-text-small-retrieval
       --trust-remote-code
       --runner pooling
+      --host 0.0.0.0
+      --port 8007
       --tensor-parallel-size 1
       --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION:-0.05}
-      --port 8000
-      --host 0.0.0.0
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
     deploy:
@@ -84,7 +84,7 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/v1/models || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8007/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -127,11 +127,11 @@ services:
       - ALLOWED_REPO_DIR=/app/repos
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8007/v1}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8000/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
@@ -180,11 +180,11 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-RedisSecurePass2026!}@redis:6379/0
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8007/v1}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8000/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
@@ -235,11 +235,11 @@ services:
       - NEO4J_AUTH=${NEO4J_AUTH:-none}
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8007/v1}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8000/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}

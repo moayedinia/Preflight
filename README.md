@@ -31,7 +31,7 @@
 
 Enterprise codebases span millions of lines across diverse programming languages with deeply entangled dependencies. Conventional Large Language Models (LLMs) struggle with architectural reviews and refactoring because they lack full structural awareness and cross-file context, frequently hallucinating or introducing silent regression defects.
 
-**CodeGraph Brain Enterprise** converts entire enterprise software repositories into a unified **Relational and Vector Knowledge Graph (Neo4j)** using **Abstract Syntax Trees (Tree-sitter AST)** and semantic code embeddings. The platform operates 100% locally and offline in air-gapped environments, leveraging local models (such as Hugging Face and Ollama) for embedding and LLM inference.
+**CodeGraph Brain Enterprise** converts entire enterprise software repositories into a unified **Relational and Vector Knowledge Graph (Neo4j)** using **Abstract Syntax Trees (Tree-sitter AST)** and semantic code embeddings. The platform operates 100% locally and offline in air-gapped environments, leveraging local models (such as Hugging Face and vLLM) for embedding and LLM inference.
 
 ---
 
@@ -60,7 +60,7 @@ Enterprise codebases span millions of lines across diverse programming languages
 - 📝 **Auto-Doc Engine:** Dispatches background workers to generate standard docstrings for undocumented functions using local LLMs.
 
 ### 6. Dynamic LLM Configuration (Air-Gapped / Offline)
-- **Zero Vendor Lock-in:** Easily configure your local AI endpoints (`Ollama`, `vLLM`, `LM Studio`) or enterprise models via the web dashboard with custom `Base URL`, `Model Name`, and `API Key`.
+- **Zero Vendor Lock-in:** Easily configure your local AI endpoints (`vLLM`, `LM Studio`) or enterprise models via the web dashboard with custom `Base URL`, `Model Name`, and `API Key`.
 
 ### 7. Full FastMCP Server Integration
 - Built-in Model Context Protocol server over `stdio` enabling AI coding assistants (Cursor, Claude Desktop, Antigravity) to query code graphs using 11 specialized tools.
@@ -73,12 +73,12 @@ Enterprise codebases span millions of lines across diverse programming languages
 flowchart TD
     subgraph Ingestion ["1. Code Ingestion & Parsing"]
         Repo["Git Repository & History"] --> Scanner["Tree-sitter AST & Git Authorship Engine"]
-        Scanner --> Embedder["Hugging Face / Ollama Embedder"]
+        Scanner --> Embedder["Hugging Face / vLLM Embedder"]
     end
 
     subgraph Storage ["2. Neo4j Knowledge Graph"]
         Scanner --> Neo4j[("Neo4j Graph Database")]
-        Embedder --> VectorIndex[("Vector Index (768-dim)")]
+        Embedder --> VectorIndex[("Vector Index (512-dim)")]
         Neo4j <--> VectorIndex
     end
 
@@ -99,7 +99,7 @@ flowchart TD
 
 ## 🛠 Quick Start with Docker
 
-The entire platform is containerized using `docker-compose.yml`. Code embedding extraction is powered by Ollama and the code-specialized model `jina-embeddings-v2-code:latest` (based on `jina-embeddings-v2-base-code`, generating 768-dimensional embeddings).
+The entire platform is containerized using `docker-compose.yml`. Code embedding extraction is powered by vLLM (GPU-accelerated) and the code-specialized model `jinaai/jina-embeddings-v5-text-small-retrieval` (generating 512-dimensional embeddings).
 
 ```bash
 # 1. Clone the repository
