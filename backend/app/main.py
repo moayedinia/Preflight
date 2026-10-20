@@ -740,14 +740,16 @@ def update_llm_settings(payload: LLMConfigRequest):
     clear_llm_status_cache()
     return {"status": "success", "message": "LLM configuration updated successfully."}
 
-# --- DEDICATED OLLAMA EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
+# --- DEDICATED vLLM EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
 class EmbeddingConfigRequest(BaseModel):
-    ollama_host: str = Field(..., description="Ollama server URL or IP:Port (e.g. http://localhost:11434, http://172.17.80.1:11434)")
-    model: str = Field(..., description="Ollama embedding model name (e.g. jina-embeddings-v2-base-code:latest)")
-    dimension: Optional[int] = Field(768, description="Vector embedding dimension (default 768)")
+    vllm_host: Optional[str] = Field(None, description="vLLM server URL or IP:Port (e.g. http://vllm:8000/v1, http://host.docker.internal:8005/v1)")
+    ollama_host: Optional[str] = Field(None, description="Legacy Ollama server URL")
+    model: str = Field(..., description="Embedding model name (e.g. jinaai/jina-embeddings-v5-text-small-retrieval)")
+    dimension: Optional[int] = Field(512, description="Vector embedding dimension (default 512)")
     allow_fallback: Optional[bool] = Field(False, description="Whether to allow deterministic fallback vectors")
 
 class EmbeddingTestRequest(BaseModel):
+    vllm_host: Optional[str] = None
     ollama_host: Optional[str] = None
     model: Optional[str] = None
 
@@ -757,10 +759,10 @@ class EmbeddingReembedRequest(BaseModel):
 
 @app.get("/api/v1/config/embedding", dependencies=[Depends(verify_api_key)])
 def get_embedding_settings():
-    """Returns dedicated Ollama embedding settings and live status."""
-    from app.core.embedder import get_embedding_config, verify_ollama_status
+    """Returns dedicated vLLM embedding settings and live status."""
+    from app.core.embedder import get_embedding_config, verify_vllm_status
     cfg = get_embedding_config()
-    status = verify_ollama_status()
+    status = verify_vllm_status()
     return {
         "config": cfg,
         "status": status
@@ -768,15 +770,16 @@ def get_embedding_settings():
 
 @app.post("/api/v1/config/embedding", dependencies=[Depends(verify_api_key)])
 def update_embedding_settings(payload: EmbeddingConfigRequest):
-    """Updates dedicated Ollama host IP/URL and embedding model."""
-    from app.core.embedder import set_embedding_config, test_ollama_embedding_connection
+    """Updates dedicated vLLM host IP/URL and embedding model."""
+    from app.core.embedder import set_embedding_config, test_vllm_embedding_connection
+    host = payload.vllm_host or payload.ollama_host
     set_embedding_config(
-        ollama_host=payload.ollama_host,
+        vllm_host=host,
         model=payload.model,
         dimension=payload.dimension,
         allow_fallback=payload.allow_fallback
     )
-    test_res = test_ollama_embedding_connection(payload.ollama_host, payload.model)
+    test_res = test_vllm_embedding_connection(host, payload.model)
     return {
         "status": "success",
         "message": "Embedding configuration saved successfully.",
@@ -785,28 +788,30 @@ def update_embedding_settings(payload: EmbeddingConfigRequest):
 
 @app.post("/api/v1/embedding/test", dependencies=[Depends(verify_api_key)])
 def test_embedding_endpoint(payload: EmbeddingTestRequest):
-    """Tests connectivity to a specified Ollama host IP and embedding model without saving."""
-    from app.core.embedder import test_ollama_embedding_connection
+    """Tests connectivity to a specified vLLM host IP and embedding model without saving."""
+    from app.core.embedder import test_vllm_embedding_connection
+    host = payload.vllm_host or payload.ollama_host
     try:
-        return test_ollama_embedding_connection(payload.ollama_host, payload.model)
+        return test_vllm_embedding_connection(host, payload.model)
     except Exception as e:
         return {
             "status": "error",
-            "host": payload.ollama_host,
+            "host": host,
             "target_model": payload.model,
             "message": f"Connection test failed: {str(e)}"
         }
 
 @app.post("/api/v1/embedding/pull", dependencies=[Depends(verify_api_key)])
 def pull_embedding_model_endpoint(payload: EmbeddingTestRequest):
-    """Requests Ollama to pull/download the specified embedding model."""
+    """For vLLM, models are loaded at container startup."""
     from app.core.embedder import pull_ollama_model_action
+    host = payload.vllm_host or payload.ollama_host
     try:
-        return pull_ollama_model_action(payload.ollama_host, payload.model)
+        return pull_ollama_model_action(host, payload.model)
     except Exception as e:
         return {
             "status": "failed",
-            "host": payload.ollama_host,
+            "host": host,
             "model": payload.model,
             "message": f"Failed to initiate pull: {str(e)}"
         }
@@ -820,9 +825,9 @@ def reembed_codebase_endpoint(payload: EmbeddingReembedRequest):
 
 @app.get("/api/v1/embedding/status", dependencies=[Depends(verify_api_key)])
 def get_embedding_status_endpoint():
-    """Returns real-time status of the dedicated Ollama embedding engine."""
-    from app.core.embedder import verify_ollama_status
-    return verify_ollama_status()
+    """Returns real-time status of the dedicated vLLM embedding engine."""
+    from app.core.embedder import verify_vllm_status
+    return verify_vllm_status()
 
 
 class AutoDocRequest(BaseModel):

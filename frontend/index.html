@@ -82,7 +82,7 @@
       if (!host) {
         if (resBox) {
           resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-rose-950/40 text-rose-300 border-rose-800';
-          resBox.innerText = 'Please enter an Ollama Host IP or URL.';
+          resBox.innerText = 'Please enter a vLLM Host IP or URL.';
           resBox.classList.remove('hidden');
         }
         return;
@@ -103,7 +103,7 @@
         const res = await fetch(`${API_BASE}/api/v1/embedding/test`, {
           method: 'POST',
           headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ollama_host: host, model: model })
+          body: JSON.stringify({ vllm_host: host, model: model })
         });
         const data = await res.json();
 
@@ -111,11 +111,11 @@
           resBox.classList.remove('hidden');
           if (data.status === 'connected') {
             resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-emerald-950/40 text-emerald-300 border-emerald-800';
-            resBox.innerHTML = `🟢 <b>Connected to Ollama!</b><br>Host: <code>${escapeHtml(data.host)}</code><br>Model: <code>${escapeHtml(data.target_model)}</code><br>Vector Dimension: <b>${data.detected_dimension}</b>`;
+            resBox.innerHTML = `🟢 <b>Connected to vLLM!</b><br>Host: <code>${escapeHtml(data.host)}</code><br>Model: <code>${escapeHtml(data.target_model)}</code><br>Vector Dimension: <b>${data.detected_dimension}</b>`;
             updateEmbeddingPillStatus(true, data.detected_dimension);
           } else if (data.status === 'model_missing') {
             resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-amber-950/40 text-amber-300 border-amber-800';
-            resBox.innerHTML = `🟠 <b>Ollama is Reachable, but model '${escapeHtml(data.target_model)}' is not installed.</b><br><button type="button" onclick="pullEmbeddingModel('${escapeHtml(host)}', '${escapeHtml(model)}')" class="mt-2 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded font-sans text-xs font-semibold">Download / Pull Model Now</button>`;
+            resBox.innerHTML = `🟠 <b>vLLM is Reachable, but model '${escapeHtml(data.target_model)}' is not loaded.</b><br><span class="text-[10px] text-slate-400">Available: ${escapeHtml((data.available_models || []).join(', '))}</span>`;
           } else {
             resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-rose-950/40 text-rose-300 border-rose-800';
             resBox.innerHTML = `🔴 <b>Connection Failed:</b> ${escapeHtml(data.message || data.error_detail || 'Offline')}`;
@@ -125,7 +125,7 @@
 
         if (chips && data.available_models && data.available_models.length > 0) {
           chips.classList.remove('hidden');
-          chips.innerHTML = `<span class="text-slate-400 text-[10px] w-full block mb-0.5">Installed on Ollama (click to select):</span>` +
+          chips.innerHTML = `<span class="text-slate-400 text-[10px] w-full block mb-0.5">Loaded on vLLM (click to select):</span>` +
             data.available_models.map(m => `
               <button type="button" onclick="setEmbeddingModelPreset('${escapeHtml(m)}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-cyan-900/60 text-slate-300 hover:text-cyan-200 border border-slate-700 text-[10px] font-mono transition">
                 ${escapeHtml(m)}
@@ -170,11 +170,11 @@
     async function saveEmbeddingConfig() {
       let host = (document.getElementById('embedding-ollama-host').value || '').trim();
       const model = (document.getElementById('embedding-model-name').value || '').trim();
-      const dim = parseInt(document.getElementById('embedding-dim').value || 768, 10);
+      const dim = parseInt(document.getElementById('embedding-dim').value || 512, 10);
       const allowFallback = document.getElementById('embedding-allow-fallback').checked;
 
       if (!host) {
-        alert('Please enter an Ollama Host IP or URL.');
+        alert('Please enter a vLLM Host IP or URL.');
         return;
       }
 
@@ -188,6 +188,7 @@
           method: 'POST',
           headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            vllm_host: host,
             ollama_host: host,
             model: model,
             dimension: dim,
@@ -195,7 +196,7 @@
           })
         });
         if (res.ok) {
-          alert('Ollama Embedding Configuration saved successfully!');
+          alert('vLLM Embedding Configuration saved successfully!');
           checkEmbeddingStatus();
           closeEmbeddingConfigModal();
         } else {
@@ -634,10 +635,10 @@ Waiting for Knowledge Graph execution response...`;
         <span id="health-text">Online</span>
       </div>
 
-      <!-- Ollama Embeddings Status (Automated Jina Code 768d) -->
-      <div id="ollama-badge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-300 font-mono transition select-none" title="Automated Jina Code Embeddings (768d) on Ollama">
+      <!-- vLLM Embeddings Status (Automated Jina Code 512d) -->
+      <div id="ollama-badge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-300 font-mono transition select-none" title="Automated Jina Code Embeddings (512d) on vLLM">
         <span id="ollama-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
-        <span id="ollama-text">Jina Code (768d)</span>
+        <span id="ollama-text">vLLM Jina (512d)</span>
       </div>
 
       <!-- API Key Setting -->
@@ -2079,7 +2080,7 @@ Waiting for Knowledge Graph execution response...`;
     <div class="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-6 shadow-2xl space-y-4">
       <div class="flex items-center justify-between pb-3 border-b border-slate-800">
         <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
-          <i data-lucide="binary" class="w-4 h-4 text-cyan-400"></i> Ollama Code Embeddings Engine
+          <i data-lucide="binary" class="w-4 h-4 text-cyan-400"></i> vLLM Code Embeddings Engine (GPU Accelerated)
         </h3>
         <button onclick="closeEmbeddingConfigModal()" class="text-slate-400 hover:text-slate-200">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -2089,33 +2090,33 @@ Waiting for Knowledge Graph execution response...`;
       <div class="space-y-3 text-xs">
         <div>
           <div class="flex items-center justify-between mb-1">
-            <label class="block text-slate-400">Ollama Server Host IP / URL</label>
+            <label class="block text-slate-400">vLLM Server Host IP / URL</label>
             <div class="flex items-center gap-1">
-              <button type="button" onclick="setEmbeddingHostPreset('http://ollama:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 hover:bg-cyan-900 font-mono transition">Docker Ollama (Default)</button>
-              <button type="button" onclick="setEmbeddingHostPreset('http://host.docker.internal:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Docker Host</button>
-              <button type="button" onclick="setEmbeddingHostPreset('http://172.17.80.1:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Host IP</button>
+              <button type="button" onclick="setEmbeddingHostPreset('http://vllm:8000/v1')" class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 hover:bg-cyan-900 font-mono transition">Docker vLLM (Default)</button>
+              <button type="button" onclick="setEmbeddingHostPreset('http://host.docker.internal:8005/v1')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Docker Host (:8005)</button>
+              <button type="button" onclick="setEmbeddingHostPreset('http://172.17.80.1:8005/v1')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Host IP</button>
             </div>
           </div>
-          <input id="embedding-ollama-host" type="text" placeholder="http://ollama:11434" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
-          <p class="text-[10px] text-slate-500 mt-1">Unified Docker Ollama: <code class="text-cyan-400">http://ollama:11434</code> (zero config). External host: <code class="text-slate-400">http://host.docker.internal:11434</code>.</p>
+          <input id="embedding-ollama-host" type="text" placeholder="http://vllm:8000/v1" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+          <p class="text-[10px] text-slate-500 mt-1">Docker Compose vLLM: <code class="text-cyan-400">http://vllm:8000/v1</code>. External/Host port mapped: <code class="text-slate-400">http://host.docker.internal:8005/v1</code>.</p>
         </div>
 
         <div>
           <div class="flex items-center justify-between mb-1">
             <label class="block text-slate-400">Embedding Model Name</label>
             <div class="flex items-center gap-1">
-              <button type="button" onclick="setEmbeddingModelPreset('unclemusclez/jina-embeddings-v2-base-code:latest')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Jina Code</button>
-              <button type="button" onclick="setEmbeddingModelPreset('nomic-embed-text:latest')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Nomic</button>
+              <button type="button" onclick="setEmbeddingModelPreset('jinaai/jina-embeddings-v5-text-small-retrieval')" class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 hover:bg-cyan-900 font-mono transition">Jina v5 Small</button>
+              <button type="button" onclick="setEmbeddingModelPreset('jinaai/jina-embeddings-v3')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Jina v3</button>
             </div>
           </div>
-          <input id="embedding-model-name" type="text" placeholder="unclemusclez/jina-embeddings-v2-base-code:latest" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+          <input id="embedding-model-name" type="text" placeholder="jinaai/jina-embeddings-v5-text-small-retrieval" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
           <div id="embedding-available-models-chips" class="hidden mt-1.5 flex flex-wrap gap-1"></div>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-slate-400 mb-1">Vector Dimension</label>
-            <input id="embedding-dim" type="number" value="768" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+            <input id="embedding-dim" type="number" value="512" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
           </div>
           <div class="flex items-end pb-1.5">
             <label class="flex items-center gap-2 cursor-pointer text-slate-400 text-xs">
@@ -2148,7 +2149,7 @@ Waiting for Knowledge Graph execution response...`;
               <span>Re-embed all (overwrite)</span>
             </label>
           </div>
-          <p class="text-[11px] text-slate-400">Generate or update vector embeddings for all functions and classes in the graph using the configured Ollama server right now.</p>
+          <p class="text-[11px] text-slate-400">Generate or update vector embeddings for all functions and classes in the graph using the configured vLLM server right now.</p>
           <button type="button" id="btn-run-reembed" onclick="triggerReembed()" class="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/40 transition">
             <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
             <span>Generate Embeddings for Codebase Now</span>
@@ -2649,36 +2650,36 @@ asyncio.run(run())`;
         text.innerText = 'Offline';
       }
 
-      // Check Ollama Embeddings Status
+      // Check vLLM Embeddings Status
       try {
         const oBadge = document.getElementById('ollama-badge');
         const oDot = document.getElementById('ollama-dot');
         const oText = document.getElementById('ollama-text');
         if (oBadge) {
           oBadge.classList.remove('hidden');
-          const res = await fetch(`${API_BASE}/api/v1/ollama/status`, { headers: getAuthHeaders() });
+          const res = await fetch(`${API_BASE}/api/v1/embedding/status`, { headers: getAuthHeaders() });
           if (res.ok) {
             const data = await res.json();
             if (data.status === 'connected') {
               oDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
-              oText.innerText = `Jina Code: ${data.detected_dimension || 768}d Active`;
-              oBadge.title = `Ollama Embeddings: Connected to ${data.server_url}\nModel: ${data.target_model} (${data.detected_dimension}d)`;
+              oText.innerText = `vLLM: ${data.detected_dimension || 512}d Active`;
+              oBadge.title = `vLLM Embeddings: Connected to ${data.server_url}\nModel: ${data.target_model} (${data.detected_dimension}d)`;
             } else if (data.status === 'not_configured') {
               oDot.className = 'w-2 h-2 rounded-full bg-amber-400';
               oText.innerText = 'Embeddings: Offline (Fallback)';
-              oBadge.title = 'OLLAMA_BASE_URL is not configured in .env';
+              oBadge.title = 'VLLM_BASE_URL is not configured in .env';
             } else if (data.status === 'offline') {
               oDot.className = 'w-2 h-2 rounded-full bg-amber-400';
-              oText.innerText = 'Embeddings: Fallback Mode';
-              oBadge.title = `Ollama unreachable at ${data.server_url || 'server'}. Using deterministic fallback embeddings.`;
+              oText.innerText = 'Embeddings: Offline / Fallback';
+              oBadge.title = `vLLM unreachable at ${data.server_url || 'server'}.`;
             } else {
               oDot.className = 'w-2 h-2 rounded-full bg-amber-500';
-              oText.innerText = 'Embeddings: In Progress / Offline';
-              oBadge.title = data.error_detail || 'Connecting to Ollama embedding service...';
+              oText.innerText = 'Embeddings: Initializing';
+              oBadge.title = data.error_detail || 'Connecting to vLLM service...';
             }
           } else {
             oDot.className = 'w-2 h-2 rounded-full bg-amber-500';
-            oText.innerText = 'Ollama: Auth / Unavailable';
+            oText.innerText = 'vLLM: Unavailable';
           }
         }
       } catch (e) {

@@ -59,27 +59,41 @@ services:
           - redis_broker
     restart: unless-stopped
 
-  ollama:
-    image: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}ollama/ollama:latest
-    container_name: graphrag_ollama
+  vllm:
+    image: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}vllm/vllm-openai:latest
+    container_name: graphrag_vllm
+    privileged: true
+    ipc: host
     ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+      - "${VLLM_PORT:-8005}:8000"
+    command: >
+      jinaai/jina-embeddings-v5-text-small-retrieval
+      --trust-remote-code
+      --runner pooling
+      --tensor-parallel-size 1
+      --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION:-0.05}
+      --port 8000
+      --host 0.0.0.0
     volumes:
-      - ollama_models:/root/.ollama
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_HOST=0.0.0.0
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
-      interval: 4s
-      timeout: 3s
-      retries: 8
-      start_period: 5s
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
     networks:
       codegraph_net:
         aliases:
-          - ollama
-          - graphrag_ollama
+          - vllm
+          - graphrag_vllm
     restart: unless-stopped
 
   api:
@@ -113,11 +127,11 @@ services:
       - ALLOWED_REPO_DIR=/app/repos
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-unclemusclez/jina-embeddings-v2-base-code:latest}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8000/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
@@ -129,7 +143,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
+      vllm:
         condition: service_healthy
     networks:
       codegraph_net:
@@ -166,11 +180,11 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-RedisSecurePass2026!}@redis:6379/0
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-unclemusclez/jina-embeddings-v2-base-code:latest}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8000/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
@@ -182,7 +196,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
+      vllm:
         condition: service_healthy
       api:
         condition: service_started
@@ -221,11 +235,11 @@ services:
       - NEO4J_AUTH=${NEO4J_AUTH:-none}
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-unclemusclez/jina-embeddings-v2-base-code:latest}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
       - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434/v1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8000/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
@@ -237,7 +251,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
+      vllm:
         condition: service_healthy
     networks:
       codegraph_net:
@@ -271,4 +285,3 @@ networks:
 
 volumes:
   neo4j_data:
-  ollama_models:

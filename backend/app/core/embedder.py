@@ -12,38 +12,47 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def normalize_ollama_base_url(value: str | None) -> str:
-    """Return the Ollama server root (native API base, without /v1)."""
+def normalize_vllm_base_url(value: str | None) -> str:
+    """Return the vLLM OpenAI-compatible API base URL (ensuring /v1 suffix)."""
     base = (value or "").strip().rstrip("/")
-    if base.endswith("/v1"):
-        base = base[:-3].rstrip("/")
-    if base:
-        parsed = urlparse(base)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError(f"Invalid OLLAMA_BASE_URL: {value!r}")
+    if not base:
+        return ""
+    if not base.endswith("/v1"):
+        base = f"{base}/v1"
+    parsed = urlparse(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"Invalid VLLM_BASE_URL: {value!r}")
     return base
 
 
-OLLAMA_BASE_URL = normalize_ollama_base_url(
-    os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+def normalize_ollama_base_url(value: str | None) -> str:
+    """Backwards compatibility alias for normalize_vllm_base_url."""
+    return normalize_vllm_base_url(value)
+
+
+VLLM_BASE_URL = normalize_vllm_base_url(
+    os.getenv("VLLM_BASE_URL") or os.getenv("OLLAMA_BASE_URL") or "http://vllm:8000/v1"
 )
-DEFAULT_EMBEDDING_MODEL = "unclemusclez/jina-embeddings-v2-base-code:latest"
+OLLAMA_BASE_URL = VLLM_BASE_URL
+
+DEFAULT_EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL", "jinaai/jina-embeddings-v5-text-small-retrieval"
+)
 PREFERRED_EMBEDDING_MODELS = [
+    "jinaai/jina-embeddings-v5-text-small-retrieval",
+    "jinaai/jina-embeddings-v5-text-small",
+    "jinaai/jina-embeddings-v3",
     "unclemusclez/jina-embeddings-v2-base-code:latest",
     "unclemusclez/jina-embeddings-v2-base-code",
-    "jina-embeddings-v2-base-code:latest",
-    "jina-embeddings-v2-base-code",
-    "jina-embeddings-v2-code:latest",
-    "jina-embeddings-v2-code",
 ]
 EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "512"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ALLOW_FAKE_EMBEDDINGS = _as_bool(os.getenv("ALLOW_FAKE_EMBEDDINGS"), default=False)
 
 _STATUS_CACHE: dict = {"timestamp": 0, "result": None}
 _LAST_LOGGED_ERROR: str | None = None
-_VERIFIED_WORKING_OLLAMA_URL: str | None = None
+_VERIFIED_WORKING_VLLM_URL: str | None = None
 _ENSURED_EMBEDDING_MODEL: str | None = None
 
 def _get_linux_default_gateway() -> str | None:
@@ -61,41 +70,38 @@ def _get_linux_default_gateway() -> str | None:
 
 def clear_embedder_cache():
     """Invalidates the health/status check and verified endpoint cache."""
-    global _STATUS_CACHE, _LAST_LOGGED_ERROR, _VERIFIED_WORKING_OLLAMA_URL, _ENSURED_EMBEDDING_MODEL
+    global _STATUS_CACHE, _LAST_LOGGED_ERROR, _VERIFIED_WORKING_VLLM_URL, _ENSURED_EMBEDDING_MODEL
     _STATUS_CACHE = {"timestamp": 0, "result": None}
     _LAST_LOGGED_ERROR = None
-    _VERIFIED_WORKING_OLLAMA_URL = None
+    _VERIFIED_WORKING_VLLM_URL = None
     _ENSURED_EMBEDDING_MODEL = None
 
-def get_active_ollama_url() -> str:
+def get_active_vllm_url() -> str:
     """
-    Returns the verified reachable Ollama URL for code embeddings.
-    Dedicated exclusively to embedding operations (not mutated by chat LLM settings).
+    Returns the verified reachable vLLM base URL (/v1) for code embeddings.
+    Dedicated exclusively to embedding operations.
     """
-    global _VERIFIED_WORKING_OLLAMA_URL
-    if _VERIFIED_WORKING_OLLAMA_URL:
-        return _VERIFIED_WORKING_OLLAMA_URL
+    global _VERIFIED_WORKING_VLLM_URL
+    if _VERIFIED_WORKING_VLLM_URL:
+        return _VERIFIED_WORKING_VLLM_URL
 
-    configured_url = (OLLAMA_BASE_URL or "").strip()
-    port = 11434
-    try:
-        parsed = urlparse(configured_url)
-        if parsed.port:
-            port = parsed.port
-    except Exception:
-        pass
-
+    configured_url = (VLLM_BASE_URL or "").strip()
     candidates = []
     if configured_url:
         candidates.append(configured_url)
-    candidates.append(f"http://ollama:{port}")
-    candidates.append(f"http://graphrag_ollama:{port}")
-    candidates.append(f"http://host.docker.internal:{port}")
+    
+    candidates.append("http://vllm:8000/v1")
+    candidates.append("http://graphrag_vllm:8000/v1")
+    candidates.append("http://host.docker.internal:8005/v1")
+    candidates.append("http://host.docker.internal:8000/v1")
     gw_ip = _get_linux_default_gateway()
     if gw_ip:
-        candidates.append(f"http://{gw_ip}:{port}")
-    candidates.append(f"http://172.17.80.1:{port}")
-    candidates.append(f"http://127.0.0.1:{port}")
+        candidates.append(f"http://{gw_ip}:8005/v1")
+        candidates.append(f"http://{gw_ip}:8000/v1")
+    candidates.append("http://172.17.80.1:8005/v1")
+    candidates.append("http://172.17.80.1:8000/v1")
+    candidates.append("http://127.0.0.1:8005/v1")
+    candidates.append("http://127.0.0.1:8000/v1")
 
     seen = set()
     for cand in candidates:
@@ -103,101 +109,71 @@ def get_active_ollama_url() -> str:
             continue
         seen.add(cand)
         try:
-            req = urllib.request.Request(f"{cand}/api/tags", headers={"Accept": "application/json"})
+            req = urllib.request.Request(f"{cand}/models", headers={"Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=0.6) as resp:
                 if resp.status == 200:
-                    _VERIFIED_WORKING_OLLAMA_URL = cand
-                    return _VERIFIED_WORKING_OLLAMA_URL
+                    _VERIFIED_WORKING_VLLM_URL = cand
+                    return _VERIFIED_WORKING_VLLM_URL
         except Exception:
             continue
 
-    return configured_url or "http://host.docker.internal:11434"
+    return configured_url or "http://vllm:8000/v1"
 
-def pull_ollama_model(base_url: str, model_name: str, timeout: int = 300) -> bool:
-    """
-    Requests Ollama to pull/download the specified model from the Ollama library.
-    POST /api/pull with {"name": model_name, "stream": false}.
-    """
-    base = normalize_ollama_base_url(base_url)
-    if not base:
-        return False
-    url = f"{base}/api/pull"
-    payload = json.dumps({"name": model_name, "stream": False}).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={"Content-Type": "application/json; charset=utf-8"}
-    )
-    print(f"[Embedder] Requesting Ollama at {base} to pull model '{model_name}'...", flush=True)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if data.get("status") == "success" or "success" in str(data).lower():
-                print(f"[Embedder] Successfully pulled model '{model_name}' on Ollama.", flush=True)
-                return True
-            print(f"[Embedder] Ollama pull status: {data}", flush=True)
-            return True
-    except Exception as e:
-        print(f"[Embedder Notice] Ollama pull request for '{model_name}' encountered: {e}", flush=True)
-        return False
+def get_active_ollama_url() -> str:
+    """Backwards compatibility alias for get_active_vllm_url."""
+    return get_active_vllm_url()
+
 
 def ensure_embedding_model(base_url: str) -> str:
     """
-    Finds the active Jina code embedding model on Ollama.
-    If none is found, initiates an automatic pull of DEFAULT_EMBEDDING_MODEL.
+    Finds the active embedding model on vLLM.
+    vLLM serves models defined at startup. If available, returns the loaded model id.
     """
     global _ENSURED_EMBEDDING_MODEL
     if _ENSURED_EMBEDDING_MODEL:
         return _ENSURED_EMBEDDING_MODEL
 
-    available = list_ollama_models(base_url, timeout=2)
+    available = list_vllm_models(base_url, timeout=2)
     if available:
         for pref in PREFERRED_EMBEDDING_MODELS:
             if pref in available:
                 _ENSURED_EMBEDDING_MODEL = pref
                 return pref
-        for m in available:
-            low = m.lower()
-            if "jina" in low and ("code" in low or "embed" in low):
-                _ENSURED_EMBEDDING_MODEL = m
-                return m
-
-    # Not installed on Ollama -> Request Ollama to pull default model
-    if base_url:
-        print(f"[Embedder] Embedding model not detected on Ollama. Triggering auto-pull for '{DEFAULT_EMBEDDING_MODEL}'...", flush=True)
-        if pull_ollama_model(base_url, DEFAULT_EMBEDDING_MODEL, timeout=180):
-            _ENSURED_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
-            return DEFAULT_EMBEDDING_MODEL
+        # Return first available model if any
+        _ENSURED_EMBEDDING_MODEL = available[0]
+        return available[0]
 
     _ENSURED_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
     return DEFAULT_EMBEDDING_MODEL
+
 
 class EmbeddingError(RuntimeError):
     """Raised when a real embedding cannot be produced safely."""
 
 
 def validate_embedding_model_name(model: str) -> str:
-    """Reject rerankers early: Ollama's embedding endpoint requires an embedding model."""
+    """Reject rerankers early: Embedding endpoint requires an embedding model."""
     normalized = (model or "").strip()
     if not normalized:
         raise EmbeddingError("EMBEDDING_MODEL is empty.")
     if "rerank" in normalized.lower():
         raise EmbeddingError(
             f"'{normalized}' is a reranker, not an embedding model. Use "
-            f"'{DEFAULT_EMBEDDING_MODEL}' for jina-embeddings-v2-code on Ollama."
+            f"'{DEFAULT_EMBEDDING_MODEL}' for vLLM embeddings."
         )
     return normalized
 
+
 client = None
-if OLLAMA_BASE_URL:
+if VLLM_BASE_URL:
     try:
         from openai import OpenAI
         client = OpenAI(
-            base_url=f"{OLLAMA_BASE_URL.rstrip('/')}/v1",
-            api_key="ollama"
+            base_url=VLLM_BASE_URL,
+            api_key=os.getenv("VLLM_API_KEY", "EMPTY")
         )
     except Exception as e:
-        print(f"Notice: Could not initialize Ollama OpenAI-compatible client: {e}")
+        print(f"Notice: Could not initialize vLLM OpenAI-compatible client: {e}")
 elif OPENAI_API_KEY:
     try:
         from openai import OpenAI
@@ -205,45 +181,83 @@ elif OPENAI_API_KEY:
     except Exception as e:
         print(f"Notice: Could not initialize OpenAI client: {e}")
 
-def list_ollama_models(base_url: str = None, timeout: int = 2) -> list[str]:
-    """Fetches list of available model tags with fast timeout and suppressed repeated error spam."""
+
+def list_vllm_models(base_url: str = None, timeout: int = 2) -> list[str]:
+    """Fetches list of available models from vLLM GET /v1/models."""
     global _LAST_LOGGED_ERROR
-    target_url = (base_url or get_active_ollama_url() or "").rstrip('/')
+    target_url = (base_url or get_active_vllm_url() or "").rstrip('/')
     if not target_url or not target_url.startswith("http"):
         return []
     try:
-        req = urllib.request.Request(f"{target_url}/api/tags", headers={"Accept": "application/json"})
+        req = urllib.request.Request(f"{target_url}/models", headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             _LAST_LOGGED_ERROR = None
-            return [m.get("name") for m in data.get("models", []) if m.get("name")]
+            models = []
+            for item in data.get("data", []):
+                mid = item.get("id")
+                if mid:
+                    models.append(mid)
+            return models
     except Exception as e:
         err_msg = str(e)
         if _LAST_LOGGED_ERROR != err_msg:
-            print(f"Notice: Ollama not reachable at {target_url} ({err_msg}). Switching to fallback mode.")
+            print(f"Notice: vLLM not reachable at {target_url} ({err_msg}).")
             _LAST_LOGGED_ERROR = err_msg
         return []
 
-def _query_ollama(text: str, model: str, base_url: str, timeout: int = 60) -> tuple[list[float], str]:
 
+def list_ollama_models(base_url: str = None, timeout: int = 2) -> list[str]:
+    """Backwards compatibility alias for list_vllm_models."""
+    return list_vllm_models(base_url, timeout=timeout)
+
+
+def _query_vllm(text: str, model: str, base_url: str, timeout: int = 60) -> tuple[list[float], str]:
     """
-    Queries remote/internal Ollama server across standard embedding endpoints:
-    1. /api/embed (Modern Ollama >= 0.1.44)
-    2. /api/embeddings (Ollama legacy endpoint)
-    3. /v1/embeddings (OpenAI-compatible Ollama endpoint)
+    Queries remote/internal vLLM OpenAI-compatible embeddings endpoint:
+    POST {base_url}/embeddings with {"model": model, "input": text}
     Returns: (embedding_vector, last_error_message)
     """
-    base = normalize_ollama_base_url(base_url)
+    try:
+        base = normalize_vllm_base_url(base_url)
+    except Exception as e:
+        return [], str(e)
+
     try:
         model = validate_embedding_model_name(model)
     except EmbeddingError as exc:
         return [], str(exc)
+
     clean_text = text.replace("\n", " ")[:8000]
     errors = []
 
-    # 1. Try modern /api/embed
+    # 1. Primary: OpenAI standard POST {base}/embeddings
     try:
-        url = f"{base}/api/embed"
+        url = f"{base}/embeddings"
+        payload = json.dumps({"model": model, "input": clean_text}, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json; charset=utf-8", "Authorization": "Bearer EMPTY"}
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            data_arr = data.get("data", [])
+            if data_arr and "embedding" in data_arr[0]:
+                return data_arr[0]["embedding"], ""
+    except urllib.error.HTTPError as he:
+        try:
+            err_body = he.read().decode('utf-8')
+            errors.append(f"/embeddings: HTTP {he.code} - {err_body}")
+        except Exception:
+            errors.append(f"/embeddings: HTTP {he.code}")
+    except Exception as e:
+        errors.append(f"/embeddings: {e}")
+
+    # 2. Fallback for potential Ollama server endpoints if user still pointing at Ollama
+    raw_root = base[:-3] if base.endswith("/v1") else base
+    try:
+        url = f"{raw_root}/api/embed"
         payload = json.dumps({"model": model, "input": clean_text}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json; charset=utf-8"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -251,71 +265,16 @@ def _query_ollama(text: str, model: str, base_url: str, timeout: int = 60) -> tu
             embs = data.get("embeddings")
             if embs and len(embs) > 0 and len(embs[0]) > 0:
                 return embs[0], ""
-    except urllib.error.HTTPError as he:
-        try:
-            errors.append(f"/api/embed: HTTP {he.code} - {he.read().decode('utf-8')}")
-        except Exception:
-            errors.append(f"/api/embed: HTTP {he.code}")
-    except Exception as e:
-        errors.append(f"/api/embed: {e}")
-
-    # 2. Try legacy /api/embeddings
-    try:
-        url = f"{base}/api/embeddings"
-        payload = json.dumps({"model": model, "prompt": clean_text}, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json; charset=utf-8"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            emb = data.get("embedding")
-            if emb and len(emb) > 0:
-                return emb, ""
-    except urllib.error.HTTPError as he:
-        try:
-            errors.append(f"/api/embeddings: HTTP {he.code} - {he.read().decode('utf-8')}")
-        except Exception:
-            errors.append(f"/api/embeddings: HTTP {he.code}")
-    except Exception as e:
-        errors.append(f"/api/embeddings: {e}")
-
-    # 3. Try /v1/embeddings (OpenAI format on Ollama)
-    try:
-        url = f"{base}/v1/embeddings"
-        payload = json.dumps({"model": model, "input": clean_text}, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json; charset=utf-8", "Authorization": "Bearer ollama"}
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            data_arr = data.get("data", [])
-            if data_arr and "embedding" in data_arr[0]:
-                return data_arr[0]["embedding"], ""
-    except Exception as e:
-        errors.append(f"/v1/embeddings: {e}")
-
-    # If the model failed with 404 / not found, try to auto-detect matching available model or auto-pull on Ollama
-    if any("not found" in str(err).lower() for err in errors):
-        try:
-            available = list_ollama_models(base, timeout=2)
-            matched = None
-            if available:
-                for cand in available:
-                    if any(token in cand.lower() for token in ["jina", "embed", "code"]):
-                        matched = cand
-                        break
-            if matched and matched != model:
-                print(f"[Embedder] Model '{model}' not found on Ollama. Auto-fallback to available model '{matched}'.", flush=True)
-                return _query_ollama(text, matched, base_url, timeout=timeout)
-            
-            # Trigger auto-pull of default embedding model
-            print(f"[Embedder] Embedding model not installed on Ollama. Initiating auto-pull of '{DEFAULT_EMBEDDING_MODEL}'...", flush=True)
-            if pull_ollama_model(base, DEFAULT_EMBEDDING_MODEL, timeout=180):
-                return _query_ollama(text, DEFAULT_EMBEDDING_MODEL, base_url, timeout=timeout)
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     return [], "; ".join(errors)
+
+
+def _query_ollama(text: str, model: str, base_url: str, timeout: int = 60) -> tuple[list[float], str]:
+    """Backwards compatibility alias for _query_vllm."""
+    return _query_vllm(text, model, base_url, timeout=timeout)
+
 
 def _generate_fallback_embedding(text: str, dim: int = None) -> list[float]:
     """Generates a deterministic pseudo-random normalized vector for offline/mock mode."""
@@ -328,10 +287,11 @@ def _generate_fallback_embedding(text: str, dim: int = None) -> list[float]:
         vec = vec / norm
     return vec.tolist()
 
+
 def get_embedding(text: str, model: str = None) -> list[float]:
     """
     Generates a vector embedding for code snippet or text using:
-    1. Ollama (jina-embeddings-v2-base-code) on remote/internal server with auto-discovery and auto-pull.
+    1. vLLM (jinaai/jina-embeddings-v5-text-small-retrieval) with pooling runner.
     2. OpenAI (text-embedding-3-small) if OPENAI_API_KEY is set.
     3. Optional deterministic test vectors only when ALLOW_FAKE_EMBEDDINGS=true.
     """
@@ -339,26 +299,26 @@ def get_embedding(text: str, model: str = None) -> list[float]:
         return [0.0] * EMBEDDING_DIM
 
     clean_text = text.replace("\n", " ")[:8000]
-    active_url = get_active_ollama_url()
+    active_url = get_active_vllm_url()
     target_model = model or (ensure_embedding_model(active_url) if active_url else DEFAULT_EMBEDDING_MODEL)
     target_model = validate_embedding_model_name(target_model)
 
-    # 1. Ollama
+    # 1. vLLM
     if active_url:
-        emb, err = _query_ollama(clean_text, target_model, active_url)
+        emb, err = _query_vllm(clean_text, target_model, active_url)
         if emb:
             if len(emb) != EMBEDDING_DIM:
                 raise EmbeddingError(
                     f"Embedding dimension mismatch for '{target_model}': "
-                    f"Ollama returned {len(emb)}, but EMBEDDING_DIM={EMBEDDING_DIM}. "
+                    f"vLLM returned {len(emb)}, but EMBEDDING_DIM={EMBEDDING_DIM}. "
                     "Update EMBEDDING_DIM and recreate/re-index the vector data."
                 )
             return emb
         if ALLOW_FAKE_EMBEDDINGS:
-            print(f"[Embedder] Ollama query failed: {err}. ALLOW_FAKE_EMBEDDINGS is enabled; using a deterministic test vector.")
+            print(f"[Embedder] vLLM query failed: {err}. ALLOW_FAKE_EMBEDDINGS is enabled; using a deterministic test vector.")
             return _generate_fallback_embedding(clean_text, EMBEDDING_DIM)
         raise EmbeddingError(
-            f"Ollama embedding failed for '{target_model}' at '{active_url}': {err}"
+            f"vLLM embedding failed for '{target_model}' at '{active_url}': {err}"
         )
 
     # 2. OpenAI
@@ -379,14 +339,14 @@ def get_embedding(text: str, model: str = None) -> list[float]:
 
 def validate_embedding_configuration(timeout: int = 5) -> int:
     """Verify provider reachability, model availability, and vector dimension with quick timeout."""
-    active_url = get_active_ollama_url()
+    active_url = get_active_vllm_url()
     if not active_url:
         if ALLOW_FAKE_EMBEDDINGS:
             return EMBEDDING_DIM
-        raise EmbeddingError("OLLAMA_BASE_URL is not configured.")
+        raise EmbeddingError("VLLM_BASE_URL is not configured.")
 
     effective_model = ensure_embedding_model(active_url)
-    vector, err = _query_ollama("code graph embedding health check", effective_model, active_url, timeout=timeout)
+    vector, err = _query_vllm("code graph embedding health check", effective_model, active_url, timeout=timeout)
     if not vector:
         raise EmbeddingError(
             f"Cannot initialize embeddings from '{active_url}' using "
@@ -399,11 +359,12 @@ def validate_embedding_configuration(timeout: int = 5) -> int:
         )
     return EMBEDDING_DIM
 
-def verify_ollama_status() -> dict:
+
+def verify_vllm_status() -> dict:
     """
-    Diagnostic tool to verify connectivity to the remote/internal Ollama server,
+    Diagnostic tool to verify connectivity to the vLLM server,
     check model availability, and validate embedding output & dimension.
-    Caches result for 15 seconds to prevent hammering sockets or blocking worker threads.
+    Caches result for 15 seconds to prevent hammering sockets.
     """
     import time
     global _STATUS_CACHE
@@ -411,11 +372,11 @@ def verify_ollama_status() -> dict:
     if _STATUS_CACHE.get("result") and (now - _STATUS_CACHE.get("timestamp", 0)) < 15:
         return _STATUS_CACHE["result"]
 
-    active_url = get_active_ollama_url()
+    active_url = get_active_vllm_url()
     if not active_url:
         res = {
             "status": "not_configured",
-            "message": "Ollama base URL is not configured.",
+            "message": "vLLM base URL is not configured.",
             "server_url": None,
             "target_model": DEFAULT_EMBEDDING_MODEL,
             "available_models": []
@@ -424,8 +385,8 @@ def verify_ollama_status() -> dict:
         return res
 
     effective_model = ensure_embedding_model(active_url)
-    available_models = list_ollama_models(active_url, timeout=2)
-    test_vec, err = _query_ollama("test code embedding", effective_model, active_url, timeout=4)
+    available_models = list_vllm_models(active_url, timeout=2)
+    test_vec, err = _query_vllm("test code embedding", effective_model, active_url, timeout=4)
 
     if test_vec:
         dimension_matches = len(test_vec) == EMBEDDING_DIM
@@ -447,18 +408,22 @@ def verify_ollama_status() -> dict:
             "target_model": effective_model,
             "configured_dimension": EMBEDDING_DIM,
             "available_models": available_models,
-            "error_detail": err or "Ollama server is offline or unreachable."
+            "error_detail": err or "vLLM server is offline or unreachable."
         }
 
     _STATUS_CACHE = {"timestamp": now, "result": res}
     return res
 
 
+def verify_ollama_status() -> dict:
+    """Backwards compatibility alias for verify_vllm_status."""
+    return verify_vllm_status()
 
-# --- DEDICATED EMBEDDING ENGINE CONFIGURATION (Completely Decoupled from Chat LLM) ---
+
+# --- DEDICATED EMBEDDING ENGINE CONFIGURATION (vLLM / GPU Accelerated) ---
 def _init_saved_embedding_config():
     """Loads saved embedding host and model configuration from Redis if available."""
-    global OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
+    global VLLM_BASE_URL, OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
     try:
         from app.core.celery import CELERY_BROKER_URL
         import redis
@@ -466,8 +431,10 @@ def _init_saved_embedding_config():
         raw = r.get("codegraph_embedding_config")
         if raw and isinstance(raw, (str, bytes)):
             cfg = json.loads(raw)
-            if cfg.get("ollama_host"):
-                OLLAMA_BASE_URL = normalize_ollama_base_url(cfg["ollama_host"])
+            host_val = cfg.get("vllm_host") or cfg.get("ollama_host")
+            if host_val:
+                VLLM_BASE_URL = normalize_vllm_base_url(host_val)
+                OLLAMA_BASE_URL = VLLM_BASE_URL
             if cfg.get("model"):
                 EMBEDDING_MODEL = cfg["model"].strip()
             if cfg.get("dimension"):
@@ -480,22 +447,31 @@ def _init_saved_embedding_config():
 _init_saved_embedding_config()
 
 def get_embedding_config() -> dict:
-    """Returns the dedicated Ollama embedding engine configuration."""
+    """Returns the dedicated vLLM embedding engine configuration."""
     _init_saved_embedding_config()
     return {
-        "ollama_host": OLLAMA_BASE_URL,
+        "vllm_host": VLLM_BASE_URL,
+        "ollama_host": VLLM_BASE_URL,
         "model": EMBEDDING_MODEL,
         "dimension": EMBEDDING_DIM,
-        "allow_fallback": ALLOW_FAKE_EMBEDDINGS
+        "allow_fallback": ALLOW_FAKE_EMBEDDINGS,
+        "provider": "vllm"
     }
 
-def set_embedding_config(ollama_host: str, model: str, dimension: int = None, allow_fallback: bool = None):
-    """Updates and persists the dedicated Ollama embedding engine configuration."""
-    global OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
-    raw_host = (ollama_host or "").strip()
+def set_embedding_config(
+    vllm_host: str = None,
+    model: str = None,
+    dimension: int = None,
+    allow_fallback: bool = None,
+    ollama_host: str = None
+):
+    """Updates and persists the dedicated vLLM embedding engine configuration."""
+    global VLLM_BASE_URL, OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
+    raw_host = (vllm_host or ollama_host or "").strip()
     if raw_host and "://" not in raw_host:
         raw_host = f"http://{raw_host}"
-    clean_host = normalize_ollama_base_url(raw_host)
+    clean_host = normalize_vllm_base_url(raw_host) if raw_host else VLLM_BASE_URL
+    VLLM_BASE_URL = clean_host
     OLLAMA_BASE_URL = clean_host
     if model:
         EMBEDDING_MODEL = model.strip()
@@ -511,54 +487,54 @@ def set_embedding_config(ollama_host: str, model: str, dimension: int = None, al
         import redis
         r = redis.from_url(CELERY_BROKER_URL, decode_responses=True)
         cfg_data = {
-            "ollama_host": OLLAMA_BASE_URL,
+            "vllm_host": VLLM_BASE_URL,
+            "ollama_host": VLLM_BASE_URL,
             "model": EMBEDDING_MODEL,
             "dimension": EMBEDDING_DIM,
-            "allow_fallback": ALLOW_FAKE_EMBEDDINGS
+            "allow_fallback": ALLOW_FAKE_EMBEDDINGS,
+            "provider": "vllm"
         }
         r.set("codegraph_embedding_config", json.dumps(cfg_data))
     except Exception:
         pass
     return get_embedding_config()
 
-def test_ollama_embedding_connection(ollama_host: str = None, model: str = None) -> dict:
-    """Directly tests reachability, models list, and embedding generation for a specified Ollama host IP."""
-    raw_host = (ollama_host or OLLAMA_BASE_URL or get_active_ollama_url() or "").strip()
+def test_vllm_embedding_connection(vllm_host: str = None, model: str = None, ollama_host: str = None) -> dict:
+    """Directly tests reachability, models list, and embedding generation for a specified vLLM host IP."""
+    raw_host = (vllm_host or ollama_host or VLLM_BASE_URL or get_active_vllm_url() or "").strip()
     if raw_host and "://" not in raw_host:
         raw_host = f"http://{raw_host}"
 
     try:
-        host = normalize_ollama_base_url(raw_host)
+        host = normalize_vllm_base_url(raw_host)
     except Exception as e:
         return {
             "status": "error",
             "host": raw_host,
             "target_model": model or EMBEDDING_MODEL,
             "available_models": [],
-            "message": f"Invalid Ollama URL '{ollama_host}': {str(e)}. Example: http://172.17.80.1:11434 or http://host.docker.internal:11434"
+            "message": f"Invalid vLLM URL '{raw_host}': {str(e)}. Example: http://vllm:8000/v1 or http://host.docker.internal:8005/v1"
         }
 
     target_model = model or EMBEDDING_MODEL
     
-    models = list_ollama_models(host, timeout=2.5)
+    models = list_vllm_models(host, timeout=3.0)
     if not models:
-        suggested_msg = f"Cannot connect to Ollama at {host}. Please verify Ollama is running and accessible."
+        suggested_msg = f"Cannot connect to vLLM at {host}. Please verify vLLM is running and accessible."
         try:
             parsed = urlparse(host)
             hostname = parsed.hostname or ""
             if hostname in ("localhost", "127.0.0.1"):
                 suggested_msg = (
-                    f"Cannot reach Ollama at {host}. Inside Docker, 'localhost' refers to the container itself, "
-                    "not your host machine! If Ollama is running on your host machine, use "
-                    "'http://host.docker.internal:11434' (or your host IP) and make sure OLLAMA_HOST=0.0.0.0 is set on the host. "
-                    "If running as a Docker container, use 'http://ollama:11434'."
+                    f"Cannot reach vLLM at {host}. Inside Docker, 'localhost' refers to the container itself, "
+                    "not your host machine! If vLLM is running in Docker Compose, use 'http://vllm:8000/v1'. "
+                    "If running directly on your host machine, use 'http://host.docker.internal:8005/v1'."
                 )
             elif "host.docker.internal" in hostname or "host-gateway" in hostname:
                 suggested_msg = (
-                    f"Connection refused at {host}. Ollama was reached on the host, "
-                    "but it rejected the connection because Ollama by default binds only to 127.0.0.1! "
-                    "Solution: On your host machine, set environment variable OLLAMA_HOST=0.0.0.0 and restart Ollama "
-                    "so it accepts incoming requests from Docker."
+                    f"Connection refused at {host}. vLLM was reached on the host, "
+                    "but no service is listening on that port or host firewall blocked it. "
+                    "Make sure vLLM container is running and port is mapped."
                 )
         except Exception:
             pass
@@ -571,9 +547,9 @@ def test_ollama_embedding_connection(ollama_host: str = None, model: str = None)
             "message": suggested_msg
         }
         
-    model_present = target_model in models or any(target_model.split(":")[0] in m for m in models)
+    model_present = target_model in models or any(target_model.split("/")[-1] in m for m in models)
     
-    vec, err = _query_ollama("CodeGraph Brain test embedding probe", target_model, host, timeout=6)
+    vec, err = _query_vllm("CodeGraph Brain test embedding probe", target_model, host, timeout=10)
     if vec:
         return {
             "status": "connected",
@@ -584,7 +560,7 @@ def test_ollama_embedding_connection(ollama_host: str = None, model: str = None)
             "configured_dimension": EMBEDDING_DIM,
             "available_models": models,
             "sample_vector_preview": vec[:5],
-            "message": f"Successfully connected to Ollama at {host}! Model '{target_model}' generated a {len(vec)}-dim vector."
+            "message": f"Successfully connected to vLLM at {host}! Model '{target_model}' generated a {len(vec)}-dim vector."
         }
     else:
         return {
@@ -593,31 +569,19 @@ def test_ollama_embedding_connection(ollama_host: str = None, model: str = None)
             "target_model": target_model,
             "model_present": model_present,
             "available_models": models,
-            "error_detail": err or "Failed to generate embedding vector.",
-            "message": f"Connected to Ollama, but model '{target_model}' returned: {err}"
+            "error_detail": err or "Failed to generate embedding vector from vLLM.",
+            "message": f"Connected to vLLM, but model '{target_model}' returned: {err}"
         }
 
+def test_ollama_embedding_connection(ollama_host: str = None, model: str = None) -> dict:
+    """Backwards compatibility alias for test_vllm_embedding_connection."""
+    return test_vllm_embedding_connection(vllm_host=ollama_host, model=model)
+
 def pull_ollama_model_action(ollama_host: str = None, model: str = None) -> dict:
-    """Triggers download/pull of the specified embedding model on the Ollama host."""
-    raw_host = (ollama_host or OLLAMA_BASE_URL or get_active_ollama_url() or "").strip()
-    if raw_host and "://" not in raw_host:
-        raw_host = f"http://{raw_host}"
-    try:
-        host = normalize_ollama_base_url(raw_host)
-    except Exception as e:
-        return {
-            "status": "failed",
-            "host": raw_host,
-            "model": model or EMBEDDING_MODEL,
-            "message": f"Invalid Ollama URL '{ollama_host}': {str(e)}"
-        }
-    target_model = model or EMBEDDING_MODEL
-    ok = pull_ollama_model(host, target_model, timeout=300)
+    """For vLLM, models are loaded at container startup."""
     return {
-        "status": "success" if ok else "failed",
-        "host": host,
-        "model": target_model,
-        "message": f"Model '{target_model}' pull request completed on {host}." if ok else f"Failed to pull '{target_model}' on {host}."
+        "status": "info",
+        "message": "vLLM serves models loaded at container launch. Specify the model in docker-compose command."
     }
 
 def reembed_graph_entities(repo_name: str = None, force: bool = False) -> dict:
@@ -626,7 +590,7 @@ def reembed_graph_entities(repo_name: str = None, force: bool = False) -> dict:
     Can be executed at any stage (در هر مرحله ای).
     """
     from app.core.graph import driver
-    active_url = get_active_ollama_url()
+    active_url = get_active_vllm_url()
     effective_model = EMBEDDING_MODEL
     
     with driver.session() as session:
@@ -694,6 +658,6 @@ def reembed_graph_entities(repo_name: str = None, force: bool = False) -> dict:
         "embedded_successfully": success_count,
         "errors": error_count,
         "model_used": effective_model,
-        "active_ollama_url": active_url,
+        "active_vllm_url": active_url,
         "dimension": EMBEDDING_DIM
     }
