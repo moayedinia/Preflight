@@ -1,14 +1,59 @@
-from app.core.celery import celery_app
+import os
+import time
+from app.core.celery import celery_app, CELERY_BROKER_URL
 from app.core.graph import driver
 from app.core.llm import call_llm
-import time
+
+try:
+    import redis
+    _r_client = redis.from_url(CELERY_BROKER_URL, decode_responses=True)
+except Exception:
+    _r_client = None
+
+_LOCAL_STOP_FLAGS = set()
+
+def request_stop_autodoc(task_id: str = None, repo_name: str = None):
+    """Signals the Auto-Doc worker to halt immediately via Redis and local flag."""
+    if task_id:
+        _LOCAL_STOP_FLAGS.add(task_id)
+        if _r_client:
+            try:
+                _r_client.set(f"stop_autodoc:{task_id}", "1", ex=600)
+            except Exception:
+                pass
+    if repo_name:
+        _LOCAL_STOP_FLAGS.add(f"repo:{repo_name}")
+        if _r_client:
+            try:
+                _r_client.set(f"stop_autodoc_repo:{repo_name}", "1", ex=600)
+            except Exception:
+                pass
+
+def is_autodoc_stopped(task_id: str = None, repo_name: str = None) -> bool:
+    """Checks whether a stop signal has been issued for this task or repository."""
+    if task_id and task_id in _LOCAL_STOP_FLAGS:
+        return True
+    if repo_name and f"repo:{repo_name}" in _LOCAL_STOP_FLAGS:
+        return True
+    if _r_client:
+        try:
+            if task_id and _r_client.get(f"stop_autodoc:{task_id}") == "1":
+                return True
+            if repo_name and _r_client.get(f"stop_autodoc_repo:{repo_name}") == "1":
+                return True
+        except Exception:
+            pass
+    return False
 
 @celery_app.task(bind=True, max_retries=1)
 def generate_missing_docs_task(self, repo_name: str = None):
     """
     Finds functions without a docstring in the graph and uses the configured LLM to generate them,
     tracking live percentage coverage as the progress bar fills up.
+    Regularly checks for user abort/stop requests to halt gracefully.
     """
+    task_id = self.request.id if hasattr(self, "request") and self.request else None
+
     with driver.session() as session:
         stats_query = """
         MATCH (f:Function)
@@ -75,6 +120,30 @@ def generate_missing_docs_task(self, repo_name: str = None):
     current_documented = doc_fn
     
     for i, func in enumerate(functions):
+        # Graceful user stop check
+        if is_autodoc_stopped(task_id, repo_name):
+            current_pct = round((current_documented * 100.0) / max(total_fn, 1), 1) if total_fn > 0 else 100.0
+            self.update_state(state="REVOKED", meta={
+                "status": "stopped",
+                "percent": current_pct,
+                "progress": f"Auto-Documentation halted by user. Newly documented: {processed} functions. Current coverage: {current_pct}%.",
+                "total": len(functions),
+                "current": i,
+                "total_functions": total_fn,
+                "documented_functions": current_documented,
+                "coverage_percent": current_pct,
+                "processed": processed
+            })
+            return {
+                "status": "stopped",
+                "message": f"Auto-Documentation was stopped by user. Documented {processed} functions. Current coverage: {current_pct}%.",
+                "processed": processed,
+                "errors": errors,
+                "total_functions": total_fn,
+                "documented_functions": current_documented,
+                "coverage_percent": current_pct
+            }
+
         current_pct = round((current_documented * 100.0) / max(total_fn, 1), 1) if total_fn > 0 else 100.0
         self.update_state(state="PROGRESS", meta={
             "status": "PROGRESS",

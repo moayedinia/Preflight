@@ -138,7 +138,6 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
                 try:
                     rel_name = file_path.relative_to(repo_dir).as_posix()
                     text = file_path.read_text(encoding="utf-8", errors="ignore")
-                    # Clip to relevant sections
                     clipped = text[:2000]
                     sample = f"=== File: {rel_name} ===\n{clipped}\n"
                     samples.append(sample)
@@ -147,7 +146,6 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
                     continue
 
     if not samples:
-        # Fallback to general workspace inspection or representative code placeholder
         samples.append(
             "=== Repository Context ===\n"
             f"Repository: {clean_repo or 'Default / All Repositories'}\n"
@@ -175,9 +173,10 @@ ORANGE_RULES = [
 
 YELLOW_RULES = [
     "Stray Debug Logs: console.log or debugger statements left in production",
-    "Contrast / A11y: Missing aria labels or insufficient text contrast",
+    "Contrast / A11y: Missing aria labels, alt attributes, or insufficient text contrast",
     "Incomplete Documentation: Missing or generic README and missing docstrings"
 ]
+
 
 def evaluate_red_family(code_context: str) -> Dict[str, Any]:
     """Runs Pass 1: 🔴 RED (Critical / Blocker) vulnerabilities evaluation."""
@@ -190,8 +189,7 @@ def evaluate_red_family(code_context: str) -> Dict[str, Any]:
         "rules": RED_RULES
     }
 
-    # Rule-based detection heuristic for fallback or confirmation
-    has_leaked_key = bool(re.search(r'(sk-[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16}|stripe.*sk_live)', code_context, re.IGNORECASE))
+    has_leaked_key = bool(re.search(r'(sk-[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|stripe.*sk_live)', code_context, re.IGNORECASE))
     has_raw_sql = bool(re.search(r'execute\(f["\']|select\s+.*?\+.*?from', code_context, re.IGNORECASE))
     if has_leaked_key or has_raw_sql:
         fallback["is_defect"] = True
@@ -228,7 +226,6 @@ def evaluate_orange_family(code_context: str) -> Dict[str, Any]:
         "rules": ORANGE_RULES
     }
 
-    # Rule-based heuristic
     unbounded_input = bool(re.search(r'<input(?![^>]*maxLength)[^>]*type=["\']text["\']', code_context, re.IGNORECASE))
     if unbounded_input:
         fallback["is_defect"] = True
@@ -265,7 +262,6 @@ def evaluate_yellow_family(code_context: str) -> Dict[str, Any]:
         "rules": YELLOW_RULES
     }
 
-    # Rule-based heuristic
     has_console_log = bool(re.search(r'console\.log\(', code_context))
     has_empty_readme = "=== File: README.md ===\n" not in code_context or len(code_context.split("=== File: README.md ===")[-1].strip()) < 40
     if has_console_log or has_empty_readme:
@@ -292,25 +288,363 @@ Analyze thoroughly and respond strictly in valid JSON."""
         return fallback
 
 
+def get_candidate_directories(repo_name: Optional[str] = None) -> List[Path]:
+    """Finds target directories on disk to scan for defects."""
+    candidates = []
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+
+    if clean_repo:
+        d = ALLOWED_REPO_DIR / clean_repo
+        if d.exists() and d.is_dir():
+            candidates.append(d)
+        else:
+            ws = Path(os.getcwd())
+            if ws.name.lower() == clean_repo.lower():
+                candidates.append(ws)
+            elif (ws / clean_repo).exists():
+                candidates.append(ws / clean_repo)
+    else:
+        if ALLOWED_REPO_DIR.exists():
+            for child in ALLOWED_REPO_DIR.iterdir():
+                if child.is_dir() and not child.name.startswith("."):
+                    candidates.append(child)
+        if not candidates:
+            candidates.append(Path(os.getcwd()))
+
+    return candidates
+
+
+def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Scans the repository codebase files on disk and executes a targeted, deep inspection
+    for the selected tier (RED, ORANGE, or YELLOW).
+    Returns exact file paths, line numbers, code snippets, rule violations,
+    plain English explanation, business consequence, and AI repair prompt.
+    """
+    tier_lower = (tier or "red").strip().lower()
+    directories = get_candidate_directories(repo_name)
+
+    ignored_dirs = {
+        ".git", "node_modules", "venv", ".venv", "env", "__pycache__",
+        ".idea", ".vscode", "dist", "build", ".gemini", ".system_generated",
+        ".cache", "tmp", "logs"
+    }
+    
+    code_exts = {".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".vue", ".go", ".java", ".php", ".rb"}
+    all_defects: List[Dict[str, Any]] = []
+
+    # Regex patterns for RED
+    re_secret = re.compile(r'(sk-[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|stripe.*sk_live[a-zA-Z0-9_]{20,}|(?:ghp|gho|ghu)_[a-zA-Z0-9]{36}|(?:api_key|secret_key|private_key)\s*=\s*[\'"][a-zA-Z0-9_\-\.]{20,}[\'"])', re.IGNORECASE)
+    re_sql = re.compile(r'(?:cursor\.execute|session\.run)\s*\(\s*f[\'"]|\bexecute\s*\(\s*[\'"][^\'"]*\s*(?:\+|%|\.format\()|\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^\n\r]*\s*(?:\+|%|\.format\(|f[\'"])', re.IGNORECASE)
+    re_dead_btn = re.compile(r'onclick\s*=\s*[\'"]\s*(?:#|javascript:void\(0\);?|;?)\s*[\'"]|onClick\s*=\s*\{(?:\(\)\s*=>\s*\{\s*\}|\(\)\s*=>\s*undefined|undefined|null)\}', re.IGNORECASE)
+    re_py_route = re.compile(r'@(?:app|router)\.(?:get|post|put|delete|patch)\b')
+
+    # Regex patterns for ORANGE
+    re_unbounded_input = re.compile(r'<input\b(?![^>]*\bmax[lL]ength\b)(?=[^>]*type=[\'"](?:text|email|search|url)[\'"])[^>]*>|<textarea\b(?![^>]*\bmax[lL]ength\b)[^>]*>', re.IGNORECASE)
+    re_submit_btn = re.compile(r'<button\b(?![^>]*\bdisabled\b)(?=[^>]*type=[\'"]submit[\'"])[^>]*>', re.IGNORECASE)
+    re_search_input = re.compile(r'<input\b(?=[^>]*type=[\'"]search[\'"])(?![^>]*\bdebounce\b)[^>]*>', re.IGNORECASE)
+
+    # Regex patterns for YELLOW
+    re_console_log = re.compile(r'\bconsole\.(?:log|debug|info)\s*\(')
+    re_img_alt = re.compile(r'<img\b(?![^>]*\balt=)[^>]*>', re.IGNORECASE)
+    
+    total_files_scanned = 0
+    readme_found = False
+    readme_char_count = 0
+    readme_path = None
+
+    for base_dir in directories:
+        for root, dirs, files in os.walk(base_dir):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+            
+            for fname in files:
+                file_path = Path(root) / fname
+                try:
+                    rel_path = file_path.relative_to(base_dir).as_posix()
+                except Exception:
+                    rel_path = fname
+                
+                is_test_file = any(t in rel_path.lower() for t in ["test", "spec", "mock", "fixture"])
+                
+                if fname.lower() == "readme.md":
+                    readme_found = True
+                    readme_path = rel_path
+                    try:
+                        readme_char_count = len(file_path.read_text(encoding="utf-8", errors="ignore").strip())
+                    except Exception:
+                        pass
+
+                ext = file_path.suffix.lower()
+
+                # ORANGE asset check: Heavy images > 2MB
+                if tier_lower == "orange" and ext in {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}:
+                    try:
+                        fsize = file_path.stat().st_size
+                        if fsize > 2 * 1024 * 1024:
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": 1,
+                                "rule": "Heavy Unoptimized Images",
+                                "snippet": f"{fname} ({round(fsize / (1024*1024), 2)} MB)",
+                                "detail": "Image file exceeds 2MB threshold without compression or web optimization."
+                            })
+                    except Exception:
+                        pass
+                    continue
+
+                if ext not in code_exts:
+                    continue
+
+                total_files_scanned += 1
+                try:
+                    lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                except Exception:
+                    continue
+
+                for line_idx, line in enumerate(lines, start=1):
+                    line_str = line.strip()
+                    if not line_str or line_str.startswith("//") or line_str.startswith("#"):
+                        continue
+
+                    # 1. 🔴 RED INSPECTIONS
+                    if tier_lower == "red":
+                        if not is_test_file and re_secret.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Leaked Keys / Secrets",
+                                "snippet": line_str[:160],
+                                "detail": "Potential hardcoded credential or API secret token detected."
+                            })
+
+                        if not is_test_file and re_sql.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "SQL/NoSQL Injection",
+                                "snippet": line_str[:160],
+                                "detail": "Dynamic string concatenation or f-string used in database execution call."
+                            })
+
+                        if re_dead_btn.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Dead Core Buttons",
+                                "snippet": line_str[:160],
+                                "detail": "Interactive button or link has empty or mock click handler."
+                            })
+
+                        if ext == ".py" and re_py_route.search(line_str):
+                            block_ahead = "\n".join(lines[line_idx:line_idx + 18])
+                            if "def " in block_ahead and "try:" not in block_ahead and "except" not in block_ahead:
+                                all_defects.append({
+                                    "file": rel_path,
+                                    "line": line_idx,
+                                    "rule": "Fatal Server Crashes",
+                                    "snippet": line_str[:160],
+                                    "detail": "API route handler does not enclose execution in a try/except error boundary."
+                                })
+
+                    # 2. 🟠 ORANGE INSPECTIONS
+                    elif tier_lower == "orange":
+                        if re_unbounded_input.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Unbounded Input Fields",
+                                "snippet": line_str[:160],
+                                "detail": "User text input element declared without maxLength attribute."
+                            })
+
+                        if re_submit_btn.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Missing Loading State",
+                                "snippet": line_str[:160],
+                                "detail": "Form submit button lacks disabled attribute to prevent in-flight double submission."
+                            })
+
+                        if re_search_input.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Un-debounced Search",
+                                "snippet": line_str[:160],
+                                "detail": "Search input fires queries directly without debounce throttling."
+                            })
+
+                    # 3. 🟡 YELLOW INSPECTIONS
+                    elif tier_lower == "yellow":
+                        if not is_test_file and re_console_log.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Stray Debug Logs",
+                                "snippet": line_str[:160],
+                                "detail": "Diagnostic console.log statement present in production source code."
+                            })
+
+                        if re_img_alt.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Contrast / A11y",
+                                "snippet": line_str[:160],
+                                "detail": "Image tag declared without alt accessibility attribute."
+                            })
+
+    # Yellow check for README
+    if tier_lower == "yellow":
+        if not readme_found or readme_char_count < 60:
+            all_defects.append({
+                "file": readme_path or "README.md",
+                "line": 1,
+                "rule": "Incomplete Documentation",
+                "snippet": f"README character count: {readme_char_count} chars",
+                "detail": "README.md is either missing or contains less than 60 characters of documentation."
+            })
+
+    rules_map = {
+        "red": RED_RULES,
+        "orange": ORANGE_RULES,
+        "yellow": YELLOW_RULES
+    }
+    rules = rules_map.get(tier_lower, RED_RULES)
+    defect_count = len(all_defects)
+    is_defect = defect_count > 0
+
+    if tier_lower == "red":
+        tier_title = "RED: Critical / Blocker Vulnerabilities"
+        if is_defect:
+            explanation = f"Detected {defect_count} critical blocker defect(s) across scanned project files, including potential secrets, raw SQL queries, unhandled routes, or dead buttons."
+            consequence = "High risk of security exploit, data breach, unauthorized access, or complete server crash (HTTP 500)."
+            repair_prompt = f"Fix all {defect_count} critical blocker defects immediately: replace hardcoded secrets with environment variables, bind SQL queries with parameterized statements, add try/catch error boundaries to API route handlers, and connect live actions to buttons."
+        else:
+            explanation = f"Project scan passed! Zero critical security blockers or runtime crash hazards detected across {total_files_scanned} source files."
+            consequence = "System security and server stability remain at optimal enterprise production standards."
+            repair_prompt = "Maintain continuous automated secret scanning and strict parameterized database queries in CI/CD."
+
+    elif tier_lower == "orange":
+        tier_title = "ORANGE: High Risk / Operational Hazards"
+        if is_defect:
+            explanation = f"Detected {defect_count} high-risk operational defect(s) across scanned project files, such as unbounded input fields, un-debounced search inputs, or missing loading states."
+            consequence = "Risk of user double-submissions, server request flooding, payload injection overflows, and poor perceived UX responsiveness."
+            repair_prompt = f"Address all {defect_count} operational hazards: specify strict maxLength bounds on all inputs, implement debounce on search fields, and disable submit buttons during async request cycles."
+        else:
+            explanation = f"Project scan passed! Zero UX or operational hazards detected across {total_files_scanned} source files."
+            consequence = "User interaction flows and server API throughput remain reliable and protected from runaway input loops."
+            repair_prompt = "Keep enforcing input boundaries and defensive button state bindings on all interactive components."
+
+    else:
+        tier_title = "YELLOW: Code Quality & Hygiene Polish"
+        if is_defect:
+            explanation = f"Detected {defect_count} hygiene defect(s) across scanned project files, including stray console.log statements, missing alt attributes, or sparse documentation."
+            consequence = "Degrades code readability, clutters browser developer tools in production, and reduces team onboarding velocity."
+            repair_prompt = f"Clean up all {defect_count} hygiene issues: remove stray console.log calls, provide descriptive alt text for images, and expand README documentation."
+        else:
+            explanation = f"Project scan passed! Codebase hygiene is clean with zero stray debug statements or missing documentation detected across {total_files_scanned} files."
+            consequence = "Ensures clean production runtime output and professional maintainability."
+            repair_prompt = "Maintain production build stripping of debug logs and adhere to team documentation standards."
+
+    # Generate Markdown Report for this Tier
+    md_lines = [
+        f"# Preflight Tier Audit: {tier_title}",
+        f"",
+        f"- **Repository:** `{repo_name or 'All Repositories'}`",
+        f"- **Audit Status:** **{'DEFECTS DETECTED' if is_defect else 'PASS - ZERO DEFECTS'}**",
+        f"- **Defects Found:** `{defect_count}`",
+        f"- **Files Scanned:** `{total_files_scanned}`",
+        f"",
+        f"---",
+        f"",
+        f"## 1. Executive Findings & Impact",
+        f"",
+        f"- **Plain English Explanation:** {explanation}",
+        f"- **Business & Operational Consequence:** {consequence}",
+        f"",
+        f"---",
+        f"",
+        f"## 2. Identified Defect Occurrences Across Entire Project",
+        f""
+    ]
+
+    if not all_defects:
+        md_lines.append("_No defects were identified for this tier across the entire project codebase._")
+    else:
+        for idx, d in enumerate(all_defects[:50], start=1):
+            md_lines.append(f"### {idx}. {d['rule']} in `{d['file']}:{d['line']}`")
+            md_lines.append(f"- **Detail:** {d['detail']}")
+            md_lines.append(f"- **Offending Code:**")
+            md_lines.append(f"```text")
+            md_lines.append(f"{d['snippet']}")
+            md_lines.append(f"```")
+            md_lines.append("")
+
+    md_lines.extend([
+        "---",
+        "",
+        "## 3. Tool-Tailored AI Repair Prompt",
+        "",
+        "```text",
+        repair_prompt,
+        "```",
+        "",
+        "---",
+        "*Audit executed dynamically by CodeGraph Brain Preflight Engine.*"
+    ])
+
+    markdown_report = "\n".join(md_lines)
+
+    return {
+        "tier": tier_lower,
+        "title": tier_title,
+        "status": "DEFECT DETECTED" if is_defect else "PASS",
+        "is_defect": is_defect,
+        "defect_count": defect_count,
+        "total_defects_found": defect_count,
+        "confidence": 0.95 if is_defect else 0.90,
+        "repository": repo_name or "All Repositories",
+        "files_scanned": total_files_scanned,
+        "defects": all_defects[:50],
+        "rules_evaluated": rules,
+        "rules": rules,
+        "plain_english_explanation": explanation,
+        "business_consequence": consequence,
+        "repair_prompt": repair_prompt,
+        "markdown_report": markdown_report
+    }
+
+
 def run_3tier_preflight_evaluation(
     repo_name: Optional[str] = None,
     custom_code: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Executes all three Preflight evaluation passes (Red, Orange, Yellow) concurrently.
-    Returns structured results for each defect family.
+    If custom_code is supplied, delegates to evaluate_*_family.
+    Otherwise, runs deep project-wide audit_single_tier for each tier.
     """
-    code_context = custom_code or collect_repo_code_samples(repo_name)
+    if custom_code:
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_red = executor.submit(evaluate_red_family, custom_code)
+            future_orange = executor.submit(evaluate_orange_family, custom_code)
+            future_yellow = executor.submit(evaluate_yellow_family, custom_code)
 
-    # Concurrently execute 3 passes
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        future_red = executor.submit(evaluate_red_family, code_context)
-        future_orange = executor.submit(evaluate_orange_family, code_context)
-        future_yellow = executor.submit(evaluate_yellow_family, code_context)
+            red_result = future_red.result()
+            orange_result = future_orange.result()
+            yellow_result = future_yellow.result()
+    else:
+        clean_repo = sanitize_name(repo_name) if repo_name else None
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            f_red = executor.submit(audit_single_tier, "red", clean_repo)
+            f_orange = executor.submit(audit_single_tier, "orange", clean_repo)
+            f_yellow = executor.submit(audit_single_tier, "yellow", clean_repo)
 
-        red_result = future_red.result()
-        orange_result = future_orange.result()
-        yellow_result = future_yellow.result()
+            red_result = f_red.result()
+            orange_result = f_orange.result()
+            yellow_result = f_yellow.result()
 
     return {
         "repository": repo_name or "All Repositories",
@@ -370,9 +704,9 @@ def compile_pure_english_markdown_report(
 
 | Assessment Metric | Detected Count | Risk Rating | Operational Impact |
 | :--- | :--- | :--- | :--- |
-| **🔴 RED Vulnerabilities (Blockers)** | {1 if red.get("is_defect") else 0} | {('HIGH' if red.get("is_defect") else 'LOW')} | Critical security & server stability |
-| **🟠 ORANGE Hazards (Operational)** | {1 if orange.get("is_defect") else 0} | {('MEDIUM' if orange.get("is_defect") else 'LOW')} | UX degradation & runaway inputs |
-| **🟡 YELLOW Issues (Hygiene & Polish)** | {1 if yellow.get("is_defect") else 0} | {('LOW' if yellow.get("is_defect") else 'CLEAN')} | Readability, logging & accessibility |
+| **🔴 RED Vulnerabilities (Blockers)** | {red.get("defect_count", (1 if red.get("is_defect") else 0))} | {('HIGH' if red.get("is_defect") else 'LOW')} | Critical security & server stability |
+| **🟠 ORANGE Hazards (Operational)** | {orange.get("defect_count", (1 if orange.get("is_defect") else 0))} | {('MEDIUM' if orange.get("is_defect") else 'LOW')} | UX degradation & runaway inputs |
+| **🟡 YELLOW Issues (Hygiene & Polish)** | {yellow.get("defect_count", (1 if yellow.get("is_defect") else 0))} | {('LOW' if yellow.get("is_defect") else 'CLEAN')} | Readability, logging & accessibility |
 | **Circular Dependency Chains** | {len(cycles)} | {('CRITICAL' if len(cycles) > 0 else 'OPTIMAL')} | Tightly-coupled architectural cycles |
 | **Critical Hubs (God Functions)** | {len(hubs)} | {('HIGH' if len(hubs) > 3 else 'ACCEPTABLE')} | High blast radius & modification fragility |
 | **Dead / Unreferenced Code** | {len(dead)} | {('EVALUATE' if len(dead) > 0 else 'CLEAN')} | Unused logic & bundle overhead |
@@ -386,6 +720,7 @@ def compile_pure_english_markdown_report(
 *Rules evaluated: Leaked Keys / Secrets, Unprotected Admin Routes, SQL/NoSQL Injection, Fatal Server Crashes, Infinite Render Loops, Dead Core Buttons.*
 
 - **Defect Status:** `{("DEFECT DETECTED" if red.get("is_defect") else "PASS - NO CRITICAL DEFECTS")}`
+- **Defects Count:** `{red.get("defect_count", (1 if red.get("is_defect") else 0))}`
 - **Confidence Score:** `{red.get("confidence", 0.0)}`
 - **Plain English Explanation:**  
   > {red.get("plain_english_explanation", "No critical blocker defects identified.")}
@@ -403,6 +738,7 @@ def compile_pure_english_markdown_report(
 *Rules evaluated: Missing Loading State, Unbounded Input Fields, Un-debounced Search, Heavy Unoptimized Images.*
 
 - **Defect Status:** `{("DEFECT DETECTED" if orange.get("is_defect") else "PASS - NO OPERATIONAL HAZARDS")}`
+- **Defects Count:** `{orange.get("defect_count", (1 if orange.get("is_defect") else 0))}`
 - **Confidence Score:** `{orange.get("confidence", 0.0)}`
 - **Plain English Explanation:**  
   > {orange.get("plain_english_explanation", "No high-risk operational hazards identified.")}
@@ -420,6 +756,7 @@ def compile_pure_english_markdown_report(
 *Rules evaluated: Stray Debug Logs, Contrast / A11y, Incomplete Documentation.*
 
 - **Defect Status:** `{("DEFECT DETECTED" if yellow.get("is_defect") else "PASS - CLEAN HYGIENE")}`
+- **Defects Count:** `{yellow.get("defect_count", (1 if yellow.get("is_defect") else 0))}`
 - **Confidence Score:** `{yellow.get("confidence", 0.0)}`
 - **Plain English Explanation:**  
   > {yellow.get("plain_english_explanation", "Code hygiene meets professional standards.")}

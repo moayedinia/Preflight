@@ -6,6 +6,7 @@ if "neo4j" not in sys.modules:
     sys.modules["neo4j"] = MagicMock()
 
 from app.core.analytics import get_documentation_coverage_stats, get_full_project_code_and_docs_data
+from app.core.preflight import audit_single_tier
 
 class AnalyticsCoverageTests(unittest.TestCase):
     @patch("app.core.analytics.driver")
@@ -91,6 +92,18 @@ class AnalyticsCoverageTests(unittest.TestCase):
         self.assertIn("rules", result["red_defects"])
         self.assertIn("rules", result["orange_defects"])
         self.assertIn("rules", result["yellow_defects"])
+
+    def test_audit_single_tier_engine(self):
+        for tier in ["red", "orange", "yellow"]:
+            res = audit_single_tier(tier, repo_name="sample")
+            self.assertEqual(res["tier"], tier)
+            self.assertIn(res["status"], ["PASS", "DEFECT DETECTED"])
+            self.assertIn("rules", res)
+            self.assertIn("plain_english_explanation", res)
+            self.assertIn("business_consequence", res)
+            self.assertIn("repair_prompt", res)
+            self.assertIn("markdown_report", res)
+            self.assertIn("defects", res)
 
 if __name__ == "__main__":
     unittest.main()

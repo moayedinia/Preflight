@@ -878,11 +878,18 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
     (CALLS, HAS_METHOD, CONTAINS, DEPENDS_ON, INHERITS_FROM) are fully linked with guaranteed
     edge endpoint integrity.
     """
-    resolve_cross_references(repo_name)
-
     nodes = {}
     edges = []
     edge_keys = set()
+
+    def node_belongs_to_repo(node_obj, target_repo):
+        if not target_repo:
+            return True
+        props = dict(node_obj.items()) if hasattr(node_obj, "items") else dict(node_obj)
+        n_labels = list(node_obj.labels) if hasattr(node_obj, "labels") else []
+        if "Repository" in n_labels:
+            return props.get("name") == target_repo or props.get("id") == target_repo
+        return props.get("repo") == target_repo
 
     def format_node(node_obj):
         n_labels = list(node_obj.labels)
@@ -951,17 +958,20 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
             r_start = record.get("r_start")
             r_end = record.get("r_end")
 
-            if n:
+            if n and node_belongs_to_repo(n, repo_name):
                 n_id = str(n.get("id") or (n.element_id if hasattr(n, "element_id") else n.id))
                 if n_id not in nodes:
                     nodes[n_id] = format_node(n)
 
-            if m:
+            if m and node_belongs_to_repo(m, repo_name):
                 m_id = str(m.get("id") or (m.element_id if hasattr(m, "element_id") else m.id))
                 if m_id not in nodes:
                     nodes[m_id] = format_node(m)
 
             if r and r_start and r_end:
+                if not (node_belongs_to_repo(r_start, repo_name) and node_belongs_to_repo(r_end, repo_name)):
+                    continue
+
                 src_id = str(r_start.get("id") or (r_start.element_id if hasattr(r_start, "element_id") else r_start.id))
                 tgt_id = str(r_end.get("id") or (r_end.element_id if hasattr(r_end, "element_id") else r_end.id))
                 
@@ -1001,7 +1011,11 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
         struct_query = """
         MATCH (n)-[r]->(m)
         WHERE type(r) IN ['CONTAINS', 'HAS_METHOD']
-          AND ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
+          AND ($repo_name IS NULL OR (
+                ((n:Repository AND (n.name = $repo_name OR n.id = $repo_name)) OR (NOT n:Repository AND n.repo = $repo_name))
+                AND
+                ((m:Repository AND (m.name = $repo_name OR m.id = $repo_name)) OR (NOT m:Repository AND m.repo = $repo_name))
+              ))
           AND (n:Repository OR n:File OR n:Class)
           AND (m:File OR m:Class OR m:Function)
         RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
@@ -1014,7 +1028,7 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
         code_query = """
         MATCH (n)-[r]->(m)
         WHERE type(r) IN ['CALLS', 'DEPENDS_ON', 'INHERITS_FROM', 'EXPOSES_API', 'CALLS_API', 'TESTS']
-          AND ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name OR m.repo = $repo_name)
+          AND ($repo_name IS NULL OR (n.repo = $repo_name AND m.repo = $repo_name))
           AND (n:Function OR n:File OR n:Class)
           AND (m:Function OR m:File OR m:Class OR m:ApiRoute)
         RETURN n, r, m, startNode(r) AS r_start, endNode(r) AS r_end
@@ -1026,7 +1040,7 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
         # Step 3: Standalone structural nodes (Files or Classes that might not yet have calls or methods)
         standalone_query = """
         MATCH (n)
-        WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
+        WHERE ($repo_name IS NULL OR (n:Repository AND (n.name = $repo_name OR n.id = $repo_name)) OR (NOT n:Repository AND n.repo = $repo_name))
           AND (n:Repository OR n:File OR n:Class)
         RETURN n, null AS r, null AS m, null AS r_start, null AS r_end
         LIMIT 200
@@ -1038,7 +1052,7 @@ def get_graph_elements(repo_name: str = None, limit: int = 1000) -> dict:
         if not nodes:
             fallback_query = """
             MATCH (n)
-            WHERE ($repo_name IS NULL OR n.repo = $repo_name OR n.name = $repo_name)
+            WHERE ($repo_name IS NULL OR (n:Repository AND (n.name = $repo_name OR n.id = $repo_name)) OR (NOT n:Repository AND n.repo = $repo_name))
               AND (n:Repository OR n:File OR n:Class OR n:Function)
             RETURN n, null AS r, null AS m, null AS r_start, null AS r_end
             LIMIT $limit

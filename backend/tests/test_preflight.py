@@ -10,7 +10,6 @@ mock_modules = {
     "neo4j": MagicMock()
 }
 
-
 for mod_name, mock_mod in mock_modules.items():
     if mod_name not in sys.modules:
         sys.modules[mod_name] = mock_mod
@@ -22,6 +21,7 @@ from app.core.preflight import (
     evaluate_yellow_family,
     run_3tier_preflight_evaluation,
     compile_pure_english_markdown_report,
+    audit_single_tier,
     RED_SYSTEM_PROMPT,
     ORANGE_SYSTEM_PROMPT,
     YELLOW_SYSTEM_PROMPT
@@ -165,8 +165,26 @@ class TestPreflightEvaluation(unittest.TestCase):
             self.assertIn("markdown_report", data)
             self.assertIn("# CodeGraph Brain - Architecture & Preflight Code Review Report", data["markdown_report"])
 
+    def test_audit_tier_and_stop_autodoc_endpoints(self):
+        with patch.dict(sys.modules, mock_modules), patch("app.core.security.ALLOW_UNAUTHENTICATED", True):
+            from app.main import app
+            from fastapi.testclient import TestClient
+            client = TestClient(app)
 
+            # Test GET /api/v1/review/tier/red
+            res = client.get("/api/v1/review/tier/red")
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data["tier"], "red")
+            self.assertIn("rules", data)
+            self.assertIn("defects", data)
+
+            # Test POST /api/v1/tasks/autodoc/stop
+            res_stop = client.post("/api/v1/tasks/autodoc/stop", json={"task_id": "task-test-456", "repo_name": "sample"})
+            self.assertEqual(res_stop.status_code, 200)
+            data_stop = res_stop.json()
+            self.assertEqual(data_stop["status"], "stopped")
+            self.assertEqual(data_stop["task_id"], "task-test-456")
 
 if __name__ == "__main__":
     unittest.main()
-

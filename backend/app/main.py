@@ -56,7 +56,7 @@ from app.core.repo_manager import (
     delete_repository
 )
 from app.core.reviewer import generate_architectural_code_review
-from app.core.preflight import run_3tier_preflight_evaluation, compile_pure_english_markdown_report
+from app.core.preflight import run_3tier_preflight_evaluation, compile_pure_english_markdown_report, audit_single_tier
 
 
 app = FastAPI(
@@ -347,6 +347,9 @@ def get_task_status(task_id: str):
         if status == "FAILURE":
             info["error"] = info.get("error") or str(e)
 
+    if status in ["REVOKED", "STOPPED"] or info.get("status") == "stopped":
+        status = "REVOKED"
+        ready = True
     percent = 100 if status == "SUCCESS" else info.get("percent", 0)
 
     return {
@@ -635,6 +638,19 @@ def download_preflight_report(repo_name: Optional[str] = None):
         "markdown_report": markdown_content
     }
 
+@app.get("/api/v1/review/tier/{tier_name}", dependencies=[Depends(verify_api_key)])
+def audit_single_tier_get(tier_name: str, repo_name: Optional[str] = None):
+    """Executes an on-demand, deep project scan for defects in the specified tier (red, orange, or yellow)."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    return audit_single_tier(tier=tier_name, repo_name=clean_repo)
+
+@app.post("/api/v1/review/tier/{tier_name}", dependencies=[Depends(verify_api_key)])
+def audit_single_tier_post(tier_name: str, payload: Optional[AutoDocRequest] = None):
+    """Executes an on-demand, deep project scan for defects in the specified tier (red, orange, or yellow)."""
+    repo = payload.repo_name if payload else None
+    clean_repo = sanitize_name(repo) if repo else None
+    return audit_single_tier(tier=tier_name, repo_name=clean_repo)
+
 
 # 11. GitHub CI/CD Webhook Trigger
 @app.post("/api/v1/webhooks/github")
@@ -740,6 +756,28 @@ def trigger_auto_doc(payload: AutoDocRequest):
         "status": "queued",
         "task_id": task.id,
         "message": "Auto-Documentation engine started in background worker."
+    }
+
+class StopTaskRequest(BaseModel):
+    task_id: Optional[str] = None
+    repo_name: Optional[str] = None
+
+@app.post("/api/v1/tasks/autodoc/stop", dependencies=[Depends(verify_api_key)])
+def stop_autodoc_endpoint(payload: StopTaskRequest):
+    """Halts an in-flight Auto-Doc Celery task gracefully and cancels further executions."""
+    from app.tasks.autodoc import request_stop_autodoc
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    request_stop_autodoc(task_id=payload.task_id, repo_name=clean_repo)
+    if payload.task_id:
+        try:
+            celery_app.control.revoke(payload.task_id, terminate=True, signal="SIGTERM")
+        except Exception:
+            pass
+    return {
+        "status": "stopped",
+        "task_id": payload.task_id,
+        "repo_name": clean_repo,
+        "message": "Stop signal broadcasted to Auto-Doc workers."
     }
 
 @app.get("/api/v1/analytics/documentation-coverage", dependencies=[Depends(verify_api_key)])
