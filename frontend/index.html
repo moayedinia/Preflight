@@ -29,6 +29,235 @@
         }
       }
     }
+
+    // --- DEDICATED OLLAMA EMBEDDINGS JAVASCRIPT LOGIC ---
+    function setEmbeddingHostPreset(url) {
+      const input = document.getElementById('embedding-ollama-host');
+      if (input) input.value = url;
+    }
+
+    function setEmbeddingModelPreset(model) {
+      const input = document.getElementById('embedding-model-name');
+      if (input) input.value = model;
+    }
+
+    async function openEmbeddingConfigModal() {
+      const modal = document.getElementById('embedding-config-modal');
+      const testResult = document.getElementById('embedding-test-result');
+      const chips = document.getElementById('embedding-available-models-chips');
+      const reembedStatus = document.getElementById('embedding-reembed-status');
+      if (testResult) testResult.classList.add('hidden');
+      if (chips) chips.classList.add('hidden');
+      if (reembedStatus) reembedStatus.classList.add('hidden');
+      modal.classList.remove('hidden');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/config/embedding`, { headers: getAuthHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          const cfg = data.config || {};
+          document.getElementById('embedding-ollama-host').value = cfg.ollama_host || '';
+          document.getElementById('embedding-model-name').value = cfg.model || '';
+          document.getElementById('embedding-dim').value = cfg.dimension || 768;
+          document.getElementById('embedding-allow-fallback').checked = !!cfg.allow_fallback;
+        }
+      } catch (e) {
+        console.error('Failed to load embedding config', e);
+      }
+    }
+
+    function closeEmbeddingConfigModal() {
+      document.getElementById('embedding-config-modal').classList.add('hidden');
+    }
+
+    async function testEmbeddingConnection() {
+      const btn = document.getElementById('btn-test-embedding');
+      const resBox = document.getElementById('embedding-test-result');
+      const chips = document.getElementById('embedding-available-models-chips');
+      const originalText = btn ? btn.innerHTML : '';
+
+      const host = (document.getElementById('embedding-ollama-host').value || '').trim();
+      const model = (document.getElementById('embedding-model-name').value || '').trim();
+
+      if (!host) {
+        if (resBox) {
+          resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-rose-950/40 text-rose-300 border-rose-800';
+          resBox.innerText = 'Please enter an Ollama Host IP or URL.';
+          resBox.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (btn) {
+        btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Testing...';
+        btn.disabled = true;
+        if (window.lucide) window.lucide.createIcons();
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/embedding/test`, {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ollama_host: host, model: model })
+        });
+        const data = await res.json();
+
+        if (resBox) {
+          resBox.classList.remove('hidden');
+          if (data.status === 'connected') {
+            resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-emerald-950/40 text-emerald-300 border-emerald-800';
+            resBox.innerHTML = `🟢 <b>Connected to Ollama!</b><br>Host: <code>${escapeHtml(data.host)}</code><br>Model: <code>${escapeHtml(data.target_model)}</code><br>Vector Dimension: <b>${data.detected_dimension}</b>`;
+            updateEmbeddingPillStatus(true, data.detected_dimension);
+          } else if (data.status === 'model_missing') {
+            resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-amber-950/40 text-amber-300 border-amber-800';
+            resBox.innerHTML = `🟠 <b>Ollama is Reachable, but model '${escapeHtml(data.target_model)}' is not installed.</b><br><button type="button" onclick="pullEmbeddingModel('${escapeHtml(host)}', '${escapeHtml(model)}')" class="mt-2 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded font-sans text-xs font-semibold">Download / Pull Model Now</button>`;
+          } else {
+            resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-rose-950/40 text-rose-300 border-rose-800';
+            resBox.innerHTML = `🔴 <b>Connection Failed:</b> ${escapeHtml(data.message || data.error_detail || 'Offline')}`;
+            updateEmbeddingPillStatus(false);
+          }
+        }
+
+        if (chips && data.available_models && data.available_models.length > 0) {
+          chips.classList.remove('hidden');
+          chips.innerHTML = `<span class="text-slate-400 text-[10px] w-full block mb-0.5">Installed on Ollama (click to select):</span>` +
+            data.available_models.map(m => `
+              <button type="button" onclick="setEmbeddingModelPreset('${escapeHtml(m)}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-cyan-900/60 text-slate-300 hover:text-cyan-200 border border-slate-700 text-[10px] font-mono transition">
+                ${escapeHtml(m)}
+              </button>
+            `).join('');
+        }
+      } catch (e) {
+        if (resBox) {
+          resBox.className = 'p-2.5 rounded-lg text-[11px] font-mono border bg-rose-950/40 text-rose-300 border-rose-800';
+          resBox.innerHTML = `🔴 <b>Network Error:</b> ${escapeHtml(e.message || String(e))}`;
+          resBox.classList.remove('hidden');
+        }
+      } finally {
+        if (btn) {
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+          if (window.lucide) window.lucide.createIcons();
+        }
+      }
+    }
+
+    async function pullEmbeddingModel(host, model) {
+      const resBox = document.getElementById('embedding-test-result');
+      if (resBox) {
+        resBox.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin inline mr-1"></i> Pulling model '${escapeHtml(model)}' on Ollama server... Please wait (may take 1-2 minutes).`;
+        if (window.lucide) window.lucide.createIcons();
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/embedding/pull`, {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ollama_host: host, model: model })
+        });
+        const data = await res.json();
+        alert(data.message || 'Pull request finished.');
+        testEmbeddingConnection();
+      } catch (e) {
+        alert('Pull request error: ' + e.message);
+      }
+    }
+
+    async function saveEmbeddingConfig() {
+      const host = (document.getElementById('embedding-ollama-host').value || '').trim();
+      const model = (document.getElementById('embedding-model-name').value || '').trim();
+      const dim = parseInt(document.getElementById('embedding-dim').value || 768, 10);
+      const allowFallback = document.getElementById('embedding-allow-fallback').checked;
+
+      if (!host) {
+        alert('Please enter an Ollama Host IP or URL.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/config/embedding`, {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ollama_host: host,
+            model: model,
+            dimension: dim,
+            allow_fallback: allowFallback
+          })
+        });
+        if (res.ok) {
+          alert('Ollama Embedding Configuration saved successfully!');
+          checkEmbeddingStatus();
+          closeEmbeddingConfigModal();
+        } else {
+          alert('Failed to save embedding configuration.');
+        }
+      } catch (e) {
+        alert('Connection error: ' + (e.message || e));
+      }
+    }
+
+    async function triggerReembed() {
+      const btn = document.getElementById('btn-run-reembed');
+      const statusBox = document.getElementById('embedding-reembed-status');
+      const force = document.getElementById('embedding-force-reembed')?.checked || false;
+      const rawRepo = document.getElementById('repo-filter-select')?.value || '';
+      const selectedRepo = (rawRepo && rawRepo !== 'All Repositories' && rawRepo !== 'ALL') ? rawRepo : null;
+
+      if (btn) {
+        btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Embedding Codebase...';
+        btn.disabled = true;
+      }
+      if (statusBox) {
+        statusBox.classList.remove('hidden');
+        statusBox.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin inline mr-1"></i> Running vector embeddings on Ollama...';
+      }
+      if (window.lucide) window.lucide.createIcons();
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/embedding/reembed`, {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo_name: selectedRepo, force: force })
+        });
+        const data = await res.json();
+        if (statusBox) {
+          statusBox.innerHTML = `✅ <b>Embeddings Completed:</b> Embedded ${data.embedded_successfully} entities using model <code>${escapeHtml(data.model_used)}</code> (${data.dimension}d). Errors: ${data.errors}.`;
+        }
+        await loadStats();
+      } catch (e) {
+        if (statusBox) {
+          statusBox.innerHTML = `🔴 <b>Embedding Error:</b> ${escapeHtml(e.message || String(e))}`;
+        }
+      } finally {
+        if (btn) {
+          btn.innerHTML = '<i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i> <span>Generate Embeddings for Codebase Now</span>';
+          btn.disabled = false;
+          if (window.lucide) window.lucide.createIcons();
+        }
+      }
+    }
+
+    async function checkEmbeddingStatus() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/embedding/status`, { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const isOnline = data.status === 'connected';
+        updateEmbeddingPillStatus(isOnline, data.detected_dimension || data.configured_dimension);
+      } catch (e) {}
+    }
+
+    function updateEmbeddingPillStatus(isOnline, dim) {
+      const dot = document.getElementById('embedding-pill-dot');
+      const label = document.getElementById('embedding-pill-label');
+      if (dot) {
+        dot.className = isOnline ? 'w-2 h-2 rounded-full bg-cyan-400 animate-pulse' : 'w-2 h-2 rounded-full bg-slate-500';
+      }
+      if (label) {
+        label.innerText = isOnline ? `Embeddings (${dim || 768}d)` : 'Embeddings';
+      }
+    }
+
   </script>
   <style>
     #vis-network-container, #cy {
@@ -159,10 +388,17 @@
         <span>AI Assistant</span>
       </button>
 
+      <!-- Dedicated Ollama Code Embeddings Button -->
+      <button onclick="openEmbeddingConfigModal()" id="btn-embedding-pill" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition" title="Configure Ollama Code Embeddings (IP & Model)">
+        <span id="embedding-pill-dot" class="w-2 h-2 rounded-full bg-cyan-400"></span>
+        <i data-lucide="binary" class="w-3.5 h-3.5 text-cyan-400"></i>
+        <span id="embedding-pill-label" class="hidden md:inline">Embeddings</span>
+      </button>
+
       <!-- LLM Settings Button -->
-      <button onclick="openLlmConfigModal()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition" title="Configure LLM Endpoint">
-        <i data-lucide="settings" class="w-3.5 h-3.5 text-purple-400"></i>
-        <span class="hidden md:inline">LLM Config</span>
+      <button onclick="openLlmConfigModal()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition" title="Configure AI Assistant (LLM Chat & Review)">
+        <i data-lucide="bot" class="w-3.5 h-3.5 text-purple-400"></i>
+        <span class="hidden md:inline">AI Assistant</span>
       </button>
     </div>
   </header>
@@ -455,6 +691,12 @@
           <p class="text-xs text-slate-400 mt-0.5">Vector database of 768-dimensional embeddings generated by Ollama / Jina Code for repositories, with cosine similarity search.</p>
         </div>
         <div class="flex items-center gap-2">
+          <button onclick="openEmbeddingConfigModal()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 flex items-center gap-1.5 transition">
+            <i data-lucide="settings" class="w-3.5 h-3.5 text-cyan-400"></i> Ollama Embeddings Config
+          </button>
+          <button onclick="triggerReembed()" class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition">
+            <i data-lucide="zap" class="w-3.5 h-3.5"></i> Generate Embeddings Now
+          </button>
           <button onclick="loadVectorDbData()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
           </button>
@@ -1556,6 +1798,91 @@
           <button onclick="closeLlmConfigModal(); switchMainView('chat');" class="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1.5 font-medium transition">
             <i data-lucide="message-square" class="w-3.5 h-3.5"></i> Open AI Chat &rarr;
           </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== DEDICATED OLLAMA EMBEDDING CONFIG MODAL ==================== -->
+  <div id="embedding-config-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+          <i data-lucide="binary" class="w-4 h-4 text-cyan-400"></i> Ollama Code Embeddings Engine
+        </h3>
+        <button onclick="closeEmbeddingConfigModal()" class="text-slate-400 hover:text-slate-200">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-slate-400">Ollama Server Host IP / URL</label>
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="setEmbeddingHostPreset('http://172.17.80.1:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">WSL / Host IP</button>
+              <button type="button" onclick="setEmbeddingHostPreset('http://127.0.0.1:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">127.0.0.1</button>
+              <button type="button" onclick="setEmbeddingHostPreset('http://host.docker.internal:11434')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Docker Host</button>
+            </div>
+          </div>
+          <input id="embedding-ollama-host" type="text" placeholder="http://172.17.80.1:11434" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+          <p class="text-[10px] text-slate-500 mt-1">Dedicated Ollama IP for Vector DB & Graph embeddings (e.g. <code class="text-cyan-400">http://172.17.80.1:11434</code> or <code class="text-cyan-400">http://127.0.0.1:11434</code>).</p>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-slate-400">Embedding Model Name</label>
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="setEmbeddingModelPreset('unclemusclez/jina-embeddings-v2-base-code:latest')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Jina Code</button>
+              <button type="button" onclick="setEmbeddingModelPreset('nomic-embed-text:latest')" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 font-mono transition">Nomic</button>
+            </div>
+          </div>
+          <input id="embedding-model-name" type="text" placeholder="unclemusclez/jina-embeddings-v2-base-code:latest" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+          <div id="embedding-available-models-chips" class="hidden mt-1.5 flex flex-wrap gap-1"></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 mb-1">Vector Dimension</label>
+            <input id="embedding-dim" type="number" value="768" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+          </div>
+          <div class="flex items-end pb-1.5">
+            <label class="flex items-center gap-2 cursor-pointer text-slate-400 text-xs">
+              <input id="embedding-allow-fallback" type="checkbox" class="rounded bg-slate-950 border-slate-800 text-cyan-600 focus:ring-0">
+              <span>Allow Test Fallback Vector</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Connection Test Result Banner -->
+        <div id="embedding-test-result" class="hidden p-2.5 rounded-lg text-[11px] font-mono border"></div>
+
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button type="button" id="btn-test-embedding" onclick="testEmbeddingConnection()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border border-slate-700 transition">
+            <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i> Test Connection
+          </button>
+          <button type="button" onclick="saveEmbeddingConfig()" class="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-600/20 transition">
+            <i data-lucide="check" class="w-3.5 h-3.5"></i> Save Embedding Config
+          </button>
+        </div>
+
+        <!-- On-Demand Embedding Generation Action Box (در هر مرحله ای) -->
+        <div class="mt-3 pt-3 border-t border-slate-800/80 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-slate-300 font-semibold flex items-center gap-1.5 text-xs">
+              <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i> On-Demand Codebase Embedding
+            </span>
+            <label class="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer">
+              <input id="embedding-force-reembed" type="checkbox" class="rounded bg-slate-950 border-slate-800 text-cyan-600 focus:ring-0">
+              <span>Re-embed all (overwrite)</span>
+            </label>
+          </div>
+          <p class="text-[11px] text-slate-400">Generate or update vector embeddings for all functions and classes in the graph using the configured Ollama server right now.</p>
+          <button type="button" id="btn-run-reembed" onclick="triggerReembed()" class="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/40 transition">
+            <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+            <span>Generate Embeddings for Codebase Now</span>
+          </button>
+          <div id="embedding-reembed-status" class="hidden p-2 rounded-lg text-[11px] font-mono bg-slate-950 border border-slate-800 text-slate-300"></div>
         </div>
       </div>
     </div>
@@ -2848,6 +3175,7 @@ asyncio.run(run())`;
       await loadRepoFilter();
       await loadGraph();
       await checkLlmStatus();
+      await checkEmbeddingStatus();
     }
 
     async function loadStats() {

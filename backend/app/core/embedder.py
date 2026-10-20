@@ -463,3 +463,198 @@ def verify_ollama_status() -> dict:
     _STATUS_CACHE = {"timestamp": now, "result": res}
     return res
 
+
+
+# --- DEDICATED EMBEDDING ENGINE CONFIGURATION (Completely Decoupled from Chat LLM) ---
+def _init_saved_embedding_config():
+    """Loads saved embedding host and model configuration from Redis if available."""
+    global OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
+    try:
+        from app.core.celery import CELERY_BROKER_URL
+        import redis
+        r = redis.from_url(CELERY_BROKER_URL, decode_responses=True)
+        raw = r.get("codegraph_embedding_config")
+        if raw and isinstance(raw, (str, bytes)):
+            cfg = json.loads(raw)
+            if cfg.get("ollama_host"):
+                OLLAMA_BASE_URL = normalize_ollama_base_url(cfg["ollama_host"])
+            if cfg.get("model"):
+                EMBEDDING_MODEL = cfg["model"].strip()
+            if cfg.get("dimension"):
+                EMBEDDING_DIM = int(cfg["dimension"])
+            if "allow_fallback" in cfg:
+                ALLOW_FAKE_EMBEDDINGS = bool(cfg["allow_fallback"])
+    except Exception:
+        pass
+
+_init_saved_embedding_config()
+
+def get_embedding_config() -> dict:
+    """Returns the dedicated Ollama embedding engine configuration."""
+    _init_saved_embedding_config()
+    return {
+        "ollama_host": OLLAMA_BASE_URL,
+        "model": EMBEDDING_MODEL,
+        "dimension": EMBEDDING_DIM,
+        "allow_fallback": ALLOW_FAKE_EMBEDDINGS
+    }
+
+def set_embedding_config(ollama_host: str, model: str, dimension: int = None, allow_fallback: bool = None):
+    """Updates and persists the dedicated Ollama embedding engine configuration."""
+    global OLLAMA_BASE_URL, EMBEDDING_MODEL, EMBEDDING_DIM, ALLOW_FAKE_EMBEDDINGS
+    clean_host = normalize_ollama_base_url(ollama_host)
+    OLLAMA_BASE_URL = clean_host
+    if model:
+        EMBEDDING_MODEL = model.strip()
+    if dimension:
+        EMBEDDING_DIM = int(dimension)
+    if allow_fallback is not None:
+        ALLOW_FAKE_EMBEDDINGS = bool(allow_fallback)
+    
+    clear_embedder_cache()
+    
+    try:
+        from app.core.celery import CELERY_BROKER_URL
+        import redis
+        r = redis.from_url(CELERY_BROKER_URL, decode_responses=True)
+        cfg_data = {
+            "ollama_host": OLLAMA_BASE_URL,
+            "model": EMBEDDING_MODEL,
+            "dimension": EMBEDDING_DIM,
+            "allow_fallback": ALLOW_FAKE_EMBEDDINGS
+        }
+        r.set("codegraph_embedding_config", json.dumps(cfg_data))
+    except Exception:
+        pass
+    return get_embedding_config()
+
+def test_ollama_embedding_connection(ollama_host: str = None, model: str = None) -> dict:
+    """Directly tests reachability, models list, and embedding generation for a specified Ollama host IP."""
+    host = normalize_ollama_base_url(ollama_host or OLLAMA_BASE_URL or get_active_ollama_url())
+    target_model = model or EMBEDDING_MODEL
+    
+    models = list_ollama_models(host, timeout=3)
+    if not models:
+        return {
+            "status": "offline",
+            "host": host,
+            "target_model": target_model,
+            "available_models": [],
+            "message": f"Cannot connect to Ollama at {host}. Please verify Ollama is running and accessible."
+        }
+        
+    model_present = target_model in models or any(target_model.split(":")[0] in m for m in models)
+    
+    vec, err = _query_ollama("CodeGraph Brain test embedding probe", target_model, host, timeout=6)
+    if vec:
+        return {
+            "status": "connected",
+            "host": host,
+            "target_model": target_model,
+            "model_present": True,
+            "detected_dimension": len(vec),
+            "configured_dimension": EMBEDDING_DIM,
+            "available_models": models,
+            "sample_vector_preview": vec[:5],
+            "message": f"Successfully connected to Ollama at {host}! Model '{target_model}' generated a {len(vec)}-dim vector."
+        }
+    else:
+        return {
+            "status": "model_missing" if not model_present else "error",
+            "host": host,
+            "target_model": target_model,
+            "model_present": model_present,
+            "available_models": models,
+            "error_detail": err or "Failed to generate embedding vector.",
+            "message": f"Connected to Ollama, but model '{target_model}' returned: {err}"
+        }
+
+def pull_ollama_model_action(ollama_host: str = None, model: str = None) -> dict:
+    """Triggers download/pull of the specified embedding model on the Ollama host."""
+    host = normalize_ollama_base_url(ollama_host or OLLAMA_BASE_URL or get_active_ollama_url())
+    target_model = model or EMBEDDING_MODEL
+    ok = pull_ollama_model(host, target_model, timeout=300)
+    return {
+        "status": "success" if ok else "failed",
+        "host": host,
+        "model": target_model,
+        "message": f"Model '{target_model}' pull request completed on {host}." if ok else f"Failed to pull '{target_model}' on {host}."
+    }
+
+def reembed_graph_entities(repo_name: str = None, force: bool = False) -> dict:
+    """
+    On-demand embedding generation for all functions and classes in Neo4j.
+    Can be executed at any stage (در هر مرحله ای).
+    """
+    from app.core.graph import driver
+    active_url = get_active_ollama_url()
+    effective_model = EMBEDDING_MODEL
+    
+    with driver.session() as session:
+        # 1. Functions
+        query_fn = """
+        MATCH (f:Function)
+        WHERE ($repo_name IS NULL OR f.repo = $repo_name)
+          AND ($force = true OR f.embedding IS NULL)
+        RETURN coalesce(f.id, elementId(f)) AS id, f.name AS name, f.code AS code, f.file_path AS file_path
+        LIMIT 500
+        """
+        fn_records = [dict(r) for r in session.run(query_fn, repo_name=repo_name, force=force)]
+        
+        # 2. Classes
+        query_cls = """
+        MATCH (c:Class)
+        WHERE ($repo_name IS NULL OR c.repo = $repo_name)
+          AND ($force = true OR c.embedding IS NULL)
+        RETURN coalesce(c.id, elementId(c)) AS id, c.name AS name, c.file_path AS file_path
+        LIMIT 200
+        """
+        cls_records = [dict(r) for r in session.run(query_cls, repo_name=repo_name, force=force)]
+        
+    fn_count = len(fn_records)
+    cls_count = len(cls_records)
+    total_to_embed = fn_count + cls_count
+    
+    success_count = 0
+    error_count = 0
+    
+    for f in fn_records:
+        text = f.get("code") or f.get("name") or ""
+        try:
+            emb = get_embedding(text, model=effective_model)
+            with driver.session() as session:
+                session.run("""
+                MATCH (fn:Function)
+                WHERE fn.id = $id OR elementId(fn) = $id
+                SET fn.embedding = $emb, fn.embedding_model = $model, fn.embedding_dim = $dim
+                """, id=f["id"], emb=emb, model=effective_model, dim=len(emb))
+            success_count += 1
+        except Exception as e:
+            print(f"[Embedder] Error embedding function {f.get('name')}: {e}")
+            error_count += 1
+
+    for c in cls_records:
+        text = c.get("name") or "class"
+        try:
+            emb = get_embedding(text, model=effective_model)
+            with driver.session() as session:
+                session.run("""
+                MATCH (cls:Class)
+                WHERE cls.id = $id OR elementId(cls) = $id
+                SET cls.embedding = $emb, cls.embedding_model = $model, cls.embedding_dim = $dim
+                """, id=c["id"], emb=emb, model=effective_model, dim=len(emb))
+            success_count += 1
+        except Exception as e:
+            print(f"[Embedder] Error embedding class {c.get('name')}: {e}")
+            error_count += 1
+
+    return {
+        "status": "success" if error_count == 0 else "partial_success",
+        "repo_name": repo_name or "All Repositories",
+        "total_entities_evaluated": total_to_embed,
+        "embedded_successfully": success_count,
+        "errors": error_count,
+        "model_used": effective_model,
+        "active_ollama_url": active_url,
+        "dimension": EMBEDDING_DIM
+    }
