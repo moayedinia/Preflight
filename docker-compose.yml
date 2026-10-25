@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   neo4j:
-    image: dockerhub.ime.co.ir/neo4j:5.11
+    image: neo4j:5.11
     container_name: neo4j_graph
     entrypoint:
       - /bin/bash
@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: dockerhub.ime.co.ir/redis:alpine
+    image: redis:alpine
     container_name: redis_broker
     command: redis-server --requirepass "${REDIS_PASSWORD:-RedisSecurePass2026!}"
     ports:
@@ -60,7 +60,7 @@ services:
     restart: unless-stopped
 
   vllm:
-    image: ${DOCKER_REGISTRY:-dockerhub.ime.co.ir/}vllm/vllm-openai:latest
+    image: ${DOCKER_REGISTRY:-}vllm/vllm-openai:latest
     container_name: graphrag_vllm
     privileged: true
     ipc: host
@@ -99,10 +99,6 @@ services:
   api:
     build:
       context: ./backend
-      args:
-        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
-        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
-        PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
@@ -134,10 +130,6 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
-      - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
-      - PIP_DEFAULT_TIMEOUT=180
-      - PIP_RETRIES=5
     depends_on:
       neo4j:
         condition: service_healthy
@@ -155,10 +147,6 @@ services:
   celery_worker:
     build:
       context: ./backend
-      args:
-        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
-        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
-        PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_worker
     command: celery -A app.core.celery.celery_app worker --loglevel=info
     volumes:
@@ -187,10 +175,6 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
-      - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
-      - PIP_DEFAULT_TIMEOUT=180
-      - PIP_RETRIES=5
     depends_on:
       neo4j:
         condition: service_healthy
@@ -210,10 +194,6 @@ services:
   mcp_server:
     build:
       context: ./backend
-      args:
-        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://linux.repo.ime.co.ir/repository/debian}
-        PYPI_MIRROR: ${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
-        PYPI_HOST: ${PYPI_HOST:-pypi.repo.ime.co.ir}
     container_name: graphrag_mcp
     command: python -m app.mcp_server --transport sse --port 8002 --host 0.0.0.0
     volumes:
@@ -242,10 +222,6 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
       - LLM_MODEL=${LLM_MODEL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - PIP_INDEX_URL=${PYPI_MIRROR:-https://pypi.repo.ime.co.ir/repository/pypi-group/simple/}
-      - PIP_TRUSTED_HOST=${PYPI_HOST:-pypi.repo.ime.co.ir}
-      - PIP_DEFAULT_TIMEOUT=180
-      - PIP_RETRIES=5
     depends_on:
       neo4j:
         condition: service_healthy
