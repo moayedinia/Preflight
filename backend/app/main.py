@@ -383,6 +383,7 @@ def get_task_status(task_id: str):
     return {
         "task_id": task_id,
         "status": status,
+        "state": status,
         "progress": info.get("status", "Processing..." if not ready else ("Finished" if status == "SUCCESS" else "Failed")),
         "percent": percent,
         "current": info.get("current", 0),

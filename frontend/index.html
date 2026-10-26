@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
@@ -1109,8 +1109,8 @@
           }
 
           if (pText) pText.innerText = 'Cloning git repository...';
-          if (pBar) pBar.style.width = '20%';
-          if (pPct) pPct.innerText = '20%';
+          if (pBar) pBar.style.width = '5%';
+          if (pPct) pPct.innerText = '5%';
 
           const res = await fetch(`${API_BASE}/api/v1/ingest/git`, {
             method: 'POST',
@@ -1135,8 +1135,8 @@
           if (name) formData.append('repo_name', name);
 
           if (pText) pText.innerText = 'Uploading ZIP archive...';
-          if (pBar) pBar.style.width = '20%';
-          if (pPct) pPct.innerText = '20%';
+          if (pBar) pBar.style.width = '5%';
+          if (pPct) pPct.innerText = '5%';
 
           const res = await fetch(`${API_BASE}/api/v1/ingest/upload`, {
             method: 'POST',
@@ -1165,37 +1165,49 @@
       const interval = setInterval(async () => {
         try {
           const res = await fetch(`${API_BASE}/api/v1/tasks/${taskId}`);
+          if (!res.ok) return;
           const task = await res.json();
           
-          if (task.state === 'PROGRESS' && task.meta) {
-            const pct = task.meta.percent || 40;
-            if (pBar) pBar.style.width = pct + '%';
-            if (pPct) pPct.innerText = pct + '%';
-            if (pText) pText.innerText = task.meta.status || 'Indexing files...';
-          } else if (task.state === 'SUCCESS') {
+          const state = String(task.status || task.state || '').toUpperCase();
+          const pct = (task.percent !== undefined && task.percent !== null)
+            ? task.percent
+            : (task.meta && task.meta.percent ? task.meta.percent : 5);
+          const statusText = task.progress || (task.meta && task.meta.status) || 'Indexing files...';
+
+          if (pBar) pBar.style.width = Math.max(5, Math.min(100, pct)) + '%';
+          if (pPct) pPct.innerText = pct + '%';
+          if (pText) pText.innerText = statusText;
+
+          if (state === 'SUCCESS') {
             clearInterval(interval);
             if (pBar) pBar.style.width = '100%';
             if (pPct) pPct.innerText = '100%';
-            if (pText) pText.innerText = 'Completed successfully!';
+            if (pText) pText.innerText = 'Indexing completed successfully!';
             showToast('Repository indexed successfully!');
-            setTimeout(() => {
+            setTimeout(async () => {
               closeModal('modal-import');
               if (submitBtn) submitBtn.disabled = false;
               const pBox = document.getElementById('import-progress-box');
               if (pBox) pBox.classList.add('hidden');
-              loadRepositories();
-            }, 1000);
-          } else if (task.state === 'FAILURE') {
+              await loadRepositories();
+              const newRepo = task.repo_name || (task.result && task.result.repo_name);
+              if (newRepo) {
+                selectAndAuditRepo(newRepo);
+              } else if (currentRepo) {
+                runPreflightAudit();
+              }
+            }, 800);
+          } else if (state === 'FAILURE' || state === 'REVOKED') {
             clearInterval(interval);
-            if (pText) pText.innerText = 'Indexing failed!';
-            showToast('Indexing failed. Check logs.', true);
+            const errDetail = (task.meta && task.meta.error) || task.progress || 'Indexing failed!';
+            if (pText) pText.innerText = errDetail;
+            showToast('Indexing failed: ' + errDetail, true);
             if (submitBtn) submitBtn.disabled = false;
           }
         } catch (e) {
-          clearInterval(interval);
-          if (submitBtn) submitBtn.disabled = false;
+          console.error('Error polling task:', e);
         }
-      }, 1500);
+      }, 1000);
     }
 
     // --- Settings Modal Logic ---
