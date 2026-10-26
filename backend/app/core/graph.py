@@ -698,9 +698,11 @@ def resolve_cross_references(repo_name: str = None):
         # Step 3: Ensure all Classes belong to their File and have repo / file_path
         try:
             session.run("""
-                MATCH (f:File), (c:Class)
+                MATCH (f:File)
                 WHERE ($repo_name IS NULL OR f.repo = $repo_name)
-                  AND (c.file_path = f.path OR c.id STARTS WITH (f.id + ':'))
+                WITH f
+                MATCH (c:Class)
+                WHERE (c.file_path = f.path OR c.id STARTS WITH (f.id + ':'))
                 SET c.repo = f.repo, c.file_path = f.path
                 MERGE (f)-[:CONTAINS]->(c)
             """, repo_name=repo_name)
@@ -710,9 +712,11 @@ def resolve_cross_references(repo_name: str = None):
         # Step 4: Ensure Class methods are connected to their Class via HAS_METHOD and File via CONTAINS
         try:
             session.run("""
-                MATCH (c:Class), (fn:Function)
+                MATCH (c:Class)
                 WHERE ($repo_name IS NULL OR c.repo = $repo_name)
-                  AND fn.id STARTS WITH (c.id + ':')
+                WITH c
+                MATCH (fn:Function)
+                WHERE fn.id STARTS WITH (c.id + ':')
                 SET fn.repo = c.repo, fn.file_path = c.file_path
                 MERGE (c)-[:HAS_METHOD]->(fn)
             """, repo_name=repo_name)
@@ -729,9 +733,11 @@ def resolve_cross_references(repo_name: str = None):
         # Step 5: Ensure standalone functions in Files are linked via CONTAINS
         try:
             session.run("""
-                MATCH (f:File), (fn:Function)
+                MATCH (f:File)
                 WHERE ($repo_name IS NULL OR f.repo = $repo_name)
-                  AND (fn.id STARTS WITH (f.id + ':') OR (fn.file_path = f.path AND fn.repo = f.repo))
+                WITH f
+                MATCH (fn:Function)
+                WHERE (fn.id STARTS WITH (f.id + ':') OR (fn.file_path = f.path AND fn.repo = f.repo))
                 SET fn.repo = f.repo, fn.file_path = f.path
                 MERGE (f)-[:CONTAINS]->(fn)
             """, repo_name=repo_name)
