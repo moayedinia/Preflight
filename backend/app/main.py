@@ -144,6 +144,7 @@ class LLMConfigRequest(BaseModel):
     base_url: Optional[str] = Field(None, max_length=500)
     model: Optional[str] = Field(None, max_length=100)
     api_key: Optional[str] = Field("", max_length=2000)
+    test_connection: Optional[bool] = Field(False)
 
 class AutoDocRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
@@ -792,9 +793,27 @@ def update_llm_settings(payload: LLMConfigRequest):
     try:
         set_llm_config(base_url, model, api_key)
         clear_llm_status_cache()
+        if getattr(payload, "test_connection", False):
+            from app.core.llm import verify_llm_connection
+            is_connected, reason = verify_llm_connection()
+            return {
+                "status": "success" if is_connected else "failed",
+                "connected": is_connected,
+                "message": reason
+            }
         return {"status": "success", "message": "LLM configuration updated successfully."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/v1/config/llm/test", dependencies=[Depends(verify_api_key)])
+def test_llm_connection_get():
+    from app.core.llm import verify_llm_connection
+    is_connected, reason = verify_llm_connection()
+    return {
+        "status": "success" if is_connected else "failed",
+        "connected": is_connected,
+        "message": reason
+    }
 
 # --- DEDICATED EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
 class EmbeddingConfigRequest(BaseModel):

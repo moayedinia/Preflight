@@ -92,23 +92,16 @@
         <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400 absolute right-2.5 pointer-events-none"></i>
       </div>
 
-      <!-- Quick API Key Section (Directly next to Import Project) -->
-      <div id="topbar-api-key-box" class="relative flex items-center bg-slate-950/90 border border-slate-800 rounded-lg pl-2.5 pr-1.5 py-1 text-xs transition-all focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500/30">
-        <div class="flex items-center gap-1.5 mr-1.5 cursor-pointer" onclick="openModal('modal-settings')" title="Click to view AI & API Settings">
-          <i data-lucide="key" id="topbar-key-icon" class="w-3.5 h-3.5 text-amber-400 transition-colors"></i>
-          <span id="topbar-key-status-dot" class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" title="API Key Required"></span>
-        </div>
-        <input type="password" id="topbar-api-key-input" placeholder="API Key (sk-...)" 
-               onkeydown="if(event.key==='Enter')quickSaveTopbarApiKey()"
-               class="bg-transparent text-xs text-slate-200 placeholder-slate-500 focus:outline-none w-24 sm:w-36 transition-all"
-               title="Enter your OpenAI / Groq / OpenRouter API Key for Preflight Audits">
-        <button onclick="quickSaveTopbarApiKey()" id="topbar-save-key-btn" 
-                class="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded text-[11px] font-bold transition-all shadow-sm">
-          Save
-        </button>
-      </div>
+      <!-- Import API Key Button (Directly next to Import Project) -->
+      <button onclick="openModal('modal-settings')" id="topbar-api-key-btn" 
+              class="px-3 py-1.5 border border-slate-700/80 hover:border-slate-600 bg-slate-900/90 hover:bg-slate-800 text-slate-200 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm shrink-0"
+              title="Configure your AI Provider, API Key, and Base URL">
+        <i data-lucide="key" id="topbar-key-icon" class="w-3.5 h-3.5 text-amber-400 transition-colors"></i>
+        <span id="topbar-key-btn-text">Import API Key</span>
+        <span id="topbar-key-badge" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">Needed</span>
+      </button>
 
-      <!-- Import Button -->
+      <!-- Import Project Button -->
       <button onclick="openModal('modal-import')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-all shadow-md shadow-emerald-900/30 flex items-center gap-1.5 shrink-0">
         <i data-lucide="plus" class="w-3.5 h-3.5"></i>
         <span class="hidden sm:inline">Import Project</span>
@@ -444,8 +437,8 @@
       </div>
 
       <!-- API Key Requirement Warning Banner -->
-      <div id="import-api-warning-banner" class="p-3.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-200 space-y-2">
-        <div class="flex items-start gap-2.5">
+      <div id="import-api-warning-banner" class="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-200 space-y-2.5">
+        <div class="flex items-start gap-3">
           <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i>
           <div class="space-y-1 flex-1">
             <div class="flex items-center justify-between">
@@ -453,22 +446,17 @@
               <span id="import-modal-key-status" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-950 border border-amber-500/30 text-amber-300">Key Missing</span>
             </div>
             <p class="text-amber-200/80 text-[11px] leading-relaxed">
-              To inspect and score this project for blockers (leaked secrets, broken buttons, UX issues), an active LLM API Key is strictly required. 
-              You can set it in the top bar or directly below before importing.
+              ShipReady uses an AI Language Model to detect security leaks, broken buttons, and UX flaws. 
+              Please make sure you have configured your API Key and URL before or right after importing to audit your code.
             </p>
           </div>
         </div>
 
-        <!-- Inline Quick Key input if not yet set -->
-        <div id="import-quick-key-row" class="pt-1 flex items-center gap-2">
-          <div class="relative flex-1 flex items-center bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 focus-within:border-emerald-500">
-            <i data-lucide="key" class="w-3.5 h-3.5 text-amber-400 mr-2 shrink-0"></i>
-            <input type="password" id="import-modal-key-input" placeholder="Paste your API key here (sk-...)" 
-                   onkeydown="if(event.key==='Enter')saveApiKeyFromImportModal()"
-                   class="w-full bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none">
-          </div>
-          <button onclick="saveApiKeyFromImportModal()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-lg text-xs font-bold transition-all shadow-md shrink-0">
-            Save Key
+        <div class="flex items-center justify-between pt-1 border-t border-amber-500/20">
+          <span class="text-[11px] text-amber-300/80">Need to enter or change your key?</span>
+          <button onclick="closeModal('modal-import'); openModal('modal-settings')" class="px-3 py-1 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5">
+            <i data-lucide="key" class="w-3.5 h-3.5"></i>
+            Import API Key & URL
           </button>
         </div>
       </div>
@@ -532,26 +520,63 @@
     </div>
   </div>
 
-  <!-- ================= MODAL: SETTINGS ================= -->
+  <!-- ================= MODAL: SETTINGS & API KEY ================= -->
   <div id="modal-settings" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
       
       <div class="flex items-center justify-between border-b border-slate-800 pb-3">
         <h3 class="text-base font-bold text-white flex items-center gap-2">
-          <i data-lucide="settings" class="w-4 h-4 text-emerald-400"></i>
-          AI & API Configuration
+          <i data-lucide="key" class="w-4 h-4 text-emerald-400"></i>
+          Import API Key & AI Settings
         </h3>
         <button onclick="closeModal('modal-settings')" class="text-slate-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
 
-      <div class="space-y-4">
+      <!-- Quick Provider Presets -->
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-400 mb-1.5">Quick Provider Presets (Auto-fill URL & Model)</label>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <button type="button" onclick="applyProviderPreset('openai')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
+            <div class="text-xs font-bold text-white">OpenAI</div>
+            <div class="text-[10px] text-slate-400">gpt-4o-mini</div>
+          </button>
+          <button type="button" onclick="applyProviderPreset('openrouter')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
+            <div class="text-xs font-bold text-white">OpenRouter</div>
+            <div class="text-[10px] text-slate-400">openrouter.ai</div>
+          </button>
+          <button type="button" onclick="applyProviderPreset('groq')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
+            <div class="text-xs font-bold text-white">Groq</div>
+            <div class="text-[10px] text-slate-400">llama-3.3-70b</div>
+          </button>
+          <button type="button" onclick="applyProviderPreset('ollama')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
+            <div class="text-xs font-bold text-white">Ollama / Local</div>
+            <div class="text-[10px] text-slate-400">host.docker</div>
+          </button>
+        </div>
+      </div>
+
+      <div class="space-y-3.5">
+        <!-- API Key (Prominent First Field) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-200 mb-1 flex items-center justify-between">
+            <span>API Key <span class="text-emerald-400">*</span></span>
+            <span class="text-[11px] font-normal text-slate-400">Required for Code Audits</span>
+          </label>
+          <div class="relative flex items-center bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 focus-within:border-emerald-500">
+            <input type="password" id="settings-api-key" placeholder="Paste your API key here (sk-...)" class="w-full bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none pr-8">
+            <button type="button" onclick="togglePasswordVisibility('settings-api-key', this)" class="text-slate-400 hover:text-slate-200 absolute right-3" title="Show/Hide Key">
+              <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+
         <!-- API Base URL -->
         <div>
           <label class="block text-xs font-medium text-slate-300 mb-1">API Base URL (OpenAI-compatible)</label>
           <input type="text" id="settings-base-url" placeholder="https://api.openai.com/v1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
-          <p class="text-[11px] text-slate-500 mt-1">Works with OpenAI, OpenRouter, Groq, or Ollama (http://localhost:11434/v1)</p>
+          <p class="text-[11px] text-slate-500 mt-1">Default: https://api.openai.com/v1 (in Docker, use host.docker.internal for local endpoints)</p>
         </div>
 
         <!-- Model Name -->
@@ -560,27 +585,23 @@
           <input type="text" id="settings-model" placeholder="gpt-4o-mini" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
         </div>
 
-        <!-- API Key -->
-        <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1">API Key</label>
-          <input type="password" id="settings-api-key" placeholder="sk-..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
-        </div>
-
         <!-- Connection Test Result -->
         <div id="settings-test-result" class="hidden p-3 rounded-xl text-xs"></div>
       </div>
 
       <!-- Footer Buttons -->
       <div class="flex items-center justify-between pt-2 border-t border-slate-800">
-        <button onclick="testApiConnection()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-colors">
+        <button type="button" onclick="testApiConnection()" id="btn-test-connection" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-colors flex items-center gap-1.5">
+          <i data-lucide="activity" class="w-3.5 h-3.5"></i>
           Test Connection
         </button>
         <div class="flex gap-2">
-          <button onclick="closeModal('modal-settings')" class="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-white">
+          <button type="button" onclick="closeModal('modal-settings')" class="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white">
             Cancel
           </button>
-          <button onclick="saveSettings()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-900/30">
-            Save Settings
+          <button type="button" onclick="saveSettings()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-900/30 flex items-center gap-1.5">
+            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+            Save & Apply
           </button>
         </div>
       </div>
@@ -609,134 +630,91 @@
     // --- Global API Key UI Management ---
     function updateApiKeyUiState(key) {
       currentApiKey = (key || '').trim();
-      const topInput = document.getElementById('topbar-api-key-input');
+      const topBtn = document.getElementById('topbar-api-key-btn');
       const topIcon = document.getElementById('topbar-key-icon');
-      const topDot = document.getElementById('topbar-key-status-dot');
-      const topBox = document.getElementById('topbar-api-key-box');
-      const topSaveBtn = document.getElementById('topbar-save-key-btn');
-
+      const topText = document.getElementById('topbar-key-btn-text');
+      const topBadge = document.getElementById('topbar-key-badge');
       const modalStatus = document.getElementById('import-modal-key-status');
-      const modalInput = document.getElementById('import-modal-key-input');
       const modalBanner = document.getElementById('import-api-warning-banner');
-      const modalQuickRow = document.getElementById('import-quick-key-row');
 
       if (currentApiKey) {
-        if (topInput && topInput.value !== currentApiKey) topInput.value = currentApiKey;
         if (topIcon) topIcon.className = 'w-3.5 h-3.5 text-emerald-400 transition-colors';
-        if (topDot) {
-          topDot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
-          topDot.title = 'API Key Configured & Ready';
+        if (topText) topText.innerText = 'API Key';
+        if (topBadge) {
+          topBadge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+          topBadge.innerText = 'Ready ✓';
         }
-        if (topBox) topBox.className = 'relative flex items-center bg-slate-950/90 border border-emerald-500/30 rounded-lg pl-2.5 pr-1.5 py-1 text-xs transition-all focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500/30';
-        if (topSaveBtn) {
-          topSaveBtn.innerText = 'Saved';
-          topSaveBtn.className = 'px-2 py-0.5 bg-emerald-700/60 text-emerald-300 rounded text-[11px] font-semibold transition-all shadow-sm';
-        }
+        if (topBtn) topBtn.className = 'px-3 py-1.5 border border-emerald-500/40 bg-slate-900/90 hover:bg-slate-800 text-slate-200 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm shrink-0';
 
         if (modalStatus) {
           modalStatus.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
           modalStatus.innerText = 'Key Configured ✓';
         }
         if (modalBanner) {
-          modalBanner.className = 'p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 space-y-2';
+          modalBanner.className = 'p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 space-y-2.5';
         }
-        if (modalQuickRow) modalQuickRow.classList.add('hidden');
       } else {
-        if (topInput) topInput.value = '';
         if (topIcon) topIcon.className = 'w-3.5 h-3.5 text-amber-400 transition-colors';
-        if (topDot) {
-          topDot.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse';
-          topDot.title = 'API Key Required for Audits';
+        if (topText) topText.innerText = 'Import API Key';
+        if (topBadge) {
+          topBadge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse';
+          topBadge.innerText = 'Needed ⚠️';
         }
-        if (topBox) topBox.className = 'relative flex items-center bg-slate-950/90 border border-amber-500/50 rounded-lg pl-2.5 pr-1.5 py-1 text-xs transition-all focus-within:border-amber-400 focus-within:ring-1 focus-within:ring-amber-500/30';
-        if (topSaveBtn) {
-          topSaveBtn.innerText = 'Save';
-          topSaveBtn.className = 'px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded text-[11px] font-bold transition-all shadow-sm';
-        }
+        if (topBtn) topBtn.className = 'px-3 py-1.5 border border-amber-500/50 bg-slate-900/90 hover:bg-slate-800 text-slate-200 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm shrink-0';
 
         if (modalStatus) {
           modalStatus.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40';
           modalStatus.innerText = 'Key Missing ⚠️';
         }
         if (modalBanner) {
-          modalBanner.className = 'p-3.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-200 space-y-2';
+          modalBanner.className = 'p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-200 space-y-2.5';
         }
-        if (modalQuickRow) modalQuickRow.classList.remove('hidden');
-        if (modalInput) modalInput.value = '';
       }
       if (window.lucide) lucide.createIcons();
     }
 
     function focusTopbarApiKey() {
-      const topInput = document.getElementById('topbar-api-key-input');
-      const topBox = document.getElementById('topbar-api-key-box');
-      if (topInput) {
-        topInput.focus();
-        topInput.select();
-      }
-      if (topBox) {
-        topBox.classList.add('ring-2', 'ring-amber-400');
-        setTimeout(() => topBox.classList.remove('ring-2', 'ring-amber-400'), 1500);
-      }
-    }
-
-    async function quickSaveTopbarApiKey() {
-      const topInput = document.getElementById('topbar-api-key-input');
-      const key = topInput ? topInput.value.trim() : '';
-      if (!key) {
-        showToast('Please enter an API Key (e.g. sk-...)', true);
-        focusTopbarApiKey();
-        return;
-      }
-      await applyAndPersistApiKey(key);
-      showToast('API Key saved successfully! 🚀');
-    }
-
-    async function saveApiKeyFromImportModal() {
-      const modalInput = document.getElementById('import-modal-key-input');
-      const key = modalInput ? modalInput.value.trim() : '';
-      if (!key) {
-        showToast('Please paste a valid API key', true);
-        if (modalInput) modalInput.focus();
-        return;
-      }
-      await applyAndPersistApiKey(key);
-      showToast('API Key configured! You can now import and audit. ✓');
-    }
-
-    async function applyAndPersistApiKey(key) {
-      try {
-        const b = document.getElementById('settings-base-url');
-        const m = document.getElementById('settings-model');
+      openModal('modal-settings');
+      setTimeout(() => {
         const k = document.getElementById('settings-api-key');
-        const baseUrl = (b && b.value.trim()) || 'https://api.openai.com/v1';
-        const model = (m && m.value.trim()) || 'gpt-4o-mini';
+        if (k) {
+          k.focus();
+          k.select();
+        }
+      }, 150);
+    }
 
-        if (k) k.value = key;
-
-        await fetch(`${API_BASE}/api/v1/config/llm`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base_url: baseUrl, model: model, api_key: key })
-        });
-
-        await fetch(`${API_BASE}/api/v1/config/embedding`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            api_url: baseUrl,
-            vllm_host: baseUrl,
-            api_key: key,
-            model: 'text-embedding-3-small',
-            dimension: 1536
-          })
-        });
-
-        updateApiKeyUiState(key);
-      } catch (e) {
-        console.error('Failed to save API key:', e);
-        showToast('Failed to save API key: ' + e.message, true);
+    function applyProviderPreset(name) {
+      const b = document.getElementById('settings-base-url');
+      const m = document.getElementById('settings-model');
+      const k = document.getElementById('settings-api-key');
+      if (name === 'openai') {
+        if (b) b.value = 'https://api.openai.com/v1';
+        if (m) m.value = 'gpt-4o-mini';
+      } else if (name === 'openrouter') {
+        if (b) b.value = 'https://openrouter.ai/api/v1';
+        if (m) m.value = 'openai/gpt-4o-mini';
+      } else if (name === 'groq') {
+        if (b) b.value = 'https://api.groq.com/openai/v1';
+        if (m) m.value = 'llama-3.3-70b-versatile';
+      } else if (name === 'ollama') {
+        if (b) b.value = 'http://host.docker.internal:11434/v1';
+        if (m) m.value = 'llama3.2';
       }
+      if (k) k.focus();
+    }
+
+    function togglePasswordVisibility(id, btn) {
+      const input = document.getElementById(id);
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.innerHTML = '<i data-lucide="eye-off" class="w-3.5 h-3.5"></i>';
+      } else {
+        input.type = 'password';
+        btn.innerHTML = '<i data-lucide="eye" class="w-3.5 h-3.5"></i>';
+      }
+      if (window.lucide) lucide.createIcons();
     }
 
     function showApiKeyRequiredNotice(repoName) {
@@ -759,26 +737,21 @@
               <i data-lucide="key" class="w-6 h-6"></i>
             </div>
             <div class="space-y-1.5">
-              <h3 class="text-sm sm:text-base font-bold text-white">Project Ready! Enter API Key to Audit</h3>
+              <h3 class="text-sm sm:text-base font-bold text-white">Project Imported! Import API Key to Audit</h3>
               <p class="text-xs text-amber-200/90 max-w-lg mx-auto leading-relaxed">
-                Repository <strong>${escapeHtml(repoName || 'Selected')}</strong> has been indexed. To run the autonomous 3-tier Preflight Audit, enter your API key in the top bar above and click <strong>"Run Full Audit"</strong>.
+                Repository <strong>${escapeHtml(repoName || 'Selected')}</strong> has been indexed. Click below to configure your API key and URL, then run the audit.
               </p>
             </div>
             <div class="pt-2 flex justify-center gap-3">
               <button onclick="focusTopbarApiKey()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-lg inline-flex items-center gap-2">
                 <i data-lucide="key" class="w-4 h-4"></i>
-                Enter API Key in Top Bar
-              </button>
-              <button onclick="openModal('modal-settings')" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-all inline-flex items-center gap-1.5">
-                <i data-lucide="settings" class="w-3.5 h-3.5"></i>
-                More Settings
+                Import API Key & URL
               </button>
             </div>
           </div>
         `;
       }
       if (window.lucide) lucide.createIcons();
-      focusTopbarApiKey();
     }
     let activeTierFilter = 'all';
 
@@ -1563,10 +1536,16 @@
 
     async function testApiConnection() {
       const resBox = document.getElementById('settings-test-result');
+      const btn = document.getElementById('btn-test-connection');
       if (resBox) {
         resBox.className = 'p-3 rounded-xl text-xs bg-slate-800 text-slate-300';
-        resBox.innerText = 'Testing connection...';
+        resBox.innerText = 'Testing connection to AI endpoint...';
         resBox.classList.remove('hidden');
+      }
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Testing...';
+        if (window.lucide) lucide.createIcons();
       }
 
       const b = document.getElementById('settings-base-url');
@@ -1580,23 +1559,29 @@
         const res = await fetch(`${API_BASE}/api/v1/config/llm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base_url: baseUrl, model: model, api_key: apiKey })
+          body: JSON.stringify({ base_url: baseUrl, model: model, api_key: apiKey, test_connection: true })
         });
         const data = await res.json();
         
         if (resBox) {
-          if (data.status === 'success') {
+          if (data.connected || (data.status === 'success' && !data.error)) {
             resBox.className = 'p-3 rounded-xl text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-300';
-            resBox.innerText = 'Connected successfully to ' + baseUrl + ' with model "' + model + '"!';
+            resBox.innerText = '✓ ' + (data.message || 'Connected successfully to ' + baseUrl + ' with model "' + model + '"!');
           } else {
             resBox.className = 'p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300';
-            resBox.innerText = data.error || 'Connection failed. Please check endpoint and API key.';
+            resBox.innerText = '⚠️ ' + (data.message || data.error || 'Connection failed. Please check endpoint and API key.');
           }
         }
       } catch (e) {
         if (resBox) {
           resBox.className = 'p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300';
           resBox.innerText = 'Test failed: ' + e.message;
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="activity" class="w-3.5 h-3.5"></i> Test Connection';
+          if (window.lucide) lucide.createIcons();
         }
       }
     }
