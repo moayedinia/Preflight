@@ -564,48 +564,52 @@
     function switchView(viewName) {
       document.querySelectorAll('.view-panel').forEach(el => el.classList.add('hidden'));
       document.querySelectorAll('.nav-tab').forEach(el => {
-        el.classList.remove('bg-emerald-500/15', 'text-emerald-300', 'border', 'border-emerald-500/30', 'shadow-sm);
-        el.classList.add('text-slate-400);
+        el.classList.remove('bg-emerald-500/15', 'text-emerald-300', 'border', 'border-emerald-500/30', 'shadow-sm');
+        el.classList.add('text-slate-400');
       });
 
-      const targetView = document.getElementById(`view-${viewName}`);
-      if (targetView) targetView.classList.remove('hidden);
+      const targetView = document.getElementById('view-' + viewName);
+      if (targetView) targetView.classList.remove('hidden');
 
-      const targetTab = document.getElementById(`nav-${viewName}`);
+      const targetTab = document.getElementById('nav-' + viewName);
       if (targetTab) {
-        targetTab.classList.remove('text-slate-400);
-        targetTab.classList.add('bg-emerald-500/15', 'text-emerald-300', 'border', 'border-emerald-500/30', 'shadow-sm);
+        targetTab.classList.remove('text-slate-400');
+        targetTab.classList.add('bg-emerald-500/15', 'text-emerald-300', 'border', 'border-emerald-500/30', 'shadow-sm');
       }
 
       if (viewName === 'repos') loadRepositories();
-      lucide.createIcons();
+      if (window.lucide) lucide.createIcons();
     }
 
     // --- Modal Management ---
     function openModal(id) {
-      document.getElementById(id).classList.remove('hidden);
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('hidden');
       if (id === 'modal-settings') loadSettings();
-      lucide.createIcons();
+      if (window.lucide) lucide.createIcons();
     }
 
     function closeModal(id) {
-      document.getElementById(id).classList.add('hidden);
+      const el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
     }
 
     // --- Toast Notification ---
-    function showToast(msg, isError = false) {
-      const toast = document.getElementById('toast);
-      const text = document.getElementById('toast-msg);
+    function showToast(msg, isError) {
+      const toast = document.getElementById('toast');
+      const text = document.getElementById('toast-msg');
+      if (!toast || !text) return;
       text.innerText = msg;
-      toast.className = `fixed bottom-5 right-5 z-50 bg-slate-900 border ${isError ? 'border-red-500/50' : 'border-emerald-500/50'} text-white px-4 py-2.5 rounded-xl text-xs shadow-2xl flex items-center gap-2`;
-      toast.classList.remove('hidden);
+      toast.className = 'fixed bottom-5 right-5 z-50 bg-slate-900 border ' + (isError ? 'border-red-500/50' : 'border-emerald-500/50') + ' text-white px-4 py-2.5 rounded-xl text-xs shadow-2xl flex items-center gap-2';
+      toast.classList.remove('hidden');
       setTimeout(() => toast.classList.add('hidden'), 3500);
     }
 
     // --- Copy Helper ---
-    function copyToClipboard(text, successMsg = 'Copied to clipboard!') {
+    function copyToClipboard(text, successMsg) {
+      const msg = successMsg || 'Copied to clipboard!';
       navigator.clipboard.writeText(text).then(() => {
-        showToast(successMsg);
+        showToast(msg);
       }).catch(() => {
         showToast('Failed to copy', true);
       });
@@ -613,7 +617,7 @@
 
     // --- Initialization & Repositories ---
     async function initApp() {
-      lucide.createIcons();
+      if (window.lucide) lucide.createIcons();
       await loadRepositories();
       if (currentRepo) {
         runPreflightAudit();
@@ -623,34 +627,39 @@
     async function loadRepositories() {
       try {
         const res = await fetch(`${API_BASE}/api/v1/repos`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const repos = await res.json();
-        const select = document.getElementById('repo-select);
-        const grid = document.getElementById('repos-grid);
+        const select = document.getElementById('repo-select');
+        const grid = document.getElementById('repos-grid');
         
-        select.innerHTML = '';
+        if (select) select.innerHTML = '';
         if (!repos || repos.length === 0) {
-          select.innerHTML = '<option value="">No repository loaded</option>';
-          document.getElementById('active-repo-badge').innerText = 'No Project Loaded';
+          if (select) select.innerHTML = '<option value="">No repository loaded</option>';
+          const badge = document.getElementById('active-repo-badge');
+          if (badge) badge.innerText = 'No Project Loaded';
           if (grid) grid.innerHTML = '<div class="p-8 text-center text-slate-500 text-xs col-span-full">No repositories imported yet. Click "Import Project" to begin.</div>';
           return;
         }
 
-        let saved = localStorage.getItem('shipready_active_repo);
+        let saved = localStorage.getItem('shipready_active_repo');
         if (!saved || !repos.some(r => r.name === saved)) {
           saved = repos[0].name;
         }
         currentRepo = saved;
         localStorage.setItem('shipready_active_repo', currentRepo);
 
-        document.getElementById('active-repo-badge').innerText = `Project: ${currentRepo}`;
+        const badge = document.getElementById('active-repo-badge');
+        if (badge) badge.innerText = 'Project: ' + currentRepo;
 
-        repos.forEach(r => {
-          const opt = document.createElement('option);
-          opt.value = r.name;
-          opt.innerText = r.name;
-          if (r.name === currentRepo) opt.selected = true;
-          select.appendChild(opt);
-        });
+        if (select) {
+          repos.forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = r.name;
+            opt.innerText = r.name;
+            if (r.name === currentRepo) opt.selected = true;
+            select.appendChild(opt);
+          });
+        }
 
         // Render Repositories Grid
         if (grid) {
@@ -658,8 +667,8 @@
             <div class="border border-slate-800 rounded-xl p-5 bg-slate-950/40 hover:border-slate-700 transition-all flex flex-col justify-between gap-4">
               <div>
                 <div class="flex items-center justify-between mb-2">
-                  <h4 class="text-sm font-bold text-white truncate">${r.name}</h4>
-                  <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-mono">${r.languages ? r.languages.join(', ') : 'Codebase'}</span>
+                  <h4 class="text-sm font-bold text-white truncate">${escapeHtml(r.name)}</h4>
+                  <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-mono">${r.languages ? escapeHtml(r.languages.join(', ')) : 'Codebase'}</span>
                 </div>
                 <div class="grid grid-cols-3 gap-2 py-2 border-y border-slate-800/80 my-2 text-center">
                   <div>
@@ -677,46 +686,52 @@
                 </div>
               </div>
               <div class="flex items-center justify-between pt-2">
-                <button onclick="selectAndAuditRepo('${r.name}')" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5">
+                <button onclick="selectAndAuditRepo('${escapeHtml(r.name)}')" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5">
                   <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
                   Run Audit
                 </button>
-                <button onclick="deleteRepo('${r.name}')" class="text-xs text-red-400 hover:text-red-300 p-1.5 transition-colors" title="Delete">
+                <button onclick="deleteRepo('${escapeHtml(r.name)}')" class="text-xs text-red-400 hover:text-red-300 p-1.5 transition-colors" title="Delete">
                   <i data-lucide="trash-2" class="w-4 h-4"></i>
                 </button>
               </div>
             </div>
-          `).join(');
-          lucide.createIcons();
+          `).join('');
+          if (window.lucide) lucide.createIcons();
         }
 
       } catch (e) {
-        console.error("Error loading repositories:", e);
+        console.error('Error loading repositories:', e);
+        const badge = document.getElementById('active-repo-badge');
+        if (badge) badge.innerText = 'Connecting to backend...';
       }
     }
 
     function onRepoChanged() {
-      const select = document.getElementById('repo-select);
+      const select = document.getElementById('repo-select');
+      if (!select) return;
       currentRepo = select.value;
       localStorage.setItem('shipready_active_repo', currentRepo);
-      document.getElementById('active-repo-badge').innerText = `Project: ${currentRepo}`;
+      const badge = document.getElementById('active-repo-badge');
+      if (badge) badge.innerText = 'Project: ' + currentRepo;
       runPreflightAudit();
     }
 
     function selectAndAuditRepo(repoName) {
       currentRepo = repoName;
       localStorage.setItem('shipready_active_repo', currentRepo);
-      document.getElementById('repo-select').value = repoName;
-      document.getElementById('active-repo-badge').innerText = `Project: ${currentRepo}`;
-      switchView('preflight);
+      const select = document.getElementById('repo-select');
+      if (select) select.value = repoName;
+      const badge = document.getElementById('active-repo-badge');
+      if (badge) badge.innerText = 'Project: ' + currentRepo;
+      switchView('preflight');
       runPreflightAudit();
     }
 
     async function deleteRepo(name) {
-      if (!confirm(`Are you sure you want to remove '${name}' from index?`)) return;
+      if (!confirm('Are you sure you want to remove ' + name + ' from index?')) return;
       try {
-        await fetch(`${API_BASE}/api/v1/repos/${encodeURIComponent(name)}`, { method: 'DELETE' });
-        showToast(`Repository '${name}' deleted.`);
+        await fetch(`${API_BASE}/api/v1/repos/` + encodeURIComponent(name), { method: 'DELETE' });
+        showToast('Repository ' + name + ' deleted.');
         loadRepositories();
       } catch (e) {
         showToast('Error deleting repository', true);
@@ -730,10 +745,12 @@
         return;
       }
 
-      const btn = document.getElementById('btn-run-audit);
-      btn.disabled = true;
-      btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin text-slate-950"></i> Auditing...`;
-      lucide.createIcons();
+      const btn = document.getElementById('btn-run-audit');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin text-slate-950"></i> Auditing...';
+        if (window.lucide) lucide.createIcons();
+      }
 
       allDefects = [];
       const tiers = ['red', 'orange', 'yellow'];
@@ -754,14 +771,16 @@
         }
 
         renderAuditResults();
-        showToast('Audit complete!);
+        showToast('Audit complete!');
       } catch (e) {
-        console.error("Audit error:", e);
+        console.error('Audit error:', e);
         showToast('Audit failed. Ensure backend is running.', true);
       } finally {
-        btn.disabled = false;
-        btn.innerHTML = `<i data-lucide="play" class="w-4 h-4 fill-slate-950"></i> Run Full Audit`;
-        lucide.createIcons();
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="play" class="w-4 h-4 fill-slate-950"></i> Run Full Audit';
+          if (window.lucide) lucide.createIcons();
+        }
       }
     }
 
@@ -770,31 +789,36 @@
       const orangeCount = allDefects.filter(d => d.tier === 'orange').length;
       const yellowCount = allDefects.filter(d => d.tier === 'yellow').length;
 
-      document.getElementById('badge-red-count').innerText = `${redCount} Blockers`;
-      document.getElementById('badge-orange-count').innerText = `${orangeCount} Warnings`;
-      document.getElementById('badge-yellow-count').innerText = `${yellowCount} Polish`;
+      const rBadge = document.getElementById('badge-red-count');
+      const oBadge = document.getElementById('badge-orange-count');
+      const yBadge = document.getElementById('badge-yellow-count');
+      if (rBadge) rBadge.innerText = redCount + ' Blockers';
+      if (oBadge) oBadge.innerText = orangeCount + ' Warnings';
+      if (yBadge) yBadge.innerText = yellowCount + ' Polish';
 
       // Calculate Readiness Score
       let score = 100 - (redCount * 25) - (orangeCount * 10) - (yellowCount * 3);
       if (score < 0) score = 0;
       if (allDefects.length === 0) score = 100;
 
-      const scoreEl = document.getElementById('readiness-score);
-      scoreEl.innerText = `${score}%`;
+      const scoreEl = document.getElementById('readiness-score');
+      if (scoreEl) scoreEl.innerText = score + '%';
 
-      const statusEl = document.getElementById('readiness-status);
-      if (score >= 90) {
-        scoreEl.className = "text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5";
-        statusEl.innerText = "Ready to Ship 🚀";
-        statusEl.className = "text-[11px] text-emerald-400 font-semibold";
-      } else if (score >= 70) {
-        scoreEl.className = "text-3xl sm:text-4xl font-black text-amber-400 mt-0.5";
-        statusEl.innerText = "Needs Polish ⚠️";
-        statusEl.className = "text-[11px] text-amber-400 font-semibold";
-      } else {
-        scoreEl.className = "text-3xl sm:text-4xl font-black text-red-400 mt-0.5";
-        statusEl.innerText = "Critical Blockers 🛑";
-        statusEl.className = "text-[11px] text-red-400 font-semibold";
+      const statusEl = document.getElementById('readiness-status');
+      if (statusEl && scoreEl) {
+        if (score >= 90) {
+          scoreEl.className = 'text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5';
+          statusEl.innerText = 'Ready to Ship 🚀';
+          statusEl.className = 'text-[11px] text-emerald-400 font-semibold';
+        } else if (score >= 70) {
+          scoreEl.className = 'text-3xl sm:text-4xl font-black text-amber-400 mt-0.5';
+          statusEl.innerText = 'Needs Polish ⚠️';
+          statusEl.className = 'text-[11px] text-amber-400 font-semibold';
+        } else {
+          scoreEl.className = 'text-3xl sm:text-4xl font-black text-red-400 mt-0.5';
+          statusEl.innerText = 'Critical Blockers 🛑';
+          statusEl.className = 'text-[11px] text-red-400 font-semibold';
+        }
       }
 
       renderDefectCards();
@@ -806,7 +830,9 @@
     }
 
     function renderDefectCards() {
-      const list = document.getElementById('defects-list);
+      const list = document.getElementById('defects-list');
+      if (!list) return;
+
       const filtered = activeTierFilter === 'all' 
         ? allDefects 
         : allDefects.filter(d => d.tier === activeTierFilter);
@@ -821,46 +847,50 @@
             <p class="text-xs text-slate-400">Your code passed all inspection rules for this tier.</p>
           </div>
         `;
-        lucide.createIcons();
+        if (window.lucide) lucide.createIcons();
         return;
       }
 
       list.innerHTML = filtered.map((d, idx) => {
         const tierBadge = d.tier === 'red' 
-          ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">🔴 CRITICAL BLOCKER</span>`
+          ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">🔴 CRITICAL BLOCKER</span>'
           : d.tier === 'orange'
-          ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">🟠 UX RISK</span>`
-          : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">🟡 POLISH</span>`;
-
-        // Format a prompt specifically for Cursor / Claude / Lovable
-        const promptForAI = `Please fix the following issue in my code:\n\nFile: ${d.file_path || 'Unknown'}\nLine: ${d.line_number || 'N/A'}\nIssue: ${d.plain_english_explanation || 'Suspected defect'}\nDetails: ${d.repair_prompt || 'Ensure clean implementation without errors'}\n\nSnippet:\n${d.code_snippet || ''}`;
+          ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">🟠 UX RISK</span>'
+          : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">🟡 POLISH</span>';
 
         return `
           <div class="border border-slate-800 rounded-xl p-4 bg-slate-950/60 hover:border-slate-700/80 transition-all space-y-3">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div class="flex items-center gap-2">
                 ${tierBadge}
-                <span class="text-xs font-mono text-slate-300 truncate max-w-md">${d.file_path || ''}:${d.line_number || ''}</span>
+                <span class="text-xs font-mono text-slate-300 truncate max-w-md">${escapeHtml(d.file_path || '')}:${escapeHtml(String(d.line_number || ''))}</span>
               </div>
-              <button onclick="copyToClipboard(\`${promptForAI.replace(/`/g, '\\`')}\`, '📋 Copied AI Fix Prompt for Cursor / Claude!')" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors self-start sm:self-auto">
+              <button onclick="copyPrompt(${idx})" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors self-start sm:self-auto">
                 <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                 Copy Fix Prompt for AI
               </button>
             </div>
 
             <div class="space-y-1">
-              <div class="text-xs font-semibold text-white">${d.plain_english_explanation || 'Suspected issue'}</div>
-              ${d.business_consequence ? `<div class="text-[11px] text-slate-400"><strong>Why this matters:</strong> ${d.business_consequence}</div>` : ''}
+              <div class="text-xs font-semibold text-white">${escapeHtml(d.plain_english_explanation || 'Suspected issue')}</div>
+              ${d.business_consequence ? `<div class="text-[11px] text-slate-400"><strong>Why this matters:</strong> ${escapeHtml(d.business_consequence)}</div>` : ''}
             </div>
 
             ${d.code_snippet ? `
-              <pre class="text-[11px] text-slate-300 bg-slate-900/90 border border-slate-800/80 p-3 rounded-lg overflow-x-auto">${d.code_snippet}</pre>
+              <pre class="text-[11px] text-slate-300 bg-slate-900/90 border border-slate-800/80 p-3 rounded-lg overflow-x-auto">${escapeHtml(d.code_snippet)}</pre>
             ` : ''}
           </div>
         `;
-      }).join(');
+      }).join('');
 
-      lucide.createIcons();
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function copyPrompt(idx) {
+      const d = allDefects[idx];
+      if (!d) return;
+      const prompt = 'Please fix the following issue in my code:\n\nFile: ' + (d.file_path || 'Unknown') + '\nLine: ' + (d.line_number || 'N/A') + '\nIssue: ' + (d.plain_english_explanation || 'Suspected defect') + '\nDetails: ' + (d.repair_prompt || 'Ensure clean implementation without errors') + '\n\nSnippet:\n' + (d.code_snippet || '');
+      copyToClipboard(prompt, '📋 Copied AI Fix Prompt for Cursor / Claude!');
     }
 
     function exportMarkdownReport() {
@@ -869,44 +899,45 @@
         return;
       }
 
-      let md = `# ShipReady Audit Report — ${currentRepo || 'Project'}\n`;
-      md += `Generated: ${new Date().toLocaleString()}\n\n`;
-      md += `## Defect Summary\n`;
-      md += `- Red (Blockers): ${allDefects.filter(d => d.tier === 'red').length}\n`;
-      md += `- Orange (Operational): ${allDefects.filter(d => d.tier === 'orange').length}\n`;
-      md += `- Yellow (Polish): ${allDefects.filter(d => d.tier === 'yellow').length}\n\n`;
-      md += `## Detailed Findings\n\n`;
+      let md = '# ShipReady Audit Report — ' + (currentRepo || 'Project') + '\n';
+      md += 'Generated: ' + new Date().toLocaleString() + '\n\n';
+      md += '## Defect Summary\n';
+      md += '- Red (Blockers): ' + allDefects.filter(d => d.tier === 'red').length + '\n';
+      md += '- Orange (Operational): ' + allDefects.filter(d => d.tier === 'orange').length + '\n';
+      md += '- Yellow (Polish): ' + allDefects.filter(d => d.tier === 'yellow').length + '\n\n';
+      md += '## Detailed Findings\n\n';
 
       allDefects.forEach((d, i) => {
-        md += `### ${i + 1}. [${d.tier.toUpperCase()}] ${d.plain_english_explanation || 'Issue'}\n`;
-        md += `- **File**: \`${d.file_path || ''}:${d.line_number || ''}\`\n`;
-        if (d.business_consequence) md += `- **Risk**: ${d.business_consequence}\n`;
-        if (d.repair_prompt) md += `- **Recommended Fix**: ${d.repair_prompt}\n`;
-        if (d.code_snippet) md += `\n\`\`\`\n${d.code_snippet}\n\`\`\`\n\n`;
+        md += '### ' + (i + 1) + '. [' + d.tier.toUpperCase() + '] ' + (d.plain_english_explanation || 'Issue') + '\n';
+        md += '- **File**: `' + (d.file_path || '') + ':' + (d.line_number || '') + '`\n';
+        if (d.business_consequence) md += '- **Risk**: ' + d.business_consequence + '\n';
+        if (d.repair_prompt) md += '- **Recommended Fix**: ' + d.repair_prompt + '\n';
+        if (d.code_snippet) md += '\n```\n' + d.code_snippet + '\n```\n\n';
       });
 
       const blob = new Blob([md], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a);
+      const a = document.createElement('a');
       a.href = url;
-      a.download = `ShipReady_Audit_${currentRepo || 'Report'}.md`;
+      a.download = 'ShipReady_Audit_' + (currentRepo || 'Report') + '.md';
       a.click();
       URL.revokeObjectURL(url);
-      showToast('Downloaded audit report!);
+      showToast('Downloaded audit report!');
     }
 
     // --- AI Copilot Chat ---
     async function handleChatSubmit(e) {
-      e.preventDefault();
-      const input = document.getElementById('chat-input);
+      if (e) e.preventDefault();
+      const input = document.getElementById('chat-input');
+      if (!input) return;
       const text = input.value.trim();
       if (!text) return;
 
       appendChatMessage('user', text);
       input.value = '';
 
-      const btn = document.getElementById('chat-send-btn);
-      btn.disabled = true;
+      const btn = document.getElementById('chat-send-btn');
+      if (btn) btn.disabled = true;
 
       try {
         const res = await fetch(`${API_BASE}/api/v1/chat`, {
@@ -921,29 +952,32 @@
 
         if (res.ok) {
           const data = await res.json();
-          appendChatMessage('bot', data.response || 'No response generated.);
+          appendChatMessage('bot', data.response || 'No response generated.');
         } else {
-          appendChatMessage('bot', '⚠️ Error contacting AI endpoint. Please check your API settings.);
+          appendChatMessage('bot', '⚠️ Error contacting AI endpoint. Please check your API settings.');
         }
       } catch (err) {
-        appendChatMessage('bot', `⚠️ Request failed: ${err.message}`);
+        appendChatMessage('bot', '⚠️ Request failed: ' + err.message);
       } finally {
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
       }
     }
 
     function sendQuickPrompt(promptText) {
-      document.getElementById('chat-input').value = promptText;
-      handleChatSubmit(new Event('submit'));
+      const input = document.getElementById('chat-input');
+      if (!input) return;
+      input.value = promptText;
+      handleChatSubmit(null);
     }
 
     function appendChatMessage(sender, text) {
-      const box = document.getElementById('chat-messages);
-      const div = document.createElement('div);
-      div.className = "flex gap-3";
+      const box = document.getElementById('chat-messages');
+      if (!box) return;
+      const div = document.createElement('div');
+      div.className = 'flex gap-3';
 
       if (sender === 'user') {
-        div.className = "flex gap-3 justify-end";
+        div.className = 'flex gap-3 justify-end';
         div.innerHTML = `
           <div class="bg-emerald-600 text-white rounded-2xl rounded-tr-sm p-3.5 text-xs max-w-2xl">
             ${escapeHtml(text)}
@@ -965,17 +999,19 @@
 
       box.appendChild(div);
       box.scrollTop = box.scrollHeight;
-      lucide.createIcons();
+      if (window.lucide) lucide.createIcons();
     }
 
     function clearChat() {
-      document.getElementById('chat-messages').innerHTML = '';
-      showToast('Chat cleared);
+      const box = document.getElementById('chat-messages');
+      if (box) box.innerHTML = '';
+      showToast('Chat cleared');
     }
 
     function escapeHtml(text) {
+      if (text === null || text === undefined) return '';
       const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-      return text.replace(/[&<>"']/g, m => map[m]);
+      return String(text).replace(/[&<>"']/g, m => map[m]);
     }
 
     // --- Ship Assets Generator ---
@@ -985,17 +1021,17 @@
         return;
       }
 
-      showToast(`Generating ${type.toUpperCase()} with AI...`);
-      const outBox = document.getElementById('asset-output-container);
-      const outText = document.getElementById('asset-output-text);
-      const outTitle = document.getElementById('asset-output-title);
+      showToast('Generating ' + type.toUpperCase() + ' with AI...');
+      const outBox = document.getElementById('asset-output-container');
+      const outText = document.getElementById('asset-output-text');
+      const outTitle = document.getElementById('asset-output-title');
 
-      outBox.classList.remove('hidden);
-      outText.innerText = 'Analyzing codebase files and generating document...';
+      if (outBox) outBox.classList.remove('hidden');
+      if (outText) outText.innerText = 'Analyzing codebase files and generating document...';
 
       let prompt = type === 'readme' 
-        ? `Generate a world-class, professional GitHub README.md for this codebase. Include Project Overview, Key Features, Tech Stack, Getting Started, and License.`
-        : `Scan this codebase for all environment variable usages (e.g. process.env, os.getenv) and generate a clean, secure .env.example with descriptive comments for each key.`;
+        ? 'Generate a world-class, professional GitHub README.md for this codebase. Include Project Overview, Key Features, Tech Stack, Getting Started, and License.'
+        : 'Scan this codebase for all environment variable usages (e.g. process.env, os.getenv) and generate a clean, secure .env.example with descriptive comments for each key.';
 
       try {
         const res = await fetch(`${API_BASE}/api/v1/chat`, {
@@ -1010,64 +1046,71 @@
 
         if (res.ok) {
           const data = await res.json();
-          outTitle.innerText = type === 'readme' ? 'Generated README.md' : 'Generated .env.example';
-          outText.innerText = data.response;
-          showToast('Generated successfully!);
+          if (outTitle) outTitle.innerText = type === 'readme' ? 'Generated README.md' : 'Generated .env.example';
+          if (outText) outText.innerText = data.response;
+          showToast('Generated successfully!');
         } else {
-          outText.innerText = 'Failed to generate document. Ensure LLM is configured.';
+          if (outText) outText.innerText = 'Failed to generate document. Ensure LLM is configured.';
         }
       } catch (e) {
-        outText.innerText = `Generation error: ${e.message}`;
+        if (outText) outText.innerText = 'Generation error: ' + e.message;
       }
     }
 
     function copyAssetOutput() {
-      const text = document.getElementById('asset-output-text').innerText;
-      copyToClipboard(text, 'Copied asset to clipboard!);
+      const el = document.getElementById('asset-output-text');
+      if (!el) return;
+      copyToClipboard(el.innerText, 'Copied asset to clipboard!');
     }
 
     // --- Import Modal Logic ---
     let importMode = 'git';
     function setImportMode(mode) {
       importMode = mode;
+      const mGit = document.getElementById('import-mode-git');
+      const mZip = document.getElementById('import-mode-zip');
+      const bGit = document.getElementById('btn-import-git');
+      const bZip = document.getElementById('btn-import-zip');
       if (mode === 'git') {
-        document.getElementById('import-mode-git').classList.remove('hidden);
-        document.getElementById('import-mode-zip').classList.add('hidden);
-        document.getElementById('btn-import-git').className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
-        document.getElementById('btn-import-zip').className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200';
+        if (mGit) mGit.classList.remove('hidden');
+        if (mZip) mZip.classList.add('hidden');
+        if (bGit) bGit.className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        if (bZip) bZip.className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200';
       } else {
-        document.getElementById('import-mode-git').classList.add('hidden);
-        document.getElementById('import-mode-zip').classList.remove('hidden);
-        document.getElementById('btn-import-zip').className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
-        document.getElementById('btn-import-git').className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200';
+        if (mGit) mGit.classList.add('hidden');
+        if (mZip) mZip.classList.remove('hidden');
+        if (bZip) bZip.className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        if (bGit) bGit.className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200';
       }
     }
 
     async function startImport() {
-      const pBox = document.getElementById('import-progress-box);
-      const pBar = document.getElementById('import-progress-bar);
-      const pText = document.getElementById('import-status-text);
-      const pPct = document.getElementById('import-percent-text);
-      const submitBtn = document.getElementById('btn-submit-import);
+      const pBox = document.getElementById('import-progress-box');
+      const pBar = document.getElementById('import-progress-bar');
+      const pText = document.getElementById('import-status-text');
+      const pPct = document.getElementById('import-percent-text');
+      const submitBtn = document.getElementById('btn-submit-import');
 
-      pBox.classList.remove('hidden);
-      submitBtn.disabled = true;
+      if (pBox) pBox.classList.remove('hidden');
+      if (submitBtn) submitBtn.disabled = true;
 
       try {
         let taskId = null;
         if (importMode === 'git') {
-          const url = document.getElementById('git-url-input').value.trim();
-          const name = document.getElementById('git-name-input').value.trim();
+          const urlInput = document.getElementById('git-url-input');
+          const nameInput = document.getElementById('git-name-input');
+          const url = urlInput ? urlInput.value.trim() : '';
+          const name = nameInput ? nameInput.value.trim() : '';
           if (!url) {
             showToast('Git URL is required', true);
-            pBox.classList.add('hidden);
-            submitBtn.disabled = false;
+            if (pBox) pBox.classList.add('hidden');
+            if (submitBtn) submitBtn.disabled = false;
             return;
           }
 
-          pText.innerText = 'Cloning git repository...';
-          pBar.style.width = '20%';
-          pPct.innerText = '20%';
+          if (pText) pText.innerText = 'Cloning git repository...';
+          if (pBar) pBar.style.width = '20%';
+          if (pPct) pPct.innerText = '20%';
 
           const res = await fetch(`${API_BASE}/api/v1/ingest/git`, {
             method: 'POST',
@@ -1077,12 +1120,13 @@
           const data = await res.json();
           taskId = data.task_id;
         } else {
-          const fileInput = document.getElementById('zip-file-input);
-          const name = document.getElementById('zip-name-input').value.trim();
-          if (!fileInput.files.length) {
+          const fileInput = document.getElementById('zip-file-input');
+          const nameInput = document.getElementById('zip-name-input');
+          const name = nameInput ? nameInput.value.trim() : '';
+          if (!fileInput || !fileInput.files.length) {
             showToast('Please select a ZIP file', true);
-            pBox.classList.add('hidden);
-            submitBtn.disabled = false;
+            if (pBox) pBox.classList.add('hidden');
+            if (submitBtn) submitBtn.disabled = false;
             return;
           }
 
@@ -1090,9 +1134,9 @@
           formData.append('file', fileInput.files[0]);
           if (name) formData.append('repo_name', name);
 
-          pText.innerText = 'Uploading ZIP archive...';
-          pBar.style.width = '20%';
-          pPct.innerText = '20%';
+          if (pText) pText.innerText = 'Uploading ZIP archive...';
+          if (pBar) pBar.style.width = '20%';
+          if (pPct) pPct.innerText = '20%';
 
           const res = await fetch(`${API_BASE}/api/v1/ingest/upload`, {
             method: 'POST',
@@ -1106,17 +1150,17 @@
         pollTask(taskId);
 
       } catch (e) {
-        showToast(`Import failed: ${e.message}`, true);
-        pBox.classList.add('hidden);
-        submitBtn.disabled = false;
+        showToast('Import failed: ' + e.message, true);
+        if (pBox) pBox.classList.add('hidden');
+        if (submitBtn) submitBtn.disabled = false;
       }
     }
 
     async function pollTask(taskId) {
-      const pBar = document.getElementById('import-progress-bar);
-      const pText = document.getElementById('import-status-text);
-      const pPct = document.getElementById('import-percent-text);
-      const submitBtn = document.getElementById('btn-submit-import);
+      const pBar = document.getElementById('import-progress-bar');
+      const pText = document.getElementById('import-status-text');
+      const pPct = document.getElementById('import-percent-text');
+      const submitBtn = document.getElementById('btn-submit-import');
 
       const interval = setInterval(async () => {
         try {
@@ -1125,30 +1169,31 @@
           
           if (task.state === 'PROGRESS' && task.meta) {
             const pct = task.meta.percent || 40;
-            pBar.style.width = `${pct}%`;
-            pPct.innerText = `${pct}%`;
-            pText.innerText = task.meta.status || 'Indexing files...';
+            if (pBar) pBar.style.width = pct + '%';
+            if (pPct) pPct.innerText = pct + '%';
+            if (pText) pText.innerText = task.meta.status || 'Indexing files...';
           } else if (task.state === 'SUCCESS') {
             clearInterval(interval);
-            pBar.style.width = '100%';
-            pPct.innerText = '100%';
-            pText.innerText = 'Completed successfully!';
-            showToast('Repository indexed successfully!);
+            if (pBar) pBar.style.width = '100%';
+            if (pPct) pPct.innerText = '100%';
+            if (pText) pText.innerText = 'Completed successfully!';
+            showToast('Repository indexed successfully!');
             setTimeout(() => {
-              closeModal('modal-import);
-              submitBtn.disabled = false;
-              document.getElementById('import-progress-box').classList.add('hidden);
+              closeModal('modal-import');
+              if (submitBtn) submitBtn.disabled = false;
+              const pBox = document.getElementById('import-progress-box');
+              if (pBox) pBox.classList.add('hidden');
               loadRepositories();
             }, 1000);
           } else if (task.state === 'FAILURE') {
             clearInterval(interval);
-            pText.innerText = 'Indexing failed!';
+            if (pText) pText.innerText = 'Indexing failed!';
             showToast('Indexing failed. Check logs.', true);
-            submitBtn.disabled = false;
+            if (submitBtn) submitBtn.disabled = false;
           }
         } catch (e) {
           clearInterval(interval);
-          submitBtn.disabled = false;
+          if (submitBtn) submitBtn.disabled = false;
         }
       }, 1500);
     }
@@ -1159,19 +1204,25 @@
         const res = await fetch(`${API_BASE}/api/v1/config/llm`);
         if (res.ok) {
           const cfg = await res.json();
-          document.getElementById('settings-base-url').value = cfg.base_url || 'https://api.openai.com/v1';
-          document.getElementById('settings-model').value = cfg.model || 'gpt-4o-mini';
-          document.getElementById('settings-api-key').value = cfg.api_key || '';
+          const b = document.getElementById('settings-base-url');
+          const m = document.getElementById('settings-model');
+          const k = document.getElementById('settings-api-key');
+          if (b) b.value = cfg.base_url || 'https://api.openai.com/v1';
+          if (m) m.value = cfg.model || 'gpt-4o-mini';
+          if (k) k.value = cfg.api_key || '';
         }
       } catch (e) {
-        console.error("Could not load LLM config:", e);
+        console.error('Could not load LLM config:', e);
       }
     }
 
     async function saveSettings() {
-      const baseUrl = document.getElementById('settings-base-url').value.trim();
-      const model = document.getElementById('settings-model').value.trim();
-      const apiKey = document.getElementById('settings-api-key').value.trim();
+      const b = document.getElementById('settings-base-url');
+      const m = document.getElementById('settings-model');
+      const k = document.getElementById('settings-api-key');
+      const baseUrl = b ? b.value.trim() : '';
+      const model = m ? m.value.trim() : '';
+      const apiKey = k ? k.value.trim() : '';
 
       try {
         // Save LLM settings
@@ -1195,22 +1246,27 @@
           })
         });
 
-        showToast('Settings saved successfully!);
-        closeModal('modal-settings);
+        showToast('Settings saved successfully!');
+        closeModal('modal-settings');
       } catch (e) {
         showToast('Error saving settings', true);
       }
     }
 
     async function testApiConnection() {
-      const resBox = document.getElementById('settings-test-result);
-      resBox.className = "p-3 rounded-xl text-xs bg-slate-800 text-slate-300";
-      resBox.innerText = "Testing connection...";
-      resBox.classList.remove('hidden);
+      const resBox = document.getElementById('settings-test-result');
+      if (resBox) {
+        resBox.className = 'p-3 rounded-xl text-xs bg-slate-800 text-slate-300';
+        resBox.innerText = 'Testing connection...';
+        resBox.classList.remove('hidden');
+      }
 
-      const baseUrl = document.getElementById('settings-base-url').value.trim();
-      const model = document.getElementById('settings-model').value.trim();
-      const apiKey = document.getElementById('settings-api-key').value.trim();
+      const b = document.getElementById('settings-base-url');
+      const m = document.getElementById('settings-model');
+      const k = document.getElementById('settings-api-key');
+      const baseUrl = b ? b.value.trim() : '';
+      const model = m ? m.value.trim() : '';
+      const apiKey = k ? k.value.trim() : '';
 
       try {
         const res = await fetch(`${API_BASE}/api/v1/config/llm`, {
@@ -1220,16 +1276,20 @@
         });
         const data = await res.json();
         
-        if (data.status === 'success') {
-          resBox.className = "p-3 rounded-xl text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-300";
-          resBox.innerText = `Connected successfully to ${baseUrl} with model '${model}'!`;
-        } else {
-          resBox.className = "p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300";
-          resBox.innerText = data.error || "Connection failed. Please check endpoint and API key.";
+        if (resBox) {
+          if (data.status === 'success') {
+            resBox.className = 'p-3 rounded-xl text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-300';
+            resBox.innerText = 'Connected successfully to ' + baseUrl + ' with model "' + model + '"!';
+          } else {
+            resBox.className = 'p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300';
+            resBox.innerText = data.error || 'Connection failed. Please check endpoint and API key.';
+          }
         }
       } catch (e) {
-        resBox.className = "p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300";
-        resBox.innerText = `Test failed: ${e.message}`;
+        if (resBox) {
+          resBox.className = 'p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300';
+          resBox.innerText = 'Test failed: ' + e.message;
+        }
       }
     }
 
