@@ -170,10 +170,16 @@
             
             <div class="h-10 w-px bg-slate-800"></div>
 
-            <button onclick="runPreflightAudit()" id="btn-run-audit" class="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2">
-              <i data-lucide="play" class="w-4 h-4 fill-slate-950"></i>
-              Run Full Audit
-            </button>
+            <div class="flex items-center gap-2">
+              <button onclick="runPreflightAudit()" id="btn-run-audit" class="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2">
+                <i data-lucide="play" class="w-4 h-4 fill-slate-950"></i>
+                Run Full Audit
+              </button>
+              <button onclick="reindexCurrentRepo()" title="Re-index current project with active model" class="px-3 py-2.5 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Reindex</span>
+              </button>
+            </div>
           </div>
 
         </div>
@@ -885,12 +891,18 @@
                   </div>
                 </div>
               </div>
-              <div class="flex items-center justify-between pt-2">
-                <button onclick="selectAndAuditRepo('${escapeHtml(r.name)}')" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5">
-                  <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-                  Run Audit
-                </button>
-                <button onclick="deleteRepo('${escapeHtml(r.name)}')" class="text-xs text-red-400 hover:text-red-300 p-1.5 transition-colors" title="Delete">
+              <div class="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                <div class="flex items-center gap-2">
+                  <button onclick="selectAndAuditRepo('${escapeHtml(r.name)}')" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5" title="Audit code with Preflight">
+                    <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                    Run Audit
+                  </button>
+                  <button onclick="reindexRepo('${escapeHtml(r.name)}')" id="btn-reindex-${escapeHtml(r.name)}" class="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5" title="Re-index codebase with the latest active model">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                    Reindex
+                  </button>
+                </div>
+                <button onclick="deleteRepo('${escapeHtml(r.name)}')" class="text-xs text-red-400 hover:text-red-300 p-1.5 transition-colors rounded-lg hover:bg-red-500/10" title="Delete Repository">
                   <i data-lucide="trash-2" class="w-4 h-4"></i>
                 </button>
               </div>
@@ -940,6 +952,71 @@
       } catch (e) {
         showToast('Error deleting repository', true);
       }
+    }
+
+    async function reindexRepo(repoName) {
+      if (!repoName) return;
+      const btn = document.getElementById('btn-reindex-' + repoName);
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Reindexing...';
+        if (window.lucide) lucide.createIcons();
+      }
+
+      showToast('Starting re-indexing for ' + repoName + ' with active model...');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/repos/${encodeURIComponent(repoName)}/reindex`, {
+          method: 'POST'
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'HTTP ' + res.status);
+        }
+
+        const data = await res.json();
+
+        if (data.task_id) {
+          openModal('modal-import');
+          const pBox = document.getElementById('import-progress-box');
+          const pBar = document.getElementById('import-progress-bar');
+          const pText = document.getElementById('import-status-text');
+          const pPct = document.getElementById('import-percent-text');
+          const submitBtn = document.getElementById('btn-submit-import');
+          if (pBox) pBox.classList.remove('hidden');
+          if (submitBtn) submitBtn.disabled = true;
+          if (pText) pText.innerText = 'Re-indexing ' + repoName + ' with active model...';
+          if (pPct) pPct.innerText = '5%';
+          if (pBar) pBar.style.width = '5%';
+
+          pollTask(data.task_id);
+        } else {
+          showToast('Repository ' + repoName + ' re-indexed successfully! ✓');
+          await loadRepositories();
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Reindex';
+            if (window.lucide) lucide.createIcons();
+          }
+        }
+      } catch (e) {
+        console.error('Reindexing error:', e);
+        showToast('Reindexing failed: ' + e.message, true);
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Reindex';
+          if (window.lucide) lucide.createIcons();
+        }
+      }
+    }
+
+    async function reindexCurrentRepo() {
+      if (!currentRepo) {
+        showToast('Please select or import a repository first.', true);
+        return;
+      }
+      await reindexRepo(currentRepo);
     }
 
     // --- Preflight Audit (Red/Orange/Yellow Checks) ---

@@ -555,6 +555,38 @@ def remove_repository(repo_name: str):
     """Deletes repository, cascade deletes graph relationships and disk files."""
     return delete_repository(repo_name)
 
+@app.post("/api/v1/repos/{repo_name}/reindex", dependencies=[Depends(verify_api_key)])
+def reindex_repository(repo_name: str):
+    """Reindexes an existing repository on disk using the active embedding model and AST parser."""
+    clean_repo = sanitize_name(repo_name)
+    repo_dir = ALLOWED_REPO_DIR / clean_repo
+    if not repo_dir.exists() or not repo_dir.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repository '{clean_repo}' not found on disk at {repo_dir}."
+        )
+
+    try:
+        task = async_index_repository.delay(str(repo_dir), clean_repo)
+        return {
+            "status": "queued",
+            "task_id": task.id,
+            "repo_name": clean_repo,
+            "message": f"Re-indexing queued for repository '{clean_repo}'."
+        }
+    except Exception as e:
+        # Fallback to synchronous indexing if Celery worker is unavailable
+        try:
+            result = scan_and_ingest_directory(str(repo_dir), clean_repo)
+            return {
+                "status": "success",
+                "repo_name": clean_repo,
+                "result": result,
+                "message": f"Repository '{clean_repo}' reindexed successfully."
+            }
+        except Exception as sync_e:
+            raise HTTPException(status_code=500, detail=f"Reindexing failed: {str(sync_e)}")
+
 # 9. Architectural Code Smells & Blast Radius Analytics
 @app.get("/api/v1/analytics/dead-code", dependencies=[Depends(verify_api_key)])
 def get_dead_code(repo_name: Optional[str] = None):
