@@ -770,7 +770,7 @@ async def github_webhook(request: Request):
     }
 
 # 12. LLM Config & Auto-Documentation
-from app.core.llm import get_llm_config, set_llm_config
+from app.core.llm import get_llm_config, set_llm_config, execute_llm_http
 from app.tasks.autodoc import generate_missing_docs_task
 
 @app.get("/api/v1/config/llm", dependencies=[Depends(verify_api_key)])
@@ -965,7 +965,7 @@ def check_llm_status():
 
         is_connected = False
         try:
-            resp = requests.get(f"{norm_base}/models", headers=headers, timeout=2.5)
+            resp = execute_llm_http("get", f"{norm_base}/models", headers=headers, timeout=2.5)
             if resp.ok:
                 is_connected = True
                 data = resp.json()
@@ -976,7 +976,7 @@ def check_llm_status():
         if not models:
             try:
                 root_url = base_url.replace("/v1", "").rstrip("/")
-                resp2 = requests.get(f"{root_url}/api/tags", timeout=2.5)
+                resp2 = execute_llm_http("get", f"{root_url}/api/tags", timeout=2.5)
                 if resp2.ok:
                     is_connected = True
                     data2 = resp2.json()

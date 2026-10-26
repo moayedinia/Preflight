@@ -61,6 +61,74 @@ def set_llm_config(base_url: str, model: str, api_key: str):
         except Exception:
             pass
 
+def is_running_in_docker() -> bool:
+    """Detect if code is executing inside a Docker container."""
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv") or os.getenv("DOCKER_CONTAINER") == "true"
+
+def resolve_docker_target_url(url: str) -> str:
+    """If running in Docker, map localhost/127.0.0.1 to host.docker.internal to reach host services."""
+    if not url:
+        return url
+    if is_running_in_docker():
+        return re.sub(r'^(https?://)(?:localhost|127\.0\.0\.1)(:\d+)?', r'\1host.docker.internal\2', url)
+    return url
+
+def _sanitize_docker_proxy_env():
+    """If running in Docker, ensure local proxies point to host.docker.internal rather than container loopback."""
+    if is_running_in_docker():
+        for var in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]:
+            val = os.getenv(var)
+            if val and ("localhost" in val or "127.0.0.1" in val):
+                os.environ[var] = val.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
+
+def execute_llm_http(method: str, url: str, **kwargs):
+    """
+    Executes an HTTP request for LLM calls with automatic resilience:
+    1. Docker container -> host mapping (localhost/127.0.0.1 -> host.docker.internal)
+    2. Docker proxy environment sanitization
+    3. Proxy bypass retry if proxy connection fails/refuses
+    4. Meaningful diagnostic message if host refuses connection
+    """
+    _sanitize_docker_proxy_env()
+    target_url = resolve_docker_target_url(url)
+    
+    fn = requests.get if method.lower() == "get" else requests.post
+    
+    try:
+        return fn(target_url, **kwargs)
+    except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError) as first_err:
+        err_msg = str(first_err)
+        # Check if error is related to proxy or connection refused (e.g. [Errno 111])
+        is_refusal = any(sig in err_msg for sig in ["Connection refused", "NewConnectionError", "ProxyError", "111", "20128"])
+        
+        if is_refusal:
+            # Fallback 1: Try without proxy in case of stale proxy env
+            no_proxy_kwargs = dict(kwargs)
+            no_proxy_kwargs["proxies"] = {"http": None, "https": None}
+            try:
+                return fn(target_url, **no_proxy_kwargs)
+            except Exception:
+                pass
+
+            # Fallback 2: If we changed localhost to host.docker.internal, try original URL without proxy
+            if target_url != url:
+                try:
+                    return fn(url, **no_proxy_kwargs)
+                except Exception:
+                    pass
+
+        # If it still fails and mentions localhost or 20128
+        if "20128" in err_msg or "localhost" in err_msg or "127.0.0.1" in err_msg or "111" in err_msg:
+            explanation = (
+                f"{err_msg} - "
+                "Notice: When running inside Docker, 'localhost' refers to the container itself. "
+                "If your proxy or local AI endpoint is on your host machine (port 20128), "
+                "make sure 'Allow LAN / Allow connection from LAN' is enabled in your proxy software (e.g. v2ray, Clash) "
+                "or use https://api.openai.com/v1 if you intend to connect to cloud AI directly."
+            )
+            raise requests.exceptions.ConnectionError(explanation) from first_err
+        raise first_err
+
 def normalize_llm_base_url(base_url: str) -> str:
     """Normalize an OpenAI-compatible API base and add /v1 when omitted, cleaning double slashes."""
     normalized = _clean_slashes(base_url)
@@ -97,7 +165,7 @@ def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
             headers["Authorization"] = f"Bearer {api_key}"
             headers["x-api-key"] = api_key
 
-        resp = requests.get(f"{norm_base}/models", headers=headers, timeout=timeout)
+        resp = execute_llm_http("get", f"{norm_base}/models", headers=headers, timeout=timeout)
         if resp.status_code in (200, 201):
             return True, "Connected"
         if resp.status_code == 401:
@@ -108,7 +176,7 @@ def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
                 "messages": [{"role": "user", "content": "ping"}],
                 "max_tokens": 1
             }
-            chat_resp = requests.post(f"{norm_base}/chat/completions", headers=headers, json=probe_payload, timeout=timeout)
+            chat_resp = execute_llm_http("post", f"{norm_base}/chat/completions", headers=headers, json=probe_payload, timeout=timeout)
             if chat_resp.ok:
                 return True, "Connected"
             if chat_resp.status_code == 401:
@@ -145,7 +213,7 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
     url = _clean_slashes(f"{norm_base}/chat/completions")
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        response = execute_llm_http("post", url, headers=headers, json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"].strip()
@@ -154,7 +222,7 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
             alt_url = _clean_slashes(url.replace("/v1/chat/completions", "/chat/completions"))
             if alt_url != url:
                 try:
-                    alt_resp = requests.post(alt_url, headers=headers, json=payload, timeout=120)
+                    alt_resp = execute_llm_http("post", alt_url, headers=headers, json=payload, timeout=120)
                     if alt_resp.ok:
                         data = alt_resp.json()
                         return data["choices"][0]["message"]["content"].strip()
