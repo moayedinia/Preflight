@@ -30,18 +30,20 @@ def get_llm_config() -> dict:
                 if cfg.get("base_url"):
                     cfg["base_url"] = _clean_slashes(cfg["base_url"])
                 if not cfg.get("model"):
-                    cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or "llama3"
+                    cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or "gpt-4o-mini"
+                if not cfg.get("api_key"):
+                    cfg["api_key"] = (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
                 return cfg
         except Exception:
             pass
     if _MEMORY_LLM_CONFIG:
         return dict(_MEMORY_LLM_CONFIG)
 
-    raw_env_base = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
+    raw_env_base = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
     return {
         "base_url": _clean_slashes(raw_env_base),
-        "model": (os.getenv("LLM_MODEL") or "").strip() or "llama3",
-        "api_key": os.getenv("LLM_API_KEY", "")
+        "model": (os.getenv("LLM_MODEL") or "").strip() or "gpt-4o-mini",
+        "api_key": (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
     }
 
 def set_llm_config(base_url: str, model: str, api_key: str):
@@ -59,7 +61,6 @@ def set_llm_config(base_url: str, model: str, api_key: str):
         except Exception:
             pass
 
-
 def normalize_llm_base_url(base_url: str) -> str:
     """Normalize an OpenAI-compatible API base and add /v1 when omitted, cleaning double slashes."""
     normalized = _clean_slashes(base_url)
@@ -71,39 +72,37 @@ def normalize_llm_base_url(base_url: str) -> str:
     return _clean_slashes(normalized)
 
 def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
-    """Calls any OpenAI-compatible endpoint (vLLM, LMStudio, LocalAI, OpenAI) with auto-fallbacks."""
+    """Calls any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, Ollama, vLLM) with auto-fallbacks."""
     config = get_llm_config()
     headers = {"Content-Type": "application/json"}
-    api_key = (config.get("api_key") or os.getenv("LLM_API_KEY") or "").strip()
+    api_key = (config.get("api_key") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
     if api_key:
-        # Strip accidental leading 'Bearer ' or enclosing quotes
         clean_key = re.sub(r'^(?:Bearer\s+|["\'])', '', api_key, flags=re.IGNORECASE)
         clean_key = re.sub(r'["\']$', '', clean_key).strip()
         headers["Authorization"] = f"Bearer {clean_key}"
         headers["api-key"] = clean_key
         headers["x-api-key"] = clean_key
         headers["X-API-KEY"] = clean_key
-    
+
     payload = {
-        "model": config.get("model", ""),
+        "model": config.get("model", "") or "gpt-4o-mini",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.1
     }
-    
-    base_url = config.get("base_url", "")
+
+    base_url = config.get("base_url", "") or "https://api.openai.com/v1"
     norm_base = normalize_llm_base_url(base_url)
     url = _clean_slashes(f"{norm_base}/chat/completions")
-    
+
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"].strip()
     except requests.exceptions.HTTPError as e:
-        # Fallback 1: If /v1/chat/completions returns 404, try /chat/completions without /v1
         if e.response is not None and e.response.status_code == 404:
             alt_url = _clean_slashes(url.replace("/v1/chat/completions", "/chat/completions"))
             if alt_url != url:

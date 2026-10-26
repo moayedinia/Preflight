@@ -422,7 +422,7 @@ def chat_rag_endpoint(payload: ChatRequest):
             fallback_msg = (
                 "⚠️ **Language Model (LLM) service is currently unavailable.**\n\n"
                 f"Connection details: `{str(e)}`\n\n"
-                "💡 **Help:** Please verify that vLLM or your local LLM server is running and the host and model name are configured properly in **LLM Config**."
+                "💡 **Help:** Please verify that your LLM API key and base URL are configured properly in **Settings**."
             )
             return {"response": fallback_msg, "sources": [], "mode": "direct", "warning": str(e)}
 
@@ -752,15 +752,19 @@ def update_llm_settings(payload: LLMConfigRequest):
     clear_llm_status_cache()
     return {"status": "success", "message": "LLM configuration updated successfully."}
 
-# --- DEDICATED vLLM EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
+# --- DEDICATED EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
 class EmbeddingConfigRequest(BaseModel):
-    vllm_host: str = Field(..., description="vLLM server URL or IP:Port (e.g. http://vllm:8007/v1, http://host.docker.internal:8007/v1)")
-    model: str = Field(..., description="Embedding model name (e.g. jinaai/jina-embeddings-v5-text-small-retrieval)")
-    dimension: Optional[int] = Field(512, description="Vector embedding dimension (default 512)")
-    allow_fallback: Optional[bool] = Field(False, description="Whether to allow deterministic fallback vectors")
+    vllm_host: Optional[str] = Field(None, description="API Base URL (e.g. https://api.openai.com/v1)")
+    api_url: Optional[str] = Field(None, description="API Base URL (e.g. https://api.openai.com/v1)")
+    api_key: Optional[str] = Field(None, description="Provider API key")
+    model: Optional[str] = Field("text-embedding-3-small", description="Embedding model name")
+    dimension: Optional[int] = Field(1536, description="Vector embedding dimension (default 1536)")
+    allow_fallback: Optional[bool] = Field(True, description="Whether to allow deterministic fallback vectors")
 
 class EmbeddingTestRequest(BaseModel):
     vllm_host: Optional[str] = None
+    api_url: Optional[str] = None
+    api_key: Optional[str] = None
     model: Optional[str] = None
 
 class EmbeddingReembedRequest(BaseModel):
@@ -769,7 +773,7 @@ class EmbeddingReembedRequest(BaseModel):
 
 @app.get("/api/v1/config/embedding", dependencies=[Depends(verify_api_key)])
 def get_embedding_settings():
-    """Returns dedicated vLLM embedding settings and live status."""
+    """Returns dedicated embedding settings and live status."""
     from app.core.embedder import get_embedding_config, verify_vllm_status
     cfg = get_embedding_config()
     status = verify_vllm_status()
@@ -780,15 +784,18 @@ def get_embedding_settings():
 
 @app.post("/api/v1/config/embedding", dependencies=[Depends(verify_api_key)])
 def update_embedding_settings(payload: EmbeddingConfigRequest):
-    """Updates dedicated vLLM host IP/URL and embedding model."""
+    """Updates API URL and embedding model."""
     from app.core.embedder import set_embedding_config, test_vllm_embedding_connection
+    target_url = payload.api_url or payload.vllm_host
     set_embedding_config(
-        vllm_host=payload.vllm_host,
+        vllm_host=target_url,
+        api_url=target_url,
         model=payload.model,
+        api_key=payload.api_key,
         dimension=payload.dimension,
         allow_fallback=payload.allow_fallback
     )
-    test_res = test_vllm_embedding_connection(payload.vllm_host, payload.model)
+    test_res = test_vllm_embedding_connection(target_url, payload.model, api_key=payload.api_key)
     return {
         "status": "success",
         "message": "Embedding configuration saved successfully.",
@@ -797,14 +804,15 @@ def update_embedding_settings(payload: EmbeddingConfigRequest):
 
 @app.post("/api/v1/embedding/test", dependencies=[Depends(verify_api_key)])
 def test_embedding_endpoint(payload: EmbeddingTestRequest):
-    """Tests connectivity to a specified vLLM host IP and embedding model without saving."""
+    """Tests connectivity to a specified API endpoint and embedding model without saving."""
     from app.core.embedder import test_vllm_embedding_connection
+    target_url = payload.api_url or payload.vllm_host
     try:
-        return test_vllm_embedding_connection(payload.vllm_host, payload.model)
+        return test_vllm_embedding_connection(target_url, payload.model, api_key=payload.api_key)
     except Exception as e:
         return {
             "status": "error",
-            "host": payload.vllm_host,
+            "host": target_url,
             "target_model": payload.model,
             "message": f"Connection test failed: {str(e)}"
         }

@@ -59,43 +59,6 @@ services:
           - redis_broker
     restart: unless-stopped
 
-  vllm:
-    image: ${DOCKER_REGISTRY:-}vllm/vllm-openai:latest
-    container_name: graphrag_vllm
-    privileged: true
-    ipc: host
-    ports:
-      - "${VLLM_PORT:-8007}:8007"
-    command: >
-      jinaai/jina-embeddings-v5-text-small-retrieval
-      --trust-remote-code
-      --runner pooling
-      --host 0.0.0.0
-      --port 8007
-      --tensor-parallel-size 1
-      --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION:-0.05}
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8007/v1/models', timeout=5)\" || curl -f http://localhost:8007/v1/models || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 25
-      start_period: 90s
-    networks:
-      codegraph_net:
-        aliases:
-          - vllm
-          - graphrag_vllm
-    restart: unless-stopped
-
   api:
     build:
       context: ./backend
@@ -123,20 +86,19 @@ services:
       - ALLOWED_REPO_DIR=/app/repos
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8007/v1}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
-      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
-      - LLM_MODEL=${LLM_MODEL:-}
+      - EMBEDDING_API_URL=${EMBEDDING_API_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-1536}
+      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-true}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - LLM_API_KEY=${LLM_API_KEY:-}
     depends_on:
       neo4j:
         condition: service_healthy
       redis:
         condition: service_healthy
-      vllm:
-        condition: service_started
     networks:
       codegraph_net:
         aliases:
@@ -168,20 +130,19 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-RedisSecurePass2026!}@redis:6379/0
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8007/v1}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
-      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
-      - LLM_MODEL=${LLM_MODEL:-}
+      - EMBEDDING_API_URL=${EMBEDDING_API_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-1536}
+      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-true}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - LLM_API_KEY=${LLM_API_KEY:-}
     depends_on:
       neo4j:
         condition: service_healthy
       redis:
         condition: service_healthy
-      vllm:
-        condition: service_started
       api:
         condition: service_started
     networks:
@@ -215,20 +176,19 @@ services:
       - NEO4J_AUTH=${NEO4J_AUTH:-none}
       - ALLOWED_REPO_DIR=/app/repos
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8007/v1}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-jinaai/jina-embeddings-v5-text-small-retrieval}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-512}
-      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-false}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://vllm:8007/v1}
-      - LLM_MODEL=${LLM_MODEL:-}
+      - EMBEDDING_API_URL=${EMBEDDING_API_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-1536}
+      - ALLOW_FAKE_EMBEDDINGS=${ALLOW_FAKE_EMBEDDINGS:-true}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - LLM_API_KEY=${LLM_API_KEY:-}
     depends_on:
       neo4j:
         condition: service_healthy
       redis:
         condition: service_healthy
-      vllm:
-        condition: service_started
     networks:
       codegraph_net:
         aliases:

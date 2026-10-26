@@ -1,130 +1,73 @@
-<div align="center">
+# 🚀 ShipReady — Preflight & Code Quality for Vibe Coders
 
-# 🧠 CodeGraph Brain Enterprise
-### Universal Code Knowledge Graph, Polyglot GraphRAG & AI Architectural Review Platform
+[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
+[![Docker Ready](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Neo4j](https://img.shields.io/badge/Neo4j-5.11+-008CC1.svg?logo=neo4j&logoColor=white)](https://neo4j.com)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-2.0.0-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Neo4j](https://img.shields.io/badge/Neo4j-5.11-008CC1?style=for-the-badge&logo=neo4j&logoColor=white)](https://neo4j.com)
-[![Redis](https://img.shields.io/badge/Redis-Alpine-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
-[![MCP](https://img.shields.io/badge/MCP-Protocol-8A2BE2?style=for-the-badge&logo=anthropic&logoColor=white)](https://modelcontextprotocol.io/)
+**ShipReady** is a lightweight, AI-driven code quality and preflight audit platform specifically tailored for **Vibe Coders**, indie hackers, and developers using AI assistants (Cursor, Claude, Lovable, Bolt, v0).
 
-<p align="center">
-  <b>Transform polyglot enterprise codebases into knowledge graphs, perform hybrid vector & graph retrieval (GraphRAG), detect code clones, generate automated docstrings, audit architecture health, and integrate directly with AI coding agents (MCP).</b>
-</p>
-
-[Features](#-key-features) •
-[Architecture](#-system-architecture) •
-[Quick Start](#-quick-start-with-docker) •
-[Enterprise Dashboard](#-enterprise-dashboard) •
-[MCP Tools](#-comprehensive-mcp-tools-for-ai-agents) •
-[GitHub Webhook](#-automated-github-cicd-webhook) •
-[Security](#-enterprise-security) •
-[User Guide](#-documentation)
-
-</div>
+Before you publish or ship your app, ShipReady inspects your codebase, calculates a **Ship Readiness Score**, flags critical blockers (leaked secrets, broken buttons, missing loading states), and provides **1-click copyable prompts** to fix issues instantly in your favorite AI code editor!
 
 ---
 
-## 📖 Overview
+## 🌟 Key Features for Vibe Coders
 
-Enterprise codebases span millions of lines across diverse programming languages with deeply entangled dependencies. Conventional Large Language Models (LLMs) struggle with architectural reviews and refactoring because they lack full structural awareness and cross-file context, frequently hallucinating or introducing silent regression defects.
+### 1. 🛡️ Autonomous 3-Tier Preflight Auditor
+- 🔴 **Critical Blockers:** Scans for hardcoded API keys (OpenAI, Stripe, AWS), unprotected admin endpoints, SQL/NoSQL injection, and dead/mock button clicks.
+- 🟠 **UX & Operational Hazards:** Identifies missing loading states during async actions (preventing accidental double-payments), un-debounced inputs, and unbounded text fields.
+- 🟡 **Code Hygiene & Polish:** Catches stray `console.log` / debug statements, missing documentation, and contrast issues.
+- 📋 **1-Click AI Fix Prompts:** For every detected issue, click **"Copy Fix Prompt"** to get a ready-made, precise instruction to paste into Cursor, Claude, or Lovable to fix the code automatically.
 
-**CodeGraph Brain Enterprise** converts entire enterprise software repositories into a unified **Relational and Vector Knowledge Graph (Neo4j)** using **Abstract Syntax Trees (Tree-sitter AST)** and semantic code embeddings. The platform operates 100% locally and offline in air-gapped environments, leveraging local models (such as Hugging Face and vLLM) for embedding and LLM inference.
+### 2. ⚡ Lightweight & GPU-Free (API-First)
+- **No GPU Required:** Removed heavy local vLLM containers. Runs fast on any laptop or small server with < 1GB RAM.
+- **Universal AI Provider Support:** Connects directly via standard OpenAI-compatible API (OpenAI, OpenRouter, Groq, Ollama) or runs smoothly in offline fallback mode without an API key.
 
----
+### 3. 💬 AI Codebase Copilot
+- Ask structural questions about your codebase (*"How does user authentication work?"*, *"What environment variables are needed?"*).
+- Grounded in AST syntax and symbol dependency graphs to prevent hallucinations.
 
-## 🌟 Key Features
-
-### 1. Universal Polyglot Support
-- Deep AST parsing with Tree-sitter and a Universal Fallback engine supporting Python, TypeScript/JavaScript, Go, Java, C/C++, C#, Rust, PHP, Ruby, Kotlin, and more.
-
-### 2. Enterprise Intelligence & Deep Code Analytics
-- 🔍 **Code Clone Detection:** Automatically identifies duplicate functions and copy-pasted logic across repositories using cosine similarity vectors.
-- 🔥 **Git Hotspots & Churn Analysis:** Pinpoints files with high commit velocity (churn rate) and correlates them with structural complexity to identify bug-prone modules.
-- 🔗 **Test Coverage Graph:** Automatically maps test files to core implementation functions in the graph database.
-- 🌐 **Cross-Service Traceability:** Discovers backend API endpoints (e.g. `@app.get`, `router.post`) and links frontend HTTP client calls (`fetch`, `axios`) to their exact backend handlers.
-
-### 3. Interactive AI Assistant & NL2Cypher
-- 💬 **GraphRAG Chat:** Architectural queries grounded in call graphs and symbol contracts, preventing hallucinations.
-- 🤖 **Text-to-Cypher (NL2Cypher):** Ask questions like: `/cypher which authentication functions call the database directly without caching?`. The AI writes and runs precise Cypher queries against Neo4j, returning verified database results.
-
-### 4. Architectural Health & Code Smell Diagnostics
-- 🔄 **Circular Dependency Chains:** Detects cyclic dependency loops (e.g. `fnA -> fnB -> fnC -> fnA`).
-- ⚡ **Critical Bottlenecks & God Functions:** Identifies high fan-in/fan-out functions violating the Single Responsibility Principle.
-- 👻 **Dead Code Candidates:** Identifies functions and methods with 0 inbound callers across the repository.
-
-### 5. Blast Radius & Automated Pull Request Reviews
-- Automatically analyzes Git Diffs against the knowledge graph to assess breaking change impact and calculate the blast radius up to 3 hops deep.
-- 📝 **Auto-Doc Engine:** Dispatches background workers to generate standard docstrings for undocumented functions using local LLMs.
-
-### 6. Dynamic LLM Configuration (Air-Gapped / Offline)
-- **Zero Vendor Lock-in:** Easily configure your local AI endpoints (`vLLM`, `LM Studio`) or enterprise models via the web dashboard with custom `Base URL`, `Model Name`, and `API Key`.
-
-### 7. Full FastMCP Server Integration
-- Built-in Model Context Protocol server over `stdio` enabling AI coding assistants (Cursor, Claude Desktop, Antigravity) to query code graphs using 11 specialized tools.
+### 4. 📦 1-Click Ship Deliverables
+- **Auto-Generated `README.md`:** Crafts a professional, beautiful repository README based on actual detected routes and functions.
+- **Safe `.env.example` Extraction:** Scans all codebase environment references and exports a sanitized template ready for deployment.
+- **Export Audit Report:** Download comprehensive Markdown audit reports for clients or team reviews.
 
 ---
 
-## 🏗 System Architecture
-
-```mermaid
-flowchart TD
-    subgraph Ingestion ["1. Code Ingestion & Parsing"]
-        Repo["Git Repository & History"] --> Scanner["Tree-sitter AST & Git Authorship Engine"]
-        Scanner --> Embedder["Hugging Face / vLLM Embedder"]
-    end
-
-    subgraph Storage ["2. Neo4j Knowledge Graph"]
-        Scanner --> Neo4j[("Neo4j Graph Database")]
-        Embedder --> VectorIndex[("Vector Index (512-dim)")]
-        Neo4j <--> VectorIndex
-    end
-
-    subgraph Analytics ["3. Advanced Analytics Engine"]
-        Neo4j --> Smells["Circular Calls & Dead Code Detector"]
-        Neo4j --> Clones["Code Clone Detection"]
-        Neo4j --> CrossService["API Route & Client Linking"]
-    end
-
-    subgraph AI ["4. AI & Synthesis Engine"]
-        VectorIndex --> RAG["GraphRAG (Vector + 2-Hop Cypher)"]
-        Neo4j --> NL2Cypher["Text-to-Cypher Engine"]
-        Neo4j --> AutoDoc["Auto-Doc Background Worker"]
-    end
-```
-
----
-
-## 🛠 Quick Start with Docker
-
-The entire platform is containerized using `docker-compose.yml`. Code embedding extraction is powered by vLLM (GPU-accelerated) and the code-specialized model `jinaai/jina-embeddings-v5-text-small-retrieval` (generating 512-dimensional embeddings).
+## 🛠️ Quick Start with Docker
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/mohamadreza1368/code_brian.git
-cd code_brian
+git clone https://github.com/mohamadreza1368/Vultr_Hackathon.git
+cd Vultr_Hackathon
 
-# 2. Configure environment variables
+# 2. Configure environment variables (optional: add your OpenAI key)
 cp .env.example .env
 
-# 3. Launch the enterprise stack
+# 3. Launch the lightweight stack
 docker compose up -d --build
 ```
 
-### Services Status:
-- **Web Dashboard & Graph Explorer:** `http://localhost:8001`
-- **Interactive OpenAPI Documentation (Swagger):** `http://localhost:8001/docs`
-
-> **LLM Settings:** After starting, click **"LLM Settings"** in the top-right corner of the web dashboard to configure your model endpoint and provider.
+Access the dashboard:
+- 🌐 **Web UI Dashboard:** `http://localhost:8001`
+- 📚 **Swagger API Docs:** `http://localhost:8001/docs`
+- 🤖 **MCP SSE Server for Cursor/Claude Desktop:** `http://localhost:8002`
 
 ---
 
-## 📚 Documentation
+## ⚙️ Environment Configuration
 
-For a comprehensive step-by-step user guide, architectural workflows, and sample Cypher queries, refer to **[USER_GUIDE.md](USER_GUIDE.md)**.
+Edit `.env` to configure your AI provider (optional):
+```env
+# Optional: Set your OpenAI or OpenRouter API key
+OPENAI_API_KEY=sk-...
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+```
+*Note: If no API key is provided, the platform automatically runs in offline fallback mode.*
 
-<div align="center">
-  <sub>CodeGraph Brain Enterprise © 2026 — Built for software architects, security leads, and engineering teams.</sub>
-</div>
+---
+
+## 📄 License
+This project is open-source under the MIT License.
