@@ -84,11 +84,11 @@ def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
     api_key = (config.get("api_key") or "").strip()
 
     if not base_url:
-        return False, "آدرس سرور هوش مصنوعی (LLM Base URL) تنظیم نشده است."
+        return False, "LLM Base URL is not configured. Please set it in Settings."
 
     is_local = any(h in base_url.lower() for h in ["localhost", "127.0.0.1", "host.docker.internal", "ollama"])
     if not is_local and not api_key:
-        return False, "کلید API هوش مصنوعی وارد نشده است. لطفاً در بخش تنظیمات (Settings) کلید API خود را وارد کنید."
+        return False, "AI API Key is not configured. Please enter your API key in Settings (⚙️)."
 
     try:
         norm_base = normalize_llm_base_url(base_url)
@@ -101,7 +101,7 @@ def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
         if resp.status_code in (200, 201):
             return True, "Connected"
         if resp.status_code == 401:
-            return False, "کلید API نامعتبر است (HTTP 401 Unauthorized). لطفاً کلید صحیح را در تنظیمات وارد کنید."
+            return False, "Invalid API Key (HTTP 401 Unauthorized). Please check your key in Settings."
         if resp.status_code == 404:
             probe_payload = {
                 "model": config.get("model", "gpt-4o-mini"),
@@ -112,11 +112,11 @@ def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
             if chat_resp.ok:
                 return True, "Connected"
             if chat_resp.status_code == 401:
-                return False, "کلید API نامعتبر است (HTTP 401 Unauthorized)."
-            return False, f"خطای ارتباط با مدل هوش مصنوعی (HTTP {chat_resp.status_code})."
-        return False, f"خطای ارتباط با سرور هوش مصنوعی (HTTP {resp.status_code})."
+                return False, "Invalid API Key (HTTP 401 Unauthorized)."
+            return False, f"LLM API error (HTTP {chat_resp.status_code})."
+        return False, f"LLM server responded with HTTP {resp.status_code}."
     except Exception as e:
-        return False, f"عدم امکان برقراری ارتباط با هوش مصنوعی: {str(e)}"
+        return False, f"Cannot connect to AI endpoint: {str(e)}"
 
 def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
     """Calls any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, Ollama, vLLM) with auto-fallbacks."""

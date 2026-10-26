@@ -759,7 +759,7 @@
         for (const tier of tiers) {
           const res = await fetch(`${API_BASE}/api/v1/review/tier/${tier}?repo_name=${encodeURIComponent(currentRepo)}`);
           if (res.status === 503 || res.status === 400 || res.status === 401) {
-            let msg = 'سیستم به هوش مصنوعی متصل نیست! لطفاً در بخش تنظیمات کلید API را وارد کنید.';
+            let msg = 'AI Language Model is not connected! Please configure your API key in Settings.';
             try {
               const errData = await res.json();
               if (errData && errData.detail && errData.detail.message) {
@@ -808,7 +808,7 @@
 
       const statusEl = document.getElementById('readiness-status');
       if (statusEl) {
-        statusEl.innerText = 'هوش مصنوعی متصل نیست ⚠️';
+        statusEl.innerText = 'AI Not Connected ⚠️';
         statusEl.className = 'text-[11px] text-red-400 font-semibold';
       }
 
@@ -820,13 +820,13 @@
               <i data-lucide="alert-triangle" class="w-6 h-6"></i>
             </div>
             <div class="space-y-1">
-              <h3 class="text-sm font-bold text-white">اتصال به هوش مصنوعی برقرار نیست (LLM Not Connected)</h3>
+              <h3 class="text-sm font-bold text-white">AI Language Model is Not Connected</h3>
               <p class="text-xs text-red-300/90 max-w-lg mx-auto">${escapeHtml(msg)}</p>
             </div>
             <div class="pt-2 flex justify-center gap-3">
               <button onclick="openModal('modal-settings')" class="px-4 py-2 bg-red-600 hover:bg-red-500 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-red-900/40 inline-flex items-center gap-2">
                 <i data-lucide="settings" class="w-4 h-4"></i>
-                تنظیم کلید API در بخش Settings
+                Configure API Key in Settings
               </button>
             </div>
           </div>
