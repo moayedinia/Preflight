@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShipReady — Preflight & Code Quality for Vibe Coders</title>
+  <title>Preflight — Code Quality & Shipping Auditor for Vibe Coders</title>
   <!-- Tailwind CSS & Lucide Icons -->
   <script src="vendor/tailwind.js"></script>
   <script src="vendor/lucide.min.js"></script>
@@ -55,7 +55,7 @@
           <i data-lucide="rocket" class="w-5 h-5 text-white"></i>
         </div>
         <div>
-          <span class="text-base font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-emerald-400 bg-clip-text text-transparent">ShipReady</span>
+          <span class="text-base font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-emerald-400 bg-clip-text text-transparent">Preflight</span>
           <span class="hidden sm:inline-block ml-1 px-1.5 py-0.5 text-[10px] uppercase font-semibold tracking-wider rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Vibe Edition</span>
         </div>
       </div>
@@ -452,7 +452,7 @@
               <span id="import-modal-key-status" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-950 border border-amber-500/30 text-amber-300">Key Missing</span>
             </div>
             <p class="text-amber-200/80 text-[11px] leading-relaxed">
-              ShipReady uses an AI Language Model to detect security leaks, broken buttons, and UX flaws. 
+              Preflight uses an AI Language Model to detect security leaks, broken buttons, and UX flaws. 
               Please make sure you have configured your API Key and URL before or right after importing to audit your code.
             </p>
           </div>
@@ -847,12 +847,12 @@
           return;
         }
 
-        let saved = localStorage.getItem('shipready_active_repo');
+        let saved = localStorage.getItem('preflight_active_repo');
         if (!saved || !repos.some(r => r.name === saved)) {
           saved = repos[0].name;
         }
         currentRepo = saved;
-        localStorage.setItem('shipready_active_repo', currentRepo);
+        localStorage.setItem('preflight_active_repo', currentRepo);
 
         const badge = document.getElementById('active-repo-badge');
         if (badge) badge.innerText = 'Project: ' + currentRepo;
@@ -922,7 +922,7 @@
       const select = document.getElementById('repo-select');
       if (!select) return;
       currentRepo = select.value;
-      localStorage.setItem('shipready_active_repo', currentRepo);
+      localStorage.setItem('preflight_active_repo', currentRepo);
       const badge = document.getElementById('active-repo-badge');
       if (badge) badge.innerText = 'Project: ' + currentRepo;
       runPreflightAudit();
@@ -930,7 +930,7 @@
 
     function selectAndAuditRepo(repoName) {
       currentRepo = repoName;
-      localStorage.setItem('shipready_active_repo', currentRepo);
+      localStorage.setItem('preflight_active_repo', currentRepo);
       const select = document.getElementById('repo-select');
       if (select) select.value = repoName;
       const badge = document.getElementById('active-repo-badge');
@@ -1240,7 +1240,7 @@
         return;
       }
 
-      let md = '# ShipReady Audit Report — ' + (currentRepo || 'Project') + '\n';
+      let md = '# Preflight Audit Report — ' + (currentRepo || 'Project') + '\n';
       md += 'Generated: ' + new Date().toLocaleString() + '\n\n';
       md += '## Defect Summary\n';
       md += '- Red (Blockers): ' + allDefects.filter(d => d.tier === 'red').length + '\n';
@@ -1260,7 +1260,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'ShipReady_Audit_' + (currentRepo || 'Report') + '.md';
+      a.download = 'Preflight_Audit_' + (currentRepo || 'Report') + '.md';
       a.click();
       URL.revokeObjectURL(url);
       showToast('Downloaded audit report!');

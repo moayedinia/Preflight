@@ -207,7 +207,7 @@ def read_root():
         return FileResponse(frontend_index)
     return {
         "status": "online",
-        "service": "ShipReady Preflight & Code Quality API",
+        "service": "Preflight Code Quality API",
         "version": "2.0.0",
         "security": "API Key authentication active" if os.getenv("API_KEY") else "Dev Mode (Unauthenticated)",
         "docs": "/docs"

@@ -1,4 +1,4 @@
-# 🚀 ShipReady — Preflight & Code Quality for Vibe Coders
+# 🚀 Preflight — Autonomous Code Quality & Shipping Auditor for Vibe Coders
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
 [![Docker Ready](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
@@ -6,9 +6,9 @@
 [![Neo4j](https://img.shields.io/badge/Neo4j-5.11+-008CC1.svg?logo=neo4j&logoColor=white)](https://neo4j.com)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 
-**ShipReady** is a lightweight, AI-driven code quality and preflight audit platform specifically tailored for **Vibe Coders**, indie hackers, and developers using AI assistants (Cursor, Claude, Lovable, Bolt, v0).
+**Preflight** is a lightweight, AI-driven code quality and preflight audit platform specifically tailored for **Vibe Coders**, indie hackers, and developers using AI assistants (Cursor, Claude, Lovable, Bolt, v0).
 
-Before you publish or ship your app, ShipReady inspects your codebase, calculates a **Ship Readiness Score**, flags critical blockers (leaked secrets, broken buttons, missing loading states), and provides **1-click copyable prompts** to fix issues instantly in your favorite AI code editor!
+Before you publish or ship your app, Preflight inspects your codebase, calculates a **Ship Readiness Score**, flags critical blockers (leaked secrets, broken buttons, missing loading states), and provides **1-click copyable prompts** to fix issues instantly in your favorite AI code editor!
 
 ---
 

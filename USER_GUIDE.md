@@ -1,4 +1,4 @@
-# Comprehensive User Guide: ShipReady (Vibe Coder Edition)
+# Comprehensive User Guide: Preflight (Vibe Coder Edition)
 ### Autonomous Code Quality, Preflight Security & AI Copilot for Fast-Shipping Developers
 
 ---
@@ -18,16 +18,16 @@
 
 ## 1. Introduction & Purpose
 
-**ShipReady** is a specialized code audit and shipping assistant designed for **Vibe Coders**, indie hackers, and developers building applications with AI coding tools (such as Cursor, Claude 3.5 Sonnet, Lovable, Bolt.new, v0, and ChatGPT).
+**Preflight** is a specialized code audit and shipping assistant designed for **Vibe Coders**, indie hackers, and developers building applications with AI coding tools (such as Cursor, Claude 3.5 Sonnet, Lovable, Bolt.new, v0, and ChatGPT).
 
-### Why Vibe Coders Need ShipReady:
+### Why Vibe Coders Need Preflight:
 When prototyping quickly with AI:
 - API keys (OpenAI, Stripe, AWS) often get accidentally left in frontend source files.
 - Buttons sometimes have dummy or empty event handlers (`console.log('clicked')`).
 - Async forms lack loading spinners, leading to double charges or multiple submissions.
 - Route handlers miss proper error handling, causing fatal unhandled 500 crashes.
 
-ShipReady scans your entire codebase, calculates an instant **Ship Readiness Score (0-100%)**, groups problems into clear severity tiers, and gives you **one-click copyable prompts** tailored specifically to paste into your AI assistant to fix the code automatically.
+Preflight scans your entire codebase, calculates an instant **Ship Readiness Score (0-100%)**, groups problems into clear severity tiers, and gives you **one-click copyable prompts** tailored specifically to paste into your AI assistant to fix the code automatically.
 
 ---
 
@@ -117,34 +117,34 @@ In the **Ship Assets** tab, generate polished deliverables with a single click:
 
 ## 7. AI Provider Configuration (OpenAI / OpenRouter / Local)
 
-ShipReady supports any OpenAI-compatible provider:
+Preflight supports any OpenAI-compatible provider:
 1. Click the **Settings (⚙️)** icon in the top-right corner of the dashboard.
 2. Enter your **Base URL** (e.g. `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, or `http://localhost:11434/v1` for local Ollama).
 3. Enter your **Model Name** (e.g. `gpt-4o-mini`, `claude-3-5-sonnet`, `deepseek-chat`, etc.).
 4. Enter your **API Key**.
 5. Click **"Test Connection"** to verify reachability, then click **"Save Settings"**.
 
-> **Offline / Fallback Mode:** If no API key is provided, ShipReady automatically operates in fallback mode, using normalized deterministic vectors so you can still index and inspect projects offline.
+> **Offline / Fallback Mode:** If no API key is provided, Preflight automatically operates in fallback mode, using normalized deterministic vectors so you can still index and inspect projects offline.
 
 ---
 
 ## 8. MCP Integration (Cursor & Claude Desktop)
 
-ShipReady includes a built-in **Model Context Protocol (MCP)** server on port `8002`.
+Preflight includes a built-in **Model Context Protocol (MCP)** server on port `8002`.
 
 ### Configuration for Cursor / Claude Desktop:
 Add the following snippet to your MCP config:
 ```json
 {
   "mcpServers": {
-    "shipready": {
+    "preflight": {
       "url": "http://localhost:8002/sse"
     }
   }
 }
 ```
 
-Now your AI assistant in Cursor or Claude Desktop can directly invoke ShipReady tools to audit code, inspect blast radius, and explore repository architecture.
+Now your AI assistant in Cursor or Claude Desktop can directly invoke Preflight tools to audit code, inspect blast radius, and explore repository architecture.
 
 ---
 
@@ -168,4 +168,4 @@ All endpoints are documented interactively at `http://localhost:8001/docs`:
 
 ---
 
-*ShipReady — Build with AI, Ship with Confidence.*
+*Preflight — Build with AI, Ship with Confidence.*
