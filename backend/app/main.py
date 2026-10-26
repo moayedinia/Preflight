@@ -141,8 +141,8 @@ class DiffReviewRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
 
 class LLMConfigRequest(BaseModel):
-    base_url: str = Field(..., max_length=500)
-    model: str = Field(..., max_length=100)
+    base_url: Optional[str] = Field(None, max_length=500)
+    model: Optional[str] = Field(None, max_length=100)
     api_key: Optional[str] = Field("", max_length=2000)
 
 class AutoDocRequest(BaseModel):
@@ -785,9 +785,16 @@ def clear_llm_status_cache():
 
 @app.post("/api/v1/config/llm", dependencies=[Depends(verify_api_key)])
 def update_llm_settings(payload: LLMConfigRequest):
-    set_llm_config(payload.base_url, payload.model, payload.api_key)
-    clear_llm_status_cache()
-    return {"status": "success", "message": "LLM configuration updated successfully."}
+    current = get_llm_config()
+    base_url = (payload.base_url or "").strip() or current.get("base_url") or "https://api.openai.com/v1"
+    model = (payload.model or "").strip() or current.get("model") or "gpt-4o-mini"
+    api_key = payload.api_key if payload.api_key is not None else current.get("api_key", "")
+    try:
+        set_llm_config(base_url, model, api_key)
+        clear_llm_status_cache()
+        return {"status": "success", "message": "LLM configuration updated successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # --- DEDICATED EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
 class EmbeddingConfigRequest(BaseModel):
