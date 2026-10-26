@@ -1,190 +1,171 @@
-# Comprehensive User Guide: CodeGraph Brain Enterprise
-### (Universal Code Knowledge Graph, Polyglot GraphRAG & AI Architectural Review Platform)
+# Comprehensive User Guide: ShipReady (Vibe Coder Edition)
+### Autonomous Code Quality, Preflight Security & AI Copilot for Fast-Shipping Developers
 
 ---
 
 ## Table of Contents
-1. [Introduction & Architectural Overview](#1-introduction--architectural-overview)
-2. [Prerequisites & Docker Deployment](#2-prerequisites--docker-deployment)
-3. [Dashboard Walkthrough & Navigation](#3-dashboard-walkthrough--navigation)
-4. [Configuring Local AI / LLM Providers](#4-configuring-local-ai--llm-providers)
-5. [Interactive Architecture Chat (GraphRAG & NL2Cypher)](#5-interactive-architecture-chat-graphrag--nl2cypher)
-6. [Code Clones & Git Hotspots Discovery](#6-code-clones--git-hotspots-discovery)
-7. [Automated Documentation Engine (Auto-Doc)](#7-automated-documentation-engine-auto-doc)
-8. [Pull Request Diff Review & Blast Radius Analysis](#8-pull-request-diff-review--blast-radius-analysis)
-9. [Microservices & Test Traceability](#9-microservices--test-traceability)
-10. [Model Context Protocol (MCP) Integration](#10-model-context-protocol-mcp-integration)
-11. [REST API Documentation & Key Endpoints](#11-rest-api-documentation--key-endpoints)
+1. [Introduction & Purpose](#1-introduction--purpose)
+2. [Prerequisites & Quick Docker Setup](#2-prerequisites--quick-docker-setup)
+3. [The 3-Tier Preflight Auditor (Ready to Ship)](#3-the-3-tier-preflight-auditor-ready-to-ship)
+4. [Fixing Issues with 1-Click AI Prompts](#4-fixing-issues-with-1-click-ai-prompts)
+5. [AI Codebase Copilot & Architectural Q&A](#5-ai-codebase-copilot--architectural-qa)
+6. [1-Click Ship Assets (README & .env.example)](#6-1-click-ship-assets-readme--envexample)
+7. [AI Provider Configuration (OpenAI / OpenRouter / Local)](#7-ai-provider-configuration-openai--openrouter--local)
+8. [MCP Integration (Cursor & Claude Desktop)](#8-mcp-integration-cursor--claude-desktop)
+9. [REST API Documentation & Endpoints](#9-rest-api-documentation--endpoints)
 
 ---
 
-## 1. Introduction & Architectural Overview
+## 1. Introduction & Purpose
 
-**CodeGraph Brain Enterprise** is an enterprise-grade platform designed to reverse-engineer software architectures and construct a **hybrid relational and semantic code knowledge graph**.
+**ShipReady** is a specialized code audit and shipping assistant designed for **Vibe Coders**, indie hackers, and developers building applications with AI coding tools (such as Cursor, Claude 3.5 Sonnet, Lovable, Bolt.new, v0, and ChatGPT).
 
-### Core Platform Capabilities:
-- **Polyglot AST Engine:** Parses diverse programming languages including Python, JavaScript/TypeScript, Go, Java, C, C++, C#, and Rust using Tree-sitter.
-- **Unified Knowledge Graph:** Integrates structural AST hierarchies with 512-dimensional code embeddings in Neo4j.
-- **Dynamic AI Configuration:** Seamlessly connects to local LLM engines (vLLM, LM Studio) or enterprise endpoints directly from the UI without service restarts.
-- **Architecture Health & Code Smell Diagnostics:** Pinpoints circular dependency chains, god functions, bottlenecks, dead code, duplicates (clones), and bug hotspots.
-- **PR Risk & Blast Radius Review:** Evaluates code modifications in pull requests up to 3 hops deep to predict breaking impacts and guide regression testing.
-- **Automated Docstring Generation:** Dispatches asynchronous workers to enrich undocumented functions with standardized docstrings.
-- **Natural Language to Graph Queries (NL2Cypher):** Translates free-form questions into precise Cypher graph queries and executes them safely against Neo4j.
+### Why Vibe Coders Need ShipReady:
+When prototyping quickly with AI:
+- API keys (OpenAI, Stripe, AWS) often get accidentally left in frontend source files.
+- Buttons sometimes have dummy or empty event handlers (`console.log('clicked')`).
+- Async forms lack loading spinners, leading to double charges or multiple submissions.
+- Route handlers miss proper error handling, causing fatal unhandled 500 crashes.
+
+ShipReady scans your entire codebase, calculates an instant **Ship Readiness Score (0-100%)**, groups problems into clear severity tiers, and gives you **one-click copyable prompts** tailored specifically to paste into your AI assistant to fix the code automatically.
 
 ---
 
-## 2. Prerequisites & Docker Deployment
+## 2. Prerequisites & Quick Docker Setup
 
 ### Requirements:
 - **Docker** and **Docker Compose**
-- Minimum 4 GB of available system memory
-- Local or Dockerized **vLLM** instance running with the code embedding model:
-  `jinaai/jina-embeddings-v5-text-small-retrieval`
+- Runs on any standard machine (Windows, macOS, Linux) with < 1 GB RAM.
+- **No GPU or CUDA required.**
 
-> This embedding model generates standardized 512-dimensional vectors tailored for programming source code.
-
-### Deployment Commands:
+### Launching the Stack:
 ```bash
-git clone https://github.com/mohamadreza1368/code_brian.git
-cd code_brian
+# 1. Clone the repository
+git clone https://github.com/mohamadreza1368/Vultr_Hackathon.git
+cd Vultr_Hackathon
+
+# 2. Configure environment (optional: add your API key)
 cp .env.example .env
+
+# 3. Start the containers
 docker compose up -d --build
 ```
-> The dashboard will be available at `http://localhost:8001`.
+
+### Accessing the Services:
+- 🌐 **Web Dashboard:** `http://localhost:8001`
+- 📚 **Swagger Interactive API Docs:** `http://localhost:8001/docs`
+- 🤖 **Model Context Protocol (MCP) Server:** `http://localhost:8002`
 
 ---
 
-## 3. Dashboard Walkthrough & Navigation
+## 3. The 3-Tier Preflight Auditor (Ready to Ship)
 
-The platform features six primary operational views:
-1. 🌐 **Knowledge Graph:** Interactive force-directed canvas (Vis.js / Cytoscape) to inspect symbol relationships, code clones, and API route links.
-2. 💬 **AI Chat:** Interactive architectural assistant supporting GraphRAG retrieval, direct code assistance, and natural language Cypher execution.
-3. 📊 **Architecture Health:** Specialized panel to detect code clones, dead code candidates, high-risk hubs, and trigger background Auto-Doc workers.
-4. 📁 **Repositories Hub:** Manage indexed repositories, clone remote Git URLs, or upload zip archives.
-5. 🔍 **Diff Impact & PR Review:** Paste Git diffs to compute blast radius, identify affected callers, and receive AI-guided risk reports.
-6. 🤖 **MCP Agent Connect:** Copy ready-to-use configuration blocks to connect Cursor, Claude Desktop, or custom AI coding agents.
+In the **Ship Audit** tab, click **"Run Full Audit"** to execute deep AST and semantic security checks across your project:
 
----
+### 🔴 Critical Blockers (Red Tier)
+Must be resolved before publishing to users or production:
+- **Leaked API Keys & Secrets:** Hardcoded keys for OpenAI, Stripe, AWS, GitHub, etc.
+- **Unprotected Sensitive Routes:** Admin or mutation endpoints accessible without authentication.
+- **SQL / NoSQL Injections:** Dangerous unescaped query string interpolations.
+- **Fatal Server Crashes:** Endpoints missing `try/catch` or error handlers.
+- **Dead Core Buttons:** Checkout, payment, or submit buttons with mock or empty handlers.
 
-## 4. Configuring Local AI / LLM Providers
+### 🟠 UX & Reliability (Orange Tier)
+Operational hazards that lead to poor user experience:
+- **Missing Loading State:** Submit buttons that can be clicked multiple times while an async request is in-flight (risk of double-billing).
+- **Unbounded Input Fields:** Form inputs or textareas accepting unlimited payload length without validation.
+- **Un-debounced Searches:** Search bars firing API requests on every single keystroke.
 
-CodeGraph Brain Enterprise is engineered to operate **100% offline and air-gapped**:
-1. In the web dashboard, click the purple **"LLM Settings"** button in the top navigation bar.
-2. Enter your LLM provider base URL (e.g. for vLLM on the host machine: `http://host.docker.internal:8007/v1`).
-3. Enter your model name (e.g. `llama3`, `qwen2.5-coder`, or `mistral`).
-4. Enter an API key if using an enterprise or authenticated provider (optional for local vLLM).
-5. Click **"Save Settings"**.
-
-*All subsequent operations—including GraphRAG, PR Reviews, and Auto-Doc—will immediately utilize the configured model.*
-
----
-
-## 5. Interactive Architecture Chat (GraphRAG & NL2Cypher)
-
-The **AI Chat** interface offers three distinct operational modes:
-- **GraphRAG Mode (Recommended):** Combines vector similarity search with 2-hop relational graph traversal to answer questions with verifiable structural context (e.g., *"How is authentication implemented across services?"*).
-- **Direct Mode:** Direct chat with the LLM for general software engineering queries, code snippet formatting, and algorithmic logic.
-- **Natural Language to Cypher (NL2Cypher):** Prefix your query with `/cypher` to generate and run real-time graph queries.
-  *Example:* `/cypher find all functions in auth.py that call the database`
-  The model inspects schema metadata, synthesizes a read-only Cypher query, executes it against Neo4j, and returns verified facts.
+### 🟡 Code Hygiene & Polish (Yellow Tier)
+Best practices for publishing a clean product:
+- **Stray Debug Logs:** Forgotten `console.log()` or debugger statements in production bundles.
+- **Missing Documentation:** Empty or placeholder `README.md`.
+- **Accessibility & Contrast:** Missing essential button and input labels.
 
 ---
 
-## 6. Code Clones & Git Hotspots Discovery
+## 4. Fixing Issues with 1-Click AI Prompts
 
-### Code Clones (Duplicate Logic)
-Under the **Architecture Health** view, click **"Find Clones"**. The engine computes cosine similarity across all function embedding vectors in the repository and displays pairs with $\ge 95\%$ semantic similarity, allowing you to eliminate redundant implementations.
-
-### Git Hotspots & High Churn
-Click **"Git Hotspots"** to inspect files with high commit frequency (churn rate). Modules that undergo frequent modifications while maintaining high structural fan-in/fan-out are flagged as high-risk hotspots requiring regression test suites.
-
----
-
-## 7. Automated Documentation Engine (Auto-Doc)
-
-1. Navigate to **Architecture Health** and click the green **"Run Auto-Doc"** button.
-2. An asynchronous Celery worker scans the codebase for functions lacking docstrings or explanatory comments.
-3. The worker queries your configured LLM to generate descriptive docstrings adhering to standard formatting conventions (e.g., Google or Sphinx style) and writes them back into the graph database.
+For each detected issue in the dashboard:
+1. Read the **Plain English Explanation** (what is wrong in simple non-technical terms).
+2. Review the **Why this matters** explanation (security or business consequence).
+3. Click the **"📋 Copy Fix Prompt for AI"** button.
+4. Switch to your AI code editor (**Cursor**, **Claude**, **Lovable**, or **Bolt**) and paste the prompt.
+5. The AI assistant will instantly rewrite the offending snippet with a safe, production-grade fix!
 
 ---
 
-## 8. Pull Request Diff Review & Blast Radius Analysis
+## 5. AI Codebase Copilot & Architectural Q&A
 
-1. Generate a Git diff for your proposed changes:
-   ```bash
-   git diff main...feature-branch
-   ```
-2. Paste the diff output into the **Diff Impact & PR Review** view.
-3. The platform parses modified files and functions, traces incoming and outgoing dependency paths up to 3 hops deep, and generates an automated risk assessment with regression testing suggestions.
-
----
-
-## 9. Microservices & Test Traceability
-
-The ingestion engine establishes architectural links across services:
-- **API Endpoints:** Handlers such as `@app.get` in FastAPI, `router.post` in Express, and route annotations are indexed as `ApiRoute` nodes with `EXPOSES_API` relationships.
-- **Frontend Clients:** HTTP calls (`fetch`, `axios.get`, `axios.post`) are linked to corresponding `ApiRoute` nodes via `CALLS_API`.
-- **Test Coverage:** Automated test files and test suites are mapped to target implementation classes and functions via `TESTS` relationships.
+Click the **AI Copilot** tab to chat directly with an assistant that understands your full project structure:
+- Grounded in AST syntax trees and symbol dependencies to prevent hallucinations.
+- Click ready-to-use quick chips like:
+  - *"How does authentication work here?"*
+  - *"List all external API calls in this project"*
+  - *"What environment variables does this need to deploy?"*
 
 ---
 
-## 10. Model Context Protocol (MCP) Integration
+## 6. 1-Click Ship Assets (README & .env.example)
 
-The platform includes a dedicated FastMCP server over `stdio`. To connect AI coding assistants such as Cursor or Claude Desktop, insert the following configuration block into your MCP client settings:
+In the **Ship Assets** tab, generate polished deliverables with a single click:
+- **Polished `README.md`:** Analyzes project dependencies, detected frameworks, and route handlers to craft a complete GitHub repository README with overview, setup instructions, and feature lists.
+- **Safe `.env.example`:** Automatically extracts every referenced environment variable across Python, JavaScript, TypeScript, and Go files, producing a clean template without exposing real secret values.
+- **Export Report (.md):** Download the full preflight audit report in Markdown format for client handovers or compliance checks.
 
+---
+
+## 7. AI Provider Configuration (OpenAI / OpenRouter / Local)
+
+ShipReady supports any OpenAI-compatible provider:
+1. Click the **Settings (⚙️)** icon in the top-right corner of the dashboard.
+2. Enter your **Base URL** (e.g. `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, or `http://localhost:11434/v1` for local Ollama).
+3. Enter your **Model Name** (e.g. `gpt-4o-mini`, `claude-3-5-sonnet`, `deepseek-chat`, etc.).
+4. Enter your **API Key**.
+5. Click **"Test Connection"** to verify reachability, then click **"Save Settings"**.
+
+> **Offline / Fallback Mode:** If no API key is provided, ShipReady automatically operates in fallback mode, using normalized deterministic vectors so you can still index and inspect projects offline.
+
+---
+
+## 8. MCP Integration (Cursor & Claude Desktop)
+
+ShipReady includes a built-in **Model Context Protocol (MCP)** server on port `8002`.
+
+### Configuration for Cursor / Claude Desktop:
+Add the following snippet to your MCP config:
 ```json
 {
   "mcpServers": {
-    "codegraph-brain": {
-      "command": "docker",
-      "args": [
-        "exec",
-        "-i",
-        "graphrag_mcp",
-        "python",
-        "-m",
-        "app.mcp_server",
-        "--transport",
-        "stdio"
-      ]
+    "shipready": {
+      "url": "http://localhost:8002/sse"
     }
   }
 }
 ```
 
-### Available MCP Tools:
-- `search_code`: Perform hybrid vector and symbol search over the codebase.
-- `get_call_hierarchy`: Retrieve callers and callees for any method.
-- `calculate_blast_radius`: Analyze breaking change risks before editing a function.
-- `detect_code_smells`: Audit God functions, circular dependencies, and dead code.
-- `execute_cypher`: Execute verified read-only queries directly against the graph database.
+Now your AI assistant in Cursor or Claude Desktop can directly invoke ShipReady tools to audit code, inspect blast radius, and explore repository architecture.
 
 ---
 
-## 11. REST API Documentation & Key Endpoints
+## 9. REST API Documentation & Endpoints
 
-Interactive Swagger documentation is available at `http://localhost:8001/docs`. Common API operations:
+All endpoints are documented interactively at `http://localhost:8001/docs`:
 
-```bash
-# Update LLM configuration
-curl -X POST "http://localhost:8001/api/v1/config/llm" \
-  -H "X-API-Key: your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{"base_url": "http://host.docker.internal:11434/v1", "model": "llama3", "api_key": ""}'
-
-# Retrieve detected code clones
-curl -X GET "http://localhost:8001/api/v1/analytics/clones?repo_name=MyProject" \
-  -H "X-API-Key: your-api-key"
-
-# Trigger background Auto-Doc task
-curl -X POST "http://localhost:8001/api/v1/tasks/autodoc" \
-  -H "X-API-Key: your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{"repo_name": "MyProject"}'
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/healthz` | System health check (Neo4j, Redis) |
+| `GET` | `/api/v1/repos` | List all indexed projects |
+| `POST` | `/api/v1/ingest/git` | Asynchronously clone and index a Git repository |
+| `POST` | `/api/v1/ingest/upload` | Upload and index a ZIP archive |
+| `GET` | `/api/v1/tasks/{taskId}` | Poll asynchronous ingestion task progress |
+| `GET` | `/api/v1/review/tier/{tier}` | Run preflight defect audit for a specific tier (`red`, `orange`, `yellow`) |
+| `POST` | `/api/v1/chat` | Send a query to the AI Copilot |
+| `GET` | `/api/v1/config/llm` | Retrieve active LLM configuration |
+| `POST` | `/api/v1/config/llm` | Update LLM configuration |
+| `GET` | `/api/v1/config/embedding` | Retrieve embedding engine configuration |
+| `POST` | `/api/v1/config/embedding` | Update embedding engine configuration |
 
 ---
 
-<div align="center">
-  <sub>CodeGraph Brain Enterprise — Built for software architects, security leads, and engineering teams.</sub>
-</div>
+*ShipReady — Build with AI, Ship with Confidence.*
