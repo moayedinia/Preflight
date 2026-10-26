@@ -1,12 +1,12 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShipReady — Preflight & Code Quality for Vibe Coders</title>
   <!-- Tailwind CSS & Lucide Icons -->
-  <script src="/vendor/tailwind.js"></script>
-  <script src="/vendor/lucide.min.js"></script>
+  <script src="vendor/tailwind.js"></script>
+  <script src="vendor/lucide.min.js"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -550,6 +550,11 @@
 
   <!-- ================= JAVASCRIPT LOGIC ================= -->
   <script>
+    // --- API Configuration ---
+    const API_BASE = (window.location.protocol === 'file:' || (window.location.port !== '8001' && window.location.port !== '3000' && window.location.port !== '8000'))
+      ? 'http://localhost:8001'
+      : '';
+
     // --- State Management ---
     let currentRepo = null;
     let allDefects = [];
@@ -559,17 +564,17 @@
     function switchView(viewName) {
       document.querySelectorAll('.view-panel').forEach(el => el.classList.add('hidden'));
       document.querySelectorAll('.nav-tab').forEach(el => {
-        el.classList.remove('bg-emerald-500/15', 'text-emerald-300', 'border', 'border-emerald-500/30', 'shadow-sm');
-        el.classList.add('text-slate-400');
+        el.classList.remove('bg-emerald-500/15', 'text-emerald-300', 'border', 'border-emerald-500/30', 'shadow-sm);
+        el.classList.add('text-slate-400);
       });
 
       const targetView = document.getElementById(`view-${viewName}`);
-      if (targetView) targetView.classList.remove('hidden');
+      if (targetView) targetView.classList.remove('hidden);
 
       const targetTab = document.getElementById(`nav-${viewName}`);
       if (targetTab) {
-        targetTab.classList.remove('text-slate-400');
-        targetTab.classList.add('bg-emerald-500/15', 'text-emerald-300', 'border', 'border-emerald-500/30', 'shadow-sm');
+        targetTab.classList.remove('text-slate-400);
+        targetTab.classList.add('bg-emerald-500/15', 'text-emerald-300', 'border', 'border-emerald-500/30', 'shadow-sm);
       }
 
       if (viewName === 'repos') loadRepositories();
@@ -578,22 +583,22 @@
 
     // --- Modal Management ---
     function openModal(id) {
-      document.getElementById(id).classList.remove('hidden');
+      document.getElementById(id).classList.remove('hidden);
       if (id === 'modal-settings') loadSettings();
       lucide.createIcons();
     }
 
     function closeModal(id) {
-      document.getElementById(id).classList.add('hidden');
+      document.getElementById(id).classList.add('hidden);
     }
 
     // --- Toast Notification ---
     function showToast(msg, isError = false) {
-      const toast = document.getElementById('toast');
-      const text = document.getElementById('toast-msg');
+      const toast = document.getElementById('toast);
+      const text = document.getElementById('toast-msg);
       text.innerText = msg;
       toast.className = `fixed bottom-5 right-5 z-50 bg-slate-900 border ${isError ? 'border-red-500/50' : 'border-emerald-500/50'} text-white px-4 py-2.5 rounded-xl text-xs shadow-2xl flex items-center gap-2`;
-      toast.classList.remove('hidden');
+      toast.classList.remove('hidden);
       setTimeout(() => toast.classList.add('hidden'), 3500);
     }
 
@@ -617,10 +622,10 @@
 
     async function loadRepositories() {
       try {
-        const res = await fetch('/api/v1/repos');
+        const res = await fetch(`${API_BASE}/api/v1/repos`);
         const repos = await res.json();
-        const select = document.getElementById('repo-select');
-        const grid = document.getElementById('repos-grid');
+        const select = document.getElementById('repo-select);
+        const grid = document.getElementById('repos-grid);
         
         select.innerHTML = '';
         if (!repos || repos.length === 0) {
@@ -630,7 +635,7 @@
           return;
         }
 
-        let saved = localStorage.getItem('shipready_active_repo');
+        let saved = localStorage.getItem('shipready_active_repo);
         if (!saved || !repos.some(r => r.name === saved)) {
           saved = repos[0].name;
         }
@@ -640,7 +645,7 @@
         document.getElementById('active-repo-badge').innerText = `Project: ${currentRepo}`;
 
         repos.forEach(r => {
-          const opt = document.createElement('option');
+          const opt = document.createElement('option);
           opt.value = r.name;
           opt.innerText = r.name;
           if (r.name === currentRepo) opt.selected = true;
@@ -681,7 +686,7 @@
                 </button>
               </div>
             </div>
-          `).join('');
+          `).join(');
           lucide.createIcons();
         }
 
@@ -691,7 +696,7 @@
     }
 
     function onRepoChanged() {
-      const select = document.getElementById('repo-select');
+      const select = document.getElementById('repo-select);
       currentRepo = select.value;
       localStorage.setItem('shipready_active_repo', currentRepo);
       document.getElementById('active-repo-badge').innerText = `Project: ${currentRepo}`;
@@ -703,14 +708,14 @@
       localStorage.setItem('shipready_active_repo', currentRepo);
       document.getElementById('repo-select').value = repoName;
       document.getElementById('active-repo-badge').innerText = `Project: ${currentRepo}`;
-      switchView('preflight');
+      switchView('preflight);
       runPreflightAudit();
     }
 
     async function deleteRepo(name) {
       if (!confirm(`Are you sure you want to remove '${name}' from index?`)) return;
       try {
-        await fetch(`/api/v1/repos/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        await fetch(`${API_BASE}/api/v1/repos/${encodeURIComponent(name)}`, { method: 'DELETE' });
         showToast(`Repository '${name}' deleted.`);
         loadRepositories();
       } catch (e) {
@@ -725,7 +730,7 @@
         return;
       }
 
-      const btn = document.getElementById('btn-run-audit');
+      const btn = document.getElementById('btn-run-audit);
       btn.disabled = true;
       btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin text-slate-950"></i> Auditing...`;
       lucide.createIcons();
@@ -735,7 +740,7 @@
 
       try {
         for (const tier of tiers) {
-          const res = await fetch(`/api/v1/review/tier/${tier}?repo_name=${encodeURIComponent(currentRepo)}`);
+          const res = await fetch(`${API_BASE}/api/v1/review/tier/${tier}?repo_name=${encodeURIComponent(currentRepo)}`);
           if (res.ok) {
             const data = await res.json();
             const defects = data.defects || [];
@@ -749,7 +754,7 @@
         }
 
         renderAuditResults();
-        showToast('Audit complete!');
+        showToast('Audit complete!);
       } catch (e) {
         console.error("Audit error:", e);
         showToast('Audit failed. Ensure backend is running.', true);
@@ -774,10 +779,10 @@
       if (score < 0) score = 0;
       if (allDefects.length === 0) score = 100;
 
-      const scoreEl = document.getElementById('readiness-score');
+      const scoreEl = document.getElementById('readiness-score);
       scoreEl.innerText = `${score}%`;
 
-      const statusEl = document.getElementById('readiness-status');
+      const statusEl = document.getElementById('readiness-status);
       if (score >= 90) {
         scoreEl.className = "text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5";
         statusEl.innerText = "Ready to Ship 🚀";
@@ -801,7 +806,7 @@
     }
 
     function renderDefectCards() {
-      const list = document.getElementById('defects-list');
+      const list = document.getElementById('defects-list);
       const filtered = activeTierFilter === 'all' 
         ? allDefects 
         : allDefects.filter(d => d.tier === activeTierFilter);
@@ -853,7 +858,7 @@
             ` : ''}
           </div>
         `;
-      }).join('');
+      }).join(');
 
       lucide.createIcons();
     }
@@ -882,29 +887,29 @@
 
       const blob = new Blob([md], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement('a);
       a.href = url;
       a.download = `ShipReady_Audit_${currentRepo || 'Report'}.md`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('Downloaded audit report!');
+      showToast('Downloaded audit report!);
     }
 
     // --- AI Copilot Chat ---
     async function handleChatSubmit(e) {
       e.preventDefault();
-      const input = document.getElementById('chat-input');
+      const input = document.getElementById('chat-input);
       const text = input.value.trim();
       if (!text) return;
 
       appendChatMessage('user', text);
       input.value = '';
 
-      const btn = document.getElementById('chat-send-btn');
+      const btn = document.getElementById('chat-send-btn);
       btn.disabled = true;
 
       try {
-        const res = await fetch('/api/v1/chat', {
+        const res = await fetch(`${API_BASE}/api/v1/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -916,9 +921,9 @@
 
         if (res.ok) {
           const data = await res.json();
-          appendChatMessage('bot', data.response || 'No response generated.');
+          appendChatMessage('bot', data.response || 'No response generated.);
         } else {
-          appendChatMessage('bot', '⚠️ Error contacting AI endpoint. Please check your API settings.');
+          appendChatMessage('bot', '⚠️ Error contacting AI endpoint. Please check your API settings.);
         }
       } catch (err) {
         appendChatMessage('bot', `⚠️ Request failed: ${err.message}`);
@@ -933,8 +938,8 @@
     }
 
     function appendChatMessage(sender, text) {
-      const box = document.getElementById('chat-messages');
-      const div = document.createElement('div');
+      const box = document.getElementById('chat-messages);
+      const div = document.createElement('div);
       div.className = "flex gap-3";
 
       if (sender === 'user') {
@@ -965,7 +970,7 @@
 
     function clearChat() {
       document.getElementById('chat-messages').innerHTML = '';
-      showToast('Chat cleared');
+      showToast('Chat cleared);
     }
 
     function escapeHtml(text) {
@@ -981,11 +986,11 @@
       }
 
       showToast(`Generating ${type.toUpperCase()} with AI...`);
-      const outBox = document.getElementById('asset-output-container');
-      const outText = document.getElementById('asset-output-text');
-      const outTitle = document.getElementById('asset-output-title');
+      const outBox = document.getElementById('asset-output-container);
+      const outText = document.getElementById('asset-output-text);
+      const outTitle = document.getElementById('asset-output-title);
 
-      outBox.classList.remove('hidden');
+      outBox.classList.remove('hidden);
       outText.innerText = 'Analyzing codebase files and generating document...';
 
       let prompt = type === 'readme' 
@@ -993,7 +998,7 @@
         : `Scan this codebase for all environment variable usages (e.g. process.env, os.getenv) and generate a clean, secure .env.example with descriptive comments for each key.`;
 
       try {
-        const res = await fetch('/api/v1/chat', {
+        const res = await fetch(`${API_BASE}/api/v1/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1007,7 +1012,7 @@
           const data = await res.json();
           outTitle.innerText = type === 'readme' ? 'Generated README.md' : 'Generated .env.example';
           outText.innerText = data.response;
-          showToast('Generated successfully!');
+          showToast('Generated successfully!);
         } else {
           outText.innerText = 'Failed to generate document. Ensure LLM is configured.';
         }
@@ -1018,7 +1023,7 @@
 
     function copyAssetOutput() {
       const text = document.getElementById('asset-output-text').innerText;
-      copyToClipboard(text, 'Copied asset to clipboard!');
+      copyToClipboard(text, 'Copied asset to clipboard!);
     }
 
     // --- Import Modal Logic ---
@@ -1026,26 +1031,26 @@
     function setImportMode(mode) {
       importMode = mode;
       if (mode === 'git') {
-        document.getElementById('import-mode-git').classList.remove('hidden');
-        document.getElementById('import-mode-zip').classList.add('hidden');
+        document.getElementById('import-mode-git').classList.remove('hidden);
+        document.getElementById('import-mode-zip').classList.add('hidden);
         document.getElementById('btn-import-git').className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
         document.getElementById('btn-import-zip').className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200';
       } else {
-        document.getElementById('import-mode-git').classList.add('hidden');
-        document.getElementById('import-mode-zip').classList.remove('hidden');
+        document.getElementById('import-mode-git').classList.add('hidden);
+        document.getElementById('import-mode-zip').classList.remove('hidden);
         document.getElementById('btn-import-zip').className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
         document.getElementById('btn-import-git').className = 'flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-400 hover:text-slate-200';
       }
     }
 
     async function startImport() {
-      const pBox = document.getElementById('import-progress-box');
-      const pBar = document.getElementById('import-progress-bar');
-      const pText = document.getElementById('import-status-text');
-      const pPct = document.getElementById('import-percent-text');
-      const submitBtn = document.getElementById('btn-submit-import');
+      const pBox = document.getElementById('import-progress-box);
+      const pBar = document.getElementById('import-progress-bar);
+      const pText = document.getElementById('import-status-text);
+      const pPct = document.getElementById('import-percent-text);
+      const submitBtn = document.getElementById('btn-submit-import);
 
-      pBox.classList.remove('hidden');
+      pBox.classList.remove('hidden);
       submitBtn.disabled = true;
 
       try {
@@ -1055,7 +1060,7 @@
           const name = document.getElementById('git-name-input').value.trim();
           if (!url) {
             showToast('Git URL is required', true);
-            pBox.classList.add('hidden');
+            pBox.classList.add('hidden);
             submitBtn.disabled = false;
             return;
           }
@@ -1064,7 +1069,7 @@
           pBar.style.width = '20%';
           pPct.innerText = '20%';
 
-          const res = await fetch('/api/v1/ingest/git', {
+          const res = await fetch(`${API_BASE}/api/v1/ingest/git`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ git_url: url, repo_name: name || undefined })
@@ -1072,11 +1077,11 @@
           const data = await res.json();
           taskId = data.task_id;
         } else {
-          const fileInput = document.getElementById('zip-file-input');
+          const fileInput = document.getElementById('zip-file-input);
           const name = document.getElementById('zip-name-input').value.trim();
           if (!fileInput.files.length) {
             showToast('Please select a ZIP file', true);
-            pBox.classList.add('hidden');
+            pBox.classList.add('hidden);
             submitBtn.disabled = false;
             return;
           }
@@ -1089,7 +1094,7 @@
           pBar.style.width = '20%';
           pPct.innerText = '20%';
 
-          const res = await fetch('/api/v1/ingest/upload', {
+          const res = await fetch(`${API_BASE}/api/v1/ingest/upload`, {
             method: 'POST',
             body: formData
           });
@@ -1102,20 +1107,20 @@
 
       } catch (e) {
         showToast(`Import failed: ${e.message}`, true);
-        pBox.classList.add('hidden');
+        pBox.classList.add('hidden);
         submitBtn.disabled = false;
       }
     }
 
     async function pollTask(taskId) {
-      const pBar = document.getElementById('import-progress-bar');
-      const pText = document.getElementById('import-status-text');
-      const pPct = document.getElementById('import-percent-text');
-      const submitBtn = document.getElementById('btn-submit-import');
+      const pBar = document.getElementById('import-progress-bar);
+      const pText = document.getElementById('import-status-text);
+      const pPct = document.getElementById('import-percent-text);
+      const submitBtn = document.getElementById('btn-submit-import);
 
       const interval = setInterval(async () => {
         try {
-          const res = await fetch(`/api/v1/tasks/${taskId}`);
+          const res = await fetch(`${API_BASE}/api/v1/tasks/${taskId}`);
           const task = await res.json();
           
           if (task.state === 'PROGRESS' && task.meta) {
@@ -1128,11 +1133,11 @@
             pBar.style.width = '100%';
             pPct.innerText = '100%';
             pText.innerText = 'Completed successfully!';
-            showToast('Repository indexed successfully!');
+            showToast('Repository indexed successfully!);
             setTimeout(() => {
-              closeModal('modal-import');
+              closeModal('modal-import);
               submitBtn.disabled = false;
-              document.getElementById('import-progress-box').classList.add('hidden');
+              document.getElementById('import-progress-box').classList.add('hidden);
               loadRepositories();
             }, 1000);
           } else if (task.state === 'FAILURE') {
@@ -1151,7 +1156,7 @@
     // --- Settings Modal Logic ---
     async function loadSettings() {
       try {
-        const res = await fetch('/api/v1/config/llm');
+        const res = await fetch(`${API_BASE}/api/v1/config/llm`);
         if (res.ok) {
           const cfg = await res.json();
           document.getElementById('settings-base-url').value = cfg.base_url || 'https://api.openai.com/v1';
@@ -1170,14 +1175,14 @@
 
       try {
         // Save LLM settings
-        await fetch('/api/v1/config/llm', {
+        await fetch(`${API_BASE}/api/v1/config/llm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ base_url: baseUrl, model: model, api_key: apiKey })
         });
 
         // Save Embedding settings to match API
-        await fetch('/api/v1/config/embedding', {
+        await fetch(`${API_BASE}/api/v1/config/embedding`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1190,25 +1195,25 @@
           })
         });
 
-        showToast('Settings saved successfully!');
-        closeModal('modal-settings');
+        showToast('Settings saved successfully!);
+        closeModal('modal-settings);
       } catch (e) {
         showToast('Error saving settings', true);
       }
     }
 
     async function testApiConnection() {
-      const resBox = document.getElementById('settings-test-result');
+      const resBox = document.getElementById('settings-test-result);
       resBox.className = "p-3 rounded-xl text-xs bg-slate-800 text-slate-300";
       resBox.innerText = "Testing connection...";
-      resBox.classList.remove('hidden');
+      resBox.classList.remove('hidden);
 
       const baseUrl = document.getElementById('settings-base-url').value.trim();
       const model = document.getElementById('settings-model').value.trim();
       const apiKey = document.getElementById('settings-api-key').value.trim();
 
       try {
-        const res = await fetch('/api/v1/config/llm', {
+        const res = await fetch(`${API_BASE}/api/v1/config/llm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ base_url: baseUrl, model: model, api_key: apiKey })

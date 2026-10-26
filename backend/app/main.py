@@ -82,13 +82,23 @@ allowed_origins = [orig.strip() for orig in allowed_origins_env.split(",") if or
 if "*" in allowed_origins or not allowed_origins:
     allowed_origins = ["*"]
 
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=True if allowed_origins != ["*"] else False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount frontend vendor scripts if directory exists
+_vendor_dir = Path("/app/frontend/vendor")
+if not _vendor_dir.exists():
+    _vendor_dir = Path(__file__).resolve().parent.parent.parent / "frontend" / "vendor"
+if _vendor_dir.exists():
+    app.mount("/vendor", StaticFiles(directory=str(_vendor_dir)), name="vendor")
 
 @app.on_event("startup")
 def on_startup():
@@ -189,11 +199,17 @@ def check_vllm_status():
 
 @app.get("/")
 def read_root():
+    frontend_index = Path("/app/frontend/index.html")
+    if not frontend_index.exists():
+        frontend_index = Path(__file__).resolve().parent.parent.parent / "frontend" / "index.html"
+    if frontend_index.exists():
+        return FileResponse(frontend_index)
     return {
         "status": "online",
-        "service": "Enterprise Code GraphRAG API (Automated Ingestion)",
+        "service": "ShipReady Preflight & Code Quality API",
         "version": "2.0.0",
-        "security": "API Key authentication active" if os.getenv("API_KEY") else "Dev Mode (Unauthenticated)"
+        "security": "API Key authentication active" if os.getenv("API_KEY") else "Dev Mode (Unauthenticated)",
+        "docs": "/docs"
     }
 
 # 1. Automated Git Clone & Ingest
