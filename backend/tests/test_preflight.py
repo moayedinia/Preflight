@@ -165,7 +165,11 @@ class TestPreflightEvaluation(unittest.TestCase):
             self.assertIn("markdown_report", data)
             self.assertIn("# CodeGraph Brain - Architecture & Preflight Code Review Report", data["markdown_report"])
 
-    def test_audit_tier_and_stop_autodoc_endpoints(self):
+    @patch("app.core.preflight.call_llm")
+    @patch("app.core.llm.verify_llm_connection")
+    def test_audit_tier_and_stop_autodoc_endpoints(self, mock_verify, mock_llm):
+        mock_verify.return_value = (True, "Connected")
+        mock_llm.return_value = '{"is_defect": false, "confidence": 0.95, "plain_english_explanation": "Clean code.", "business_consequence": "No impact.", "repair_prompt": "None."}'
         with patch.dict(sys.modules, mock_modules), patch("app.core.security.ALLOW_UNAUTHENTICATED", True):
             from app.main import app
             from fastapi.testclient import TestClient

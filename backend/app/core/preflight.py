@@ -87,12 +87,19 @@ def extract_json_defect(llm_output: str, fallback_defect: Dict[str, Any]) -> Dic
         consequence = str(data.get("business_consequence") or fallback_defect.get("business_consequence", "")).strip()
         repair = str(data.get("repair_prompt") or fallback_defect.get("repair_prompt", "")).strip()
 
+        extra_defects = []
+        if isinstance(data.get("defects"), list):
+            for item in data["defects"]:
+                if isinstance(item, dict) and item.get("rule"):
+                    extra_defects.append(item)
+
         return {
             "is_defect": is_defect,
             "confidence": round(confidence, 2),
             "plain_english_explanation": explanation,
             "business_consequence": consequence,
-            "repair_prompt": repair
+            "repair_prompt": repair,
+            "defects": extra_defects
         }
     except Exception:
         return fallback_defect
@@ -121,8 +128,12 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
                 except Exception:
                     pass
 
-            # 2. Collect representative source files (.js, .jsx, .ts, .tsx, .py, .go, .html)
-            allowed_exts = {".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".html", ".vue"}
+            # 2. Collect representative source files across supported languages (.cs, .razor, .py, .js, .ts, .go, etc.)
+            allowed_exts = {
+                ".cs", ".razor", ".py", ".js", ".jsx", ".ts", ".tsx",
+                ".html", ".vue", ".go", ".java", ".php", ".rb", ".rs",
+                ".cpp", ".c", ".h", ".swift", ".kt"
+            }
             found_files = []
             for root, _, files in os.walk(repo_dir):
                 for f in files:
@@ -207,7 +218,7 @@ def evaluate_red_family(code_context: str) -> Dict[str, Any]:
 Analyze thoroughly and respond strictly in valid JSON."""
 
     try:
-        raw_resp = call_llm(user_prompt, RED_SYSTEM_PROMPT, timeout=5)
+        raw_resp = call_llm(user_prompt, RED_SYSTEM_PROMPT, timeout=60)
         res = extract_json_defect(raw_resp, fallback)
         res["rules"] = RED_RULES
         return res
@@ -243,7 +254,7 @@ def evaluate_orange_family(code_context: str) -> Dict[str, Any]:
 Analyze thoroughly and respond strictly in valid JSON."""
 
     try:
-        raw_resp = call_llm(user_prompt, ORANGE_SYSTEM_PROMPT, timeout=5)
+        raw_resp = call_llm(user_prompt, ORANGE_SYSTEM_PROMPT, timeout=60)
         res = extract_json_defect(raw_resp, fallback)
         res["rules"] = ORANGE_RULES
         return res
@@ -280,7 +291,7 @@ def evaluate_yellow_family(code_context: str) -> Dict[str, Any]:
 Analyze thoroughly and respond strictly in valid JSON."""
 
     try:
-        raw_resp = call_llm(user_prompt, YELLOW_SYSTEM_PROMPT, timeout=5)
+        raw_resp = call_llm(user_prompt, YELLOW_SYSTEM_PROMPT, timeout=60)
         res = extract_json_defect(raw_resp, fallback)
         res["rules"] = YELLOW_RULES
         return res
@@ -321,7 +332,9 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
     and then invokes the LLM Arbiter using the user's exact tier system prompt.
     """
     tier_lower = (tier or "red").strip().lower()
-    directories = get_candidate_directories(repo_name)
+    tier_upper = tier_lower.upper()
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    directories = get_candidate_directories(clean_repo)
 
     ignored_dirs = {
         ".git", "node_modules", "venv", ".venv", "env", "__pycache__",
@@ -329,7 +342,12 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
         ".cache", "tmp", "logs"
     }
     
-    code_exts = {".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".vue", ".go", ".java", ".php", ".rb"}
+    code_exts = {
+        ".cs", ".csx", ".razor", ".py", ".js", ".jsx", ".ts", ".tsx",
+        ".html", ".vue", ".go", ".java", ".php", ".rb", ".rs",
+        ".c", ".cpp", ".cc", ".h", ".hpp", ".swift", ".kt", ".scala",
+        ".sh", ".bash", ".ps1"
+    }
     all_defects: List[Dict[str, Any]] = []
 
     # Regex patterns for RED
@@ -337,6 +355,10 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
     re_sql = re.compile(r'(?:cursor\.execute|session\.run)\s*\(\s*f[\'"]|\bexecute\s*\(\s*[\'"][^\'"]*\s*(?:\+|%|\.format\()|\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^\n\r]*\s*(?:\+|%|\.format\(|f[\'"])', re.IGNORECASE)
     re_dead_btn = re.compile(r'onclick\s*=\s*[\'"]\s*(?:#|javascript:void\(0\);?|;?)\s*[\'"]|onClick\s*=\s*\{(?:\(\)\s*=>\s*\{\s*\}|\(\)\s*=>\s*undefined|undefined|null)\}', re.IGNORECASE)
     re_py_route = re.compile(r'@(?:app|router)\.(?:get|post|put|delete|patch)\b')
+    re_empty_catch = re.compile(r'catch\s*(?:\([^)]*\))?\s*\{\s*\}', re.IGNORECASE)
+    re_cors_proxy = re.compile(r'https?://(?:corsproxy\.io|cors-anywhere)\b', re.IGNORECASE)
+    re_sync_io = re.compile(r'\.(?:Result|GetAwaiter\(\)\.GetResult\(\))\b')
+    re_todo = re.compile(r'//\s*(?:TODO|FIXME|HACK)\b', re.IGNORECASE)
 
     # Regex patterns for ORANGE
     re_unbounded_input = re.compile(r'<input\b(?![^>]*\bmax[lL]ength\b)(?=[^>]*type=[\'"](?:text|email|search|url)[\'"])[^>]*>|<textarea\b(?![^>]*\bmax[lL]ength\b)[^>]*>', re.IGNORECASE)
@@ -344,7 +366,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
     re_search_input = re.compile(r'<input\b(?=[^>]*type=[\'"]search[\'"])(?![^>]*\bdebounce\b)[^>]*>', re.IGNORECASE)
 
     # Regex patterns for YELLOW
-    re_console_log = re.compile(r'\bconsole\.(?:log|debug|info)\s*\(')
+    re_console_log = re.compile(r'\b(?:console\.(?:log|debug|info)|Console\.(?:WriteLine|Write)|Debug\.WriteLine)\s*\(')
     re_img_alt = re.compile(r'<img\b(?![^>]*\balt=)[^>]*>', re.IGNORECASE)
     
     total_files_scanned = 0
@@ -445,6 +467,24 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                                     "detail": "API route handler does not enclose execution in a try/except error boundary."
                                 })
 
+                        if not is_test_file and re_empty_catch.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Fatal Server Crashes",
+                                "snippet": line_str[:160],
+                                "detail": "Empty catch block silently suppresses fatal runtime exceptions."
+                            })
+
+                        if not is_test_file and re_cors_proxy.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Insecure Third-Party Proxy",
+                                "snippet": line_str[:160],
+                                "detail": "Routing traffic through public unauthenticated CORS proxy compromises credential privacy."
+                            })
+
                     # 2. 🟠 ORANGE INSPECTIONS ONLY
                     elif tier_lower == "orange":
                         if re_unbounded_input.search(line_str):
@@ -474,6 +514,15 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                                 "detail": "Search input fires queries directly without debounce throttling."
                             })
 
+                        if not is_test_file and re_sync_io.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Threadpool Starvation",
+                                "snippet": line_str[:160],
+                                "detail": "Synchronous blocking on async task (.Result / .GetAwaiter().GetResult()) causes threadpool starvation."
+                            })
+
                     # 3. 🟡 YELLOW INSPECTIONS ONLY
                     elif tier_lower == "yellow":
                         if not is_test_file and re_console_log.search(line_str):
@@ -492,6 +541,15 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                                 "rule": "Contrast / A11y",
                                 "snippet": line_str[:160],
                                 "detail": "Image tag declared without alt accessibility attribute."
+                            })
+
+                        if re_todo.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Unresolved Technical Debt",
+                                "snippet": line_str[:160],
+                                "detail": "Unfinished TODO / FIXME comment found in production source."
                             })
 
     # Yellow check for README
@@ -556,20 +614,35 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
             consequence = "Ensures clean production runtime output and professional maintainability."
             repair_prompt = "Maintain production build stripping of debug logs and adhere to team documentation standards."
 
-    # Invoke LLM with the exact tier system prompt using real findings context
-    try:
-        defect_sample = "\n".join([f"- {d['file']}:{d['line']} [{d['rule']}]: {d['snippet']}" for d in all_defects[:12]])
-        user_prompt = f"""Evaluate the following project inspection findings for {tier_title}:
+    # Collect real code excerpts and invoke LLM Arbiter for deep inspection
+    code_samples = collect_repo_code_samples(repo_name=clean_repo, max_total_chars=5000)
+    findings_summary = "\n".join([f"- [{d['rule']}] {d['file']}:{d['line']} -> {d['snippet']}" for d in all_defects[:15]])
+
+    user_prompt = f"""You are conducting an enterprise-grade {tier_title} code audit.
 Repository: {repo_name or 'Current Project'}
-Files scanned: {total_files_scanned}
-Defects found: {defect_count}
+Source Files Scanned: {total_files_scanned}
+Static Analyzer Suspected Defects: {len(all_defects)}
 
-Findings:
-{defect_sample or 'No defect patterns detected.'}
+Static Analyzer Findings:
+{findings_summary or 'No obvious regex patterns matched. Inspect source files below directly.'}
 
-Respond strictly in valid JSON format matching your system prompt schema."""
+Representative Source Code Excerpts:
+{code_samples}
 
-        raw_llm = call_llm(user_prompt, system_prompt, timeout=6)
+Instructions:
+1. Examine both the findings and the source code excerpts for {tier_title} rules.
+2. Determine if real defects exist (`is_defect`).
+3. If defects exist, provide:
+   - "plain_english_explanation": A concise, clear sentence describing the critical defects.
+   - "business_consequence": Impact on security, stability, UX, or compliance.
+   - "repair_prompt": Concrete, actionable fix instructions.
+   - "defects": Optional list of objects {{"file", "line", "rule", "snippet", "detail"}} for any defects found directly in the code.
+4. If the code is genuinely clean, set "is_defect": false.
+
+Respond STRICTLY in valid JSON matching your system prompt schema."""
+
+    try:
+        raw_llm = call_llm(user_prompt, system_prompt, timeout=90)
         llm_eval = extract_json_defect(raw_llm, {
             "is_defect": is_defect,
             "confidence": confidence,
@@ -577,6 +650,8 @@ Respond strictly in valid JSON format matching your system prompt schema."""
             "business_consequence": consequence,
             "repair_prompt": repair_prompt
         })
+        if "is_defect" in llm_eval:
+            is_defect = llm_eval["is_defect"] or is_defect
         if llm_eval.get("plain_english_explanation"):
             explanation = llm_eval["plain_english_explanation"]
         if llm_eval.get("business_consequence"):
@@ -585,8 +660,24 @@ Respond strictly in valid JSON format matching your system prompt schema."""
             repair_prompt = llm_eval["repair_prompt"]
         if "confidence" in llm_eval:
             confidence = llm_eval["confidence"]
-    except Exception:
-        pass
+
+        # Merge LLM-discovered defects if present
+        if isinstance(llm_eval.get("defects"), list):
+            for d in llm_eval["defects"]:
+                if isinstance(d, dict) and d.get("rule"):
+                    all_defects.append({
+                        "file": d.get("file", repo_name or "codebase"),
+                        "line": d.get("line", 1),
+                        "rule": d.get("rule", f"{tier_upper} Defect"),
+                        "snippet": str(d.get("snippet", ""))[:160],
+                        "detail": str(d.get("detail", ""))[:300]
+                    })
+        defect_count = len(all_defects)
+        if defect_count > 0:
+            is_defect = True
+            confidence = max(confidence, 0.92)
+    except Exception as llm_err:
+        print(f"[Preflight Tier Audit] LLM Evaluation note ({tier_lower}): {llm_err}")
 
     # Generate Markdown Report for this Tier
     md_lines = [

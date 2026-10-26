@@ -174,7 +174,8 @@ def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
             probe_payload = {
                 "model": config.get("model", "gpt-4o-mini"),
                 "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1
+                "max_tokens": 1,
+                "stream": False
             }
             chat_resp = execute_llm_http("post", f"{norm_base}/chat/completions", headers=headers, json=probe_payload, timeout=timeout)
             if chat_resp.ok:
@@ -186,8 +187,73 @@ def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
     except Exception as e:
         return False, f"Cannot connect to AI endpoint: {str(e)}"
 
+def _extract_content_from_response(response: requests.Response) -> str:
+    """Robustly extracts message content from standard JSON or SSE event stream (data: ...)."""
+    text = (response.text or "").strip()
+    if not text:
+        raise ValueError("LLM endpoint returned an empty response body.")
+
+    # 1. Parse SSE stream if present (data: { ... }\n\n)
+    if "data:" in text:
+        content_parts = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            data_str = line[5:].strip()
+            if data_str == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data_str)
+                choices = chunk.get("choices") or []
+                if choices:
+                    c0 = choices[0]
+                    delta = c0.get("delta") or {}
+                    if "content" in delta and delta["content"]:
+                        content_parts.append(str(delta["content"]))
+                    elif "message" in c0 and isinstance(c0["message"], dict):
+                        m_content = c0["message"].get("content")
+                        if m_content:
+                            content_parts.append(str(m_content))
+                    elif "text" in c0 and c0["text"]:
+                        content_parts.append(str(c0["text"]))
+            except Exception:
+                continue
+        if content_parts:
+            return "".join(content_parts).strip()
+
+    # 2. Parse standard JSON response
+    try:
+        data = response.json()
+        if isinstance(data, dict):
+            if "choices" in data and len(data["choices"]) > 0:
+                c0 = data["choices"][0]
+                if "message" in c0 and isinstance(c0["message"], dict) and c0["message"].get("content") is not None:
+                    return str(c0["message"]["content"]).strip()
+                if "delta" in c0 and isinstance(c0["delta"], dict) and c0["delta"].get("content") is not None:
+                    return str(c0["delta"]["content"]).strip()
+                if "text" in c0 and c0["text"] is not None:
+                    return str(c0["text"]).strip()
+            if "error" in data:
+                err = data["error"]
+                msg = err.get("message") if isinstance(err, dict) else str(err)
+                raise ValueError(f"LLM API Error: {msg}")
+    except (json.JSONDecodeError, ValueError) as err:
+        if "LLM API Error" in str(err):
+            raise
+
+    # 3. Plain text fallback if not JSON or HTML
+    if not text.startswith("{") and not text.startswith("<"):
+        return text.strip()
+
+    preview = text[:300].replace("\n", " ")
+    raise ValueError(f"Invalid LLM response format: {preview}")
+
 def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
     """Calls any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, Ollama, vLLM) with auto-fallbacks."""
+    if os.getenv("TESTING") == "1" or os.getenv("MOCK_LLM") == "1":
+        return '{"is_defect": false, "confidence": 0.95, "plain_english_explanation": "Test mode clean.", "business_consequence": "None.", "repair_prompt": "None."}'
+
     config = get_llm_config()
     headers = {"Content-Type": "application/json"}
     api_key = (config.get("api_key") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
@@ -205,27 +271,31 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.1
+        "temperature": 0.1,
+        "stream": False
     }
 
     base_url = config.get("base_url", "") or "https://api.openai.com/v1"
     norm_base = normalize_llm_base_url(base_url)
     url = _clean_slashes(f"{norm_base}/chat/completions")
 
+    # Ensure a reasonable minimum timeout for complex LLM reasoning and remote endpoints
+    call_timeout = timeout
+    if os.getenv("TESTING") != "1" and call_timeout < 45:
+        call_timeout = 60
+
     try:
-        response = execute_llm_http("post", url, headers=headers, json=payload, timeout=timeout)
+        response = execute_llm_http("post", url, headers=headers, json=payload, timeout=call_timeout)
         response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        return _extract_content_from_response(response)
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 404:
             alt_url = _clean_slashes(url.replace("/v1/chat/completions", "/chat/completions"))
             if alt_url != url:
                 try:
-                    alt_resp = execute_llm_http("post", alt_url, headers=headers, json=payload, timeout=120)
+                    alt_resp = execute_llm_http("post", alt_url, headers=headers, json=payload, timeout=call_timeout)
                     if alt_resp.ok:
-                        data = alt_resp.json()
-                        return data["choices"][0]["message"]["content"].strip()
+                        return _extract_content_from_response(alt_resp)
                 except Exception:
                     pass
         raise
