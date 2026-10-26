@@ -758,6 +758,19 @@
       try {
         for (const tier of tiers) {
           const res = await fetch(`${API_BASE}/api/v1/review/tier/${tier}?repo_name=${encodeURIComponent(currentRepo)}`);
+          if (res.status === 503 || res.status === 400 || res.status === 401) {
+            let msg = 'سیستم به هوش مصنوعی متصل نیست! لطفاً در بخش تنظیمات کلید API را وارد کنید.';
+            try {
+              const errData = await res.json();
+              if (errData && errData.detail && errData.detail.message) {
+                msg = errData.detail.message;
+              } else if (errData && errData.message) {
+                msg = errData.message;
+              }
+            } catch (err) {}
+            showLlmDisconnectedError(msg);
+            return;
+          }
           if (res.ok) {
             const data = await res.json();
             const defects = data.defects || [];
@@ -782,6 +795,53 @@
           if (window.lucide) lucide.createIcons();
         }
       }
+    }
+
+    function showLlmDisconnectedError(msg) {
+      showToast('⚠️ ' + msg, true);
+      
+      const scoreEl = document.getElementById('readiness-score');
+      if (scoreEl) {
+        scoreEl.innerText = '--%';
+        scoreEl.className = 'text-3xl sm:text-4xl font-black text-red-400 mt-0.5';
+      }
+
+      const statusEl = document.getElementById('readiness-status');
+      if (statusEl) {
+        statusEl.innerText = 'هوش مصنوعی متصل نیست ⚠️';
+        statusEl.className = 'text-[11px] text-red-400 font-semibold';
+      }
+
+      const list = document.getElementById('defects-list');
+      if (list) {
+        list.innerHTML = `
+          <div class="border border-red-500/40 rounded-2xl p-6 bg-red-950/20 text-center space-y-4 shadow-xl">
+            <div class="w-12 h-12 rounded-2xl bg-red-500/20 text-red-400 mx-auto flex items-center justify-center">
+              <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+            </div>
+            <div class="space-y-1">
+              <h3 class="text-sm font-bold text-white">اتصال به هوش مصنوعی برقرار نیست (LLM Not Connected)</h3>
+              <p class="text-xs text-red-300/90 max-w-lg mx-auto">${escapeHtml(msg)}</p>
+            </div>
+            <div class="pt-2 flex justify-center gap-3">
+              <button onclick="openModal('modal-settings')" class="px-4 py-2 bg-red-600 hover:bg-red-500 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-red-900/40 inline-flex items-center gap-2">
+                <i data-lucide="settings" class="w-4 h-4"></i>
+                تنظیم کلید API در بخش Settings
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      const rBadge = document.getElementById('badge-red-count');
+      const oBadge = document.getElementById('badge-orange-count');
+      const yBadge = document.getElementById('badge-yellow-count');
+      if (rBadge) rBadge.innerText = 'Offline';
+      if (oBadge) oBadge.innerText = 'Offline';
+      if (yBadge) yBadge.innerText = 'Offline';
+
+      if (window.lucide) lucide.createIcons();
+      openModal('modal-settings');
     }
 
     function renderAuditResults() {

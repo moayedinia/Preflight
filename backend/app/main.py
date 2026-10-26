@@ -670,12 +670,32 @@ def download_preflight_report(repo_name: Optional[str] = None):
 @app.get("/api/v1/review/tier/{tier_name}", dependencies=[Depends(verify_api_key)])
 def audit_single_tier_get(tier_name: str, repo_name: Optional[str] = None):
     """Executes an on-demand, deep project scan for defects in the specified tier (red, orange, or yellow)."""
+    from app.core.llm import verify_llm_connection
+    is_connected, reason = verify_llm_connection()
+    if not is_connected:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "LLM_NOT_CONNECTED",
+                "message": reason
+            }
+        )
     clean_repo = sanitize_name(repo_name) if repo_name else None
     return audit_single_tier(tier=tier_name, repo_name=clean_repo)
 
 @app.post("/api/v1/review/tier/{tier_name}", dependencies=[Depends(verify_api_key)])
 def audit_single_tier_post(tier_name: str, payload: Optional[AutoDocRequest] = None):
     """Executes an on-demand, deep project scan for defects in the specified tier (red, orange, or yellow)."""
+    from app.core.llm import verify_llm_connection
+    is_connected, reason = verify_llm_connection()
+    if not is_connected:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "LLM_NOT_CONNECTED",
+                "message": reason
+            }
+        )
     repo = payload.repo_name if payload else None
     clean_repo = sanitize_name(repo) if repo else None
     return audit_single_tier(tier=tier_name, repo_name=clean_repo)

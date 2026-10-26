@@ -3,7 +3,7 @@ import re
 import json
 import requests
 from urllib.parse import urlparse
-from typing import Optional
+from typing import Optional, Tuple
 from app.core.celery import CELERY_BROKER_URL
 
 try:
@@ -70,6 +70,53 @@ def normalize_llm_base_url(base_url: str) -> str:
     if not normalized.endswith("/v1"):
         normalized += "/v1"
     return _clean_slashes(normalized)
+
+def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
+    """
+    Checks if the LLM provider has an API key and is reachable.
+    Returns (True, 'Connected') or (False, 'Reason message').
+    """
+    if os.getenv("TESTING") == "1" or os.getenv("MOCK_LLM") == "1":
+        return True, "Connected (Test Mode)"
+
+    config = get_llm_config()
+    base_url = (config.get("base_url") or "").strip()
+    api_key = (config.get("api_key") or "").strip()
+
+    if not base_url:
+        return False, "آدرس سرور هوش مصنوعی (LLM Base URL) تنظیم نشده است."
+
+    is_local = any(h in base_url.lower() for h in ["localhost", "127.0.0.1", "host.docker.internal", "ollama"])
+    if not is_local and not api_key:
+        return False, "کلید API هوش مصنوعی وارد نشده است. لطفاً در بخش تنظیمات (Settings) کلید API خود را وارد کنید."
+
+    try:
+        norm_base = normalize_llm_base_url(base_url)
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+            headers["x-api-key"] = api_key
+
+        resp = requests.get(f"{norm_base}/models", headers=headers, timeout=timeout)
+        if resp.status_code in (200, 201):
+            return True, "Connected"
+        if resp.status_code == 401:
+            return False, "کلید API نامعتبر است (HTTP 401 Unauthorized). لطفاً کلید صحیح را در تنظیمات وارد کنید."
+        if resp.status_code == 404:
+            probe_payload = {
+                "model": config.get("model", "gpt-4o-mini"),
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1
+            }
+            chat_resp = requests.post(f"{norm_base}/chat/completions", headers=headers, json=probe_payload, timeout=timeout)
+            if chat_resp.ok:
+                return True, "Connected"
+            if chat_resp.status_code == 401:
+                return False, "کلید API نامعتبر است (HTTP 401 Unauthorized)."
+            return False, f"خطای ارتباط با مدل هوش مصنوعی (HTTP {chat_resp.status_code})."
+        return False, f"خطای ارتباط با سرور هوش مصنوعی (HTTP {resp.status_code})."
+    except Exception as e:
+        return False, f"عدم امکان برقراری ارتباط با هوش مصنوعی: {str(e)}"
 
 def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
     """Calls any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, Ollama, vLLM) with auto-fallbacks."""
