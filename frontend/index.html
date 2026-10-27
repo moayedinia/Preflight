@@ -932,15 +932,15 @@
                 <div class="grid grid-cols-3 gap-2 py-2 border-y border-slate-800/80 my-2 text-center">
                   <div>
                     <div class="text-[10px] text-slate-500 uppercase">Files</div>
-                    <div class="text-xs font-bold text-slate-200">${r.files_count || 0}</div>
+                    <div class="text-xs font-bold text-slate-200">${r.files_count ?? r.file_count ?? r.total_files ?? 0}</div>
                   </div>
                   <div>
                     <div class="text-[10px] text-slate-500 uppercase">Classes</div>
-                    <div class="text-xs font-bold text-slate-200">${r.classes_count || 0}</div>
+                    <div class="text-xs font-bold text-slate-200">${r.classes_count ?? r.class_count ?? r.total_classes ?? 0}</div>
                   </div>
                   <div>
                     <div class="text-[10px] text-slate-500 uppercase">Functions</div>
-                    <div class="text-xs font-bold text-slate-200">${r.functions_count || 0}</div>
+                    <div class="text-xs font-bold text-slate-200">${r.functions_count ?? r.func_count ?? r.total_functions ?? 0}</div>
                   </div>
                 </div>
               </div>

@@ -59,16 +59,19 @@ EXTENSION_MAP = {
     ".java": "java", ".kt": "kotlin", ".kts": "kotlin", ".scala": "scala",
     # C & C++
     ".c": "c", ".h": "c", ".cpp": "cpp", ".hpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
-    # C#
-    ".cs": "c_sharp",
+    # C# & .NET
+    ".cs": "c_sharp", ".csx": "c_sharp", ".razor": "c_sharp", ".cshtml": "c_sharp",
+    # Web Frontends & Frameworks
+    ".html": "html", ".htm": "html", ".vue": "javascript", ".svelte": "javascript",
     # Rust
     ".rs": "rust",
     # Web backend
     ".php": "php", ".rb": "ruby",
     # Mobile
     ".swift": "swift", ".dart": "dart",
-    # Scripts & Data
-    ".sh": "shell", ".bash": "shell", ".sql": "sql", ".r": "r", ".lua": "lua"
+    # Scripts, Config & Data
+    ".sh": "shell", ".bash": "shell", ".sql": "sql", ".r": "r", ".lua": "lua",
+    ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".toml": "toml"
 }
 
 def detect_language(file_path: str) -> str:
