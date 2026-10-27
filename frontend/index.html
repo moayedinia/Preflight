@@ -204,26 +204,26 @@
         </div>
 
         <!-- Orange Tier -->
-        <div onclick="filterTier('orange')" id="tier-card-orange" class="cursor-pointer group p-5 rounded-xl border border-amber-500/30 bg-amber-950/10 hover:bg-amber-950/20 transition-all shadow-sm">
+        <div onclick="filterTier('orange')" id="tier-card-orange" class="cursor-pointer group p-5 rounded-xl border border-orange-500/30 bg-orange-950/10 hover:bg-orange-950/20 transition-all shadow-sm">
           <div class="flex items-center justify-between mb-3">
-            <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
+            <div class="w-8 h-8 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold text-xs">
               <i data-lucide="alert-triangle" class="w-4 h-4"></i>
             </div>
-            <span id="badge-orange-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">0 Warnings</span>
+            <span id="badge-orange-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30">0 Warnings</span>
           </div>
-          <h3 class="text-sm font-bold text-white group-hover:text-amber-300 transition-colors">UX & Reliability</h3>
+          <h3 class="text-sm font-bold text-white group-hover:text-orange-300 transition-colors">UX & Reliability</h3>
           <p class="text-xs text-slate-400 mt-1">Missing loading states, double clicks on payments, unbounded inputs.</p>
         </div>
 
         <!-- Yellow Tier -->
-        <div onclick="filterTier('yellow')" id="tier-card-yellow" class="cursor-pointer group p-5 rounded-xl border border-blue-500/30 bg-blue-950/10 hover:bg-blue-950/20 transition-all shadow-sm">
+        <div onclick="filterTier('yellow')" id="tier-card-yellow" class="cursor-pointer group p-5 rounded-xl border border-yellow-500/30 bg-yellow-950/10 hover:bg-yellow-950/20 transition-all shadow-sm">
           <div class="flex items-center justify-between mb-3">
-            <div class="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">
+            <div class="w-8 h-8 rounded-lg bg-yellow-500/20 text-yellow-400 flex items-center justify-center font-bold text-xs">
               <i data-lucide="sparkles" class="w-4 h-4"></i>
             </div>
-            <span id="badge-yellow-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">0 Polish</span>
+            <span id="badge-yellow-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">0 Polish</span>
           </div>
-          <h3 class="text-sm font-bold text-white group-hover:text-blue-300 transition-colors">Code Hygiene & Polish</h3>
+          <h3 class="text-sm font-bold text-white group-hover:text-yellow-300 transition-colors">Code Hygiene & Polish</h3>
           <p class="text-xs text-slate-400 mt-1">Stray console.logs, missing documentation, accessibility & contrast.</p>
         </div>
 
@@ -239,9 +239,9 @@
             </h2>
             <div class="flex gap-1.5" id="tier-filter-pills">
               <button onclick="filterTier('all')" class="px-2 py-0.5 text-[11px] rounded font-medium bg-slate-800 text-slate-200">All</button>
-              <button onclick="filterTier('red')" class="px-2 py-0.5 text-[11px] rounded font-medium text-red-400 hover:bg-slate-800">Red</button>
-              <button onclick="filterTier('orange')" class="px-2 py-0.5 text-[11px] rounded font-medium text-amber-400 hover:bg-slate-800">Orange</button>
-              <button onclick="filterTier('yellow')" class="px-2 py-0.5 text-[11px] rounded font-medium text-blue-400 hover:bg-slate-800">Yellow</button>
+              <button onclick="filterTier('red')" class="px-2 py-0.5 text-[11px] rounded font-medium text-red-400 hover:bg-red-500/10">Red</button>
+              <button onclick="filterTier('orange')" class="px-2 py-0.5 text-[11px] rounded font-medium text-orange-400 hover:bg-orange-500/10">Orange</button>
+              <button onclick="filterTier('yellow')" class="px-2 py-0.5 text-[11px] rounded font-medium text-yellow-400 hover:bg-yellow-500/10">Yellow</button>
             </div>
           </div>
           <button onclick="exportMarkdownReport()" class="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition-colors">
@@ -1108,12 +1108,47 @@
           if (res.ok) {
             const data = await res.json();
             const defects = data.defects || [];
-            defects.forEach(d => {
+            if (defects.length > 0) {
+              defects.forEach(d => {
+                const fPath = d.file || d.file_path || (currentRepo ? `${currentRepo}/codebase` : 'codebase');
+                const lNum = d.line || d.line_number || 1;
+                const rName = d.rule || (tier === 'red' ? 'Critical Blocker Defect' : tier === 'orange' ? 'UX & Reliability Hazard' : 'Code Hygiene Issue');
+                const snip = d.snippet || d.code_snippet || '';
+                const det = d.detail || d.plain_english_explanation || data.plain_english_explanation || 'Suspected issue identified in code inspection.';
+                const cons = d.business_consequence || data.business_consequence || '';
+                const rep = d.repair_prompt || data.repair_prompt || '';
+
+                allDefects.push({
+                  file: fPath,
+                  file_path: fPath,
+                  line: lNum,
+                  line_number: lNum,
+                  rule: rName,
+                  snippet: snip,
+                  code_snippet: snip,
+                  detail: det,
+                  plain_english_explanation: det,
+                  business_consequence: cons,
+                  repair_prompt: rep,
+                  tier: tier
+                });
+              });
+            } else if (data.is_defect) {
               allDefects.push({
-                ...d,
+                file: currentRepo ? `${currentRepo}/codebase` : 'codebase',
+                file_path: currentRepo ? `${currentRepo}/codebase` : 'codebase',
+                line: 1,
+                line_number: 1,
+                rule: tier === 'red' ? '🔴 Critical Blocker Vulnerability' : tier === 'orange' ? '🟠 UX & Operational Hazard' : '🟡 Code Quality & Polish Issue',
+                snippet: '',
+                code_snippet: '',
+                detail: data.plain_english_explanation || 'Suspected vulnerability identified by Preflight Arbiter.',
+                plain_english_explanation: data.plain_english_explanation || 'Suspected vulnerability identified by Preflight Arbiter.',
+                business_consequence: data.business_consequence || '',
+                repair_prompt: data.repair_prompt || '',
                 tier: tier
               });
-            });
+            }
           }
         }
 
@@ -1247,31 +1282,48 @@
 
       list.innerHTML = filtered.map((d, idx) => {
         const tierBadge = d.tier === 'red' 
-          ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">🔴 CRITICAL BLOCKER</span>'
+          ? '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">🔴 CRITICAL BLOCKER</span>'
           : d.tier === 'orange'
-          ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">🟠 UX RISK</span>'
-          : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">🟡 POLISH</span>';
+          ? '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30">🟠 UX RISK</span>'
+          : '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">🟡 POLISH</span>';
+
+        const fPath = d.file_path || d.file || 'codebase';
+        const lNum = d.line_number || d.line || 1;
+        const rName = d.rule || (d.tier === 'red' ? 'Critical Blocker Defect' : d.tier === 'orange' ? 'UX / Operational Hazard' : 'Code Polish');
+        const detailText = d.detail || d.plain_english_explanation || 'Suspected defect identified during Preflight inspection.';
+        const consequenceText = d.business_consequence || '';
+        const snippetText = d.snippet || d.code_snippet || '';
 
         return `
-          <div class="border border-slate-800 rounded-xl p-4 bg-slate-950/60 hover:border-slate-700/80 transition-all space-y-3">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
+          <div class="border border-slate-800 rounded-xl p-4 sm:p-5 bg-slate-950/60 hover:border-slate-700/80 transition-all space-y-3 shadow-md">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div class="flex flex-wrap items-center gap-2">
                 ${tierBadge}
-                <span class="text-xs font-mono text-slate-300 truncate max-w-md">${escapeHtml(d.file_path || '')}:${escapeHtml(String(d.line_number || ''))}</span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-slate-300 bg-slate-900 border border-slate-800">
+                  <i data-lucide="file-code-2" class="w-3 h-3 text-slate-400"></i>
+                  ${escapeHtml(fPath)}:${escapeHtml(String(lNum))}
+                </span>
+                <span class="text-xs font-bold text-white">${escapeHtml(rName)}</span>
               </div>
-              <button onclick="copyPrompt(${idx})" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors self-start sm:self-auto">
+              <button onclick="copyPrompt(${idx})" class="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors self-start sm:self-auto shrink-0 shadow-sm" title="Copy ready-to-use fix prompt for AI">
                 <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                 Copy Fix Prompt for AI
               </button>
             </div>
 
-            <div class="space-y-1">
-              <div class="text-xs font-semibold text-white">${escapeHtml(d.plain_english_explanation || 'Suspected issue')}</div>
-              ${d.business_consequence ? `<div class="text-[11px] text-slate-400"><strong>Why this matters:</strong> ${escapeHtml(d.business_consequence)}</div>` : ''}
+            <div class="space-y-1.5 pl-0.5">
+              <div class="text-xs text-slate-200 leading-relaxed font-medium">${escapeHtml(detailText)}</div>
+              ${consequenceText ? `<div class="text-[11px] text-slate-400"><strong class="text-slate-300">Why this matters:</strong> ${escapeHtml(consequenceText)}</div>` : ''}
             </div>
 
-            ${d.code_snippet ? `
-              <pre class="text-[11px] text-slate-300 bg-slate-900/90 border border-slate-800/80 p-3 rounded-lg overflow-x-auto">${escapeHtml(d.code_snippet)}</pre>
+            ${snippetText ? `
+              <div class="rounded-lg border border-slate-800/90 bg-slate-900/90 overflow-hidden text-xs">
+                <div class="px-3 py-1 bg-slate-950/80 border-b border-slate-800/80 text-[10px] font-mono text-slate-400 flex items-center justify-between">
+                  <span>Offending Code Snippet</span>
+                  <span>Line ${escapeHtml(String(lNum))}</span>
+                </div>
+                <pre class="p-3 overflow-x-auto text-[11px] font-mono text-slate-200 leading-relaxed"><code>${escapeHtml(snippetText)}</code></pre>
+              </div>
             ` : ''}
           </div>
         `;
@@ -1283,7 +1335,28 @@
     function copyPrompt(idx) {
       const d = allDefects[idx];
       if (!d) return;
-      const prompt = 'Please fix the following issue in my code:\n\nFile: ' + (d.file_path || 'Unknown') + '\nLine: ' + (d.line_number || 'N/A') + '\nIssue: ' + (d.plain_english_explanation || 'Suspected defect') + '\nDetails: ' + (d.repair_prompt || 'Ensure clean implementation without errors') + '\n\nSnippet:\n' + (d.code_snippet || '');
+      const tierName = (d.tier || 'red').toUpperCase();
+      const fPath = d.file_path || d.file || 'Unknown file';
+      const lNum = d.line_number || d.line || '1';
+      const rName = d.rule || 'Defect';
+      const detailText = d.detail || d.plain_english_explanation || 'Suspected issue';
+      const consequenceText = d.business_consequence || 'Risks unexpected runtime error or security vulnerability.';
+      const repairText = d.repair_prompt || 'Fix the issue defensively ensuring zero runtime crashes.';
+      const snippetText = d.snippet || d.code_snippet || '';
+
+      const prompt = `Please fix the following ${tierName} tier issue in my code:
+
+File: ${fPath} (Line: ${lNum})
+Rule: ${rName}
+Issue: ${detailText}
+Business Impact: ${consequenceText}
+
+${snippetText ? `Offending Code:\n\`\`\`\n${snippetText}\n\`\`\`\n` : ''}
+Repair Instructions:
+${repairText}
+
+Please provide the corrected, production-ready code with safe error boundaries and boundary validation.`;
+
       copyToClipboard(prompt, '📋 Copied AI Fix Prompt for Cursor / Claude!');
     }
 

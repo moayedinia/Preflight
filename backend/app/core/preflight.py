@@ -728,6 +728,28 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
 
     markdown_report = "\n".join(md_lines)
 
+    enriched_defects = []
+    for d in all_defects:
+        f_val = d.get("file") or d.get("file_path") or "codebase"
+        l_val = d.get("line") or d.get("line_number") or 1
+        r_val = d.get("rule") or f"{tier_upper} Defect"
+        s_val = d.get("snippet") or d.get("code_snippet") or ""
+        det_val = d.get("detail") or d.get("plain_english_explanation") or explanation
+        enriched_defects.append({
+            "file": f_val,
+            "file_path": f_val,
+            "line": l_val,
+            "line_number": l_val,
+            "rule": r_val,
+            "snippet": s_val,
+            "code_snippet": s_val,
+            "detail": det_val,
+            "plain_english_explanation": det_val,
+            "business_consequence": consequence,
+            "repair_prompt": repair_prompt,
+            "tier": tier_lower
+        })
+
     return {
         "tier": tier_lower,
         "title": tier_title,
@@ -738,7 +760,7 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
         "confidence": confidence,
         "repository": repo_name or "All Repositories",
         "files_scanned": total_files_scanned,
-        "defects": all_defects[:50],
+        "defects": enriched_defects[:50],
         "rules_evaluated": rules,
         "rules": rules,
         "plain_english_explanation": explanation,
