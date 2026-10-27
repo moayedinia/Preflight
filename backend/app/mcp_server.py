@@ -561,6 +561,61 @@ def get_full_project_code_and_docs(repo_name: Optional[str] = None, max_files: i
     return "\n".join(lines)
 
 
+
+@mcp.tool()
+def read_repository_file(file_path: str, repo_name: Optional[str] = None, start_line: int = 1, end_line: int = 150) -> str:
+    """
+    Code Reading Tool: Safely reads a file or line range from the codebase with line numbers.
+    """
+    from app.core.skills import skill_read_file
+    res = skill_read_file(repo_name=repo_name, file_path=file_path, start_line=start_line, end_line=end_line)
+    return res.get("markdown", "") or res.get("error", "Error reading file.")
+
+@mcp.tool()
+def inspect_project_routes(repo_name: Optional[str] = None) -> str:
+    """
+    Code Reading Tool: Scans project for all API routes, HTTP methods, auth guards, and error boundaries.
+    """
+    from app.core.skills import skill_inspect_routes
+    res = skill_inspect_routes(repo_name=repo_name)
+    return res.get("markdown", "")
+
+@mcp.tool()
+def search_codebase_files(query: str, repo_name: Optional[str] = None, is_regex: bool = False) -> str:
+    """
+    Code Reading Tool: Greps across project files for occurrences of code, tokens, or regex patterns.
+    """
+    from app.core.skills import skill_search_code
+    res = skill_search_code(repo_name=repo_name, query=query, is_regex=is_regex)
+    return res.get("markdown", "")
+
+@mcp.tool()
+def audit_preflight_tier(tier: str, repo_name: Optional[str] = None) -> str:
+    """
+    Arbiter Audit Tool: Evaluates suspected vulnerabilities for tier 'red', 'orange', or 'yellow'.
+    """
+    from app.core.skills import skill_audit_tier
+    res = skill_audit_tier(tier=tier, repo_name=repo_name)
+    return res.get("markdown", "")
+
+@mcp.tool()
+def generate_executive_report(repo_name: Optional[str] = None) -> str:
+    """
+    Reporting Tool: Compiles full 3-Tier Preflight & Architecture health markdown report.
+    """
+    from app.core.skills import skill_executive_report
+    res = skill_executive_report(repo_name=repo_name)
+    return res.get("markdown", "")
+
+@mcp.tool()
+def generate_architecture_diagram(repo_name: Optional[str] = None) -> str:
+    """
+    Reporting Tool: Generates Mermaid architecture flowchart with high-risk hubs and circular dependency chains.
+    """
+    from app.core.skills import skill_arch_diagram
+    res = skill_arch_diagram(repo_name=repo_name)
+    return res.get("markdown", "")
+
 # ==================== MCP TOOL REGISTRY & RUNNER ====================
 MCP_TOOLS = {
     "clone_and_index_git": clone_and_index_git,
@@ -578,6 +633,12 @@ MCP_TOOLS = {
     "get_documentation_coverage": get_documentation_coverage,
     "run_auto_documentation": run_auto_documentation,
     "get_full_project_code_and_docs": get_full_project_code_and_docs,
+    "read_repository_file": read_repository_file,
+    "inspect_project_routes": inspect_project_routes,
+    "search_codebase_files": search_codebase_files,
+    "audit_preflight_tier": audit_preflight_tier,
+    "generate_executive_report": generate_executive_report,
+    "generate_architecture_diagram": generate_architecture_diagram,
 }
 
 

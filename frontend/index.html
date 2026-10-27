@@ -272,19 +272,72 @@
       <div class="border border-slate-800 rounded-2xl bg-slate-900/60 flex flex-col h-[75vh]">
         
         <!-- Chat Header -->
-        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div class="px-6 py-3.5 border-b border-slate-800 flex items-center justify-between">
           <div class="flex items-center gap-3">
             <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
               <i data-lucide="bot" class="w-4 h-4"></i>
             </div>
             <div>
-              <h3 class="text-sm font-bold text-white">Codebase Copilot</h3>
-              <p class="text-[11px] text-slate-400">Ask questions about architecture, bugs, APIs, or flow</p>
+              <h3 class="text-sm font-bold text-white">Codebase Copilot & Skills</h3>
+              <p class="text-[11px] text-slate-400">Execute code reading tools, Arbiter security audits, and architectural reports</p>
             </div>
           </div>
           <div class="flex items-center gap-2">
             <button onclick="clearChat()" class="text-xs text-slate-400 hover:text-slate-200 px-2.5 py-1 rounded bg-slate-800/60 hover:bg-slate-800 transition-colors">
               Clear Chat
+            </button>
+          </div>
+        </div>
+
+        <!-- Interactive Skills Ribbon -->
+        <div class="px-4 sm:px-6 py-2 bg-slate-950/70 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto text-[11px] scrollbar-thin">
+          <span class="text-slate-500 font-semibold uppercase text-[10px] tracking-wider shrink-0 flex items-center gap-1">
+            <i data-lucide="zap" class="w-3 h-3 text-emerald-400"></i> Skills:
+          </span>
+          
+          <!-- Code Reading Skills -->
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="triggerSkill('read_file')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Read any file with line numbers (/read <path>)">
+              <i data-lucide="file-code" class="w-3.5 h-3.5 text-sky-400"></i> Read File
+            </button>
+            <button type="button" onclick="triggerSkill('find_symbol')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Locate function/class definition & callers (/symbol <name>)">
+              <i data-lucide="code-2" class="w-3.5 h-3.5 text-indigo-400"></i> Find Symbol
+            </button>
+            <button type="button" onclick="triggerSkill('search_code')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Search code across project (/search <pattern>)">
+              <i data-lucide="search" class="w-3.5 h-3.5 text-teal-400"></i> Search Code
+            </button>
+            <button type="button" onclick="triggerSkill('inspect_routes')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Scan all API route handlers & auth guards">
+              <i data-lucide="network" class="w-3.5 h-3.5 text-cyan-400"></i> API Routes
+            </button>
+          </div>
+
+          <div class="h-4 w-px bg-slate-800 shrink-0 mx-0.5"></div>
+
+          <!-- Arbiter Audits -->
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="triggerSkill('audit_red')" class="px-2.5 py-1 bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 hover:border-red-700 text-red-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Evaluate 🔴 RED Critical / Blocker Vulnerabilities">
+              <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-red-400"></i> 🔴 Red Blocker
+            </button>
+            <button type="button" onclick="triggerSkill('audit_orange')" class="px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/40 hover:border-amber-700 text-amber-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Evaluate 🟠 ORANGE UX & Reliability Hazards">
+              <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-400"></i> 🟠 Orange UX
+            </button>
+            <button type="button" onclick="triggerSkill('audit_yellow')" class="px-2.5 py-1 bg-blue-950/40 hover:bg-blue-900/50 border border-blue-800/40 hover:border-blue-700 text-blue-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Evaluate 🟡 YELLOW Code Quality & Hygiene Polish">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-blue-400"></i> 🟡 Yellow Quality
+            </button>
+          </div>
+
+          <div class="h-4 w-px bg-slate-800 shrink-0 mx-0.5"></div>
+
+          <!-- Reporting Skills -->
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="triggerSkill('executive_report')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Generate Comprehensive Executive Audit Markdown Report">
+              <i data-lucide="file-bar-chart-2" class="w-3.5 h-3.5 text-emerald-400"></i> Full Report
+            </button>
+            <button type="button" onclick="triggerSkill('arch_diagram')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Render Mermaid Architecture Graph & Smell Topology">
+              <i data-lucide="workflow" class="w-3.5 h-3.5 text-purple-400"></i> Arch Diagram
+            </button>
+            <button type="button" onclick="triggerSkill('repair_dossier')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-all shadow-sm" title="Export ready-to-use AI Fix Prompts for Cursor / Claude / Lovable">
+              <i data-lucide="wrench" class="w-3.5 h-3.5 text-amber-400"></i> Fix Dossier
             </button>
           </div>
         </div>
@@ -1266,7 +1319,39 @@
       showToast('Downloaded audit report!');
     }
 
-    // --- AI Copilot Chat ---
+    // --- AI Copilot Chat & Skills ---
+    function triggerSkill(skillId) {
+      const input = document.getElementById('chat-input');
+      if (!input) return;
+
+      const quickSkills = {
+        'inspect_routes': '/routes',
+        'audit_red': '/audit-red',
+        'audit_orange': '/audit-orange',
+        'audit_yellow': '/audit-yellow',
+        'executive_report': '/report',
+        'arch_diagram': '/diagram',
+        'repair_dossier': '/dossier'
+      };
+
+      if (quickSkills[skillId]) {
+        input.value = quickSkills[skillId];
+        handleChatSubmit(null);
+      } else if (skillId === 'read_file') {
+        input.value = '/read ';
+        input.focus();
+        showToast('Tip: Enter file path (e.g. /read Program.cs:1:100)');
+      } else if (skillId === 'find_symbol') {
+        input.value = '/symbol ';
+        input.focus();
+        showToast('Tip: Enter function or class name (e.g. /symbol AuthController)');
+      } else if (skillId === 'search_code') {
+        input.value = '/search ';
+        input.focus();
+        showToast('Tip: Enter query pattern (e.g. /search execute or api_key)');
+      }
+    }
+
     async function handleChatSubmit(e) {
       if (e) e.preventDefault();
       const input = document.getElementById('chat-input');
@@ -1280,6 +1365,25 @@
       const btn = document.getElementById('chat-send-btn');
       if (btn) btn.disabled = true;
 
+      // Add loading indicator bubble
+      const loadingDiv = document.createElement('div');
+      loadingDiv.id = 'chat-loading-indicator';
+      loadingDiv.className = 'flex gap-3';
+      loadingDiv.innerHTML = `
+        <div class="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
+          <i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i>
+        </div>
+        <div class="bg-slate-800/40 border border-slate-700/50 rounded-2xl rounded-tl-sm px-4 py-2.5 text-xs text-slate-400 flex items-center gap-2">
+          <span>Processing request...</span>
+        </div>
+      `;
+      const msgBox = document.getElementById('chat-messages');
+      if (msgBox) {
+        msgBox.appendChild(loadingDiv);
+        msgBox.scrollTop = msgBox.scrollHeight;
+        if (window.lucide) lucide.createIcons();
+      }
+
       try {
         const res = await fetch(`${API_BASE}/api/v1/chat`, {
           method: 'POST',
@@ -1291,13 +1395,18 @@
           })
         });
 
+        const loader = document.getElementById('chat-loading-indicator');
+        if (loader) loader.remove();
+
         if (res.ok) {
           const data = await res.json();
-          appendChatMessage('bot', data.response || 'No response generated.');
+          appendChatMessage('bot', data.response || 'No response generated.', data.mode === 'skill');
         } else {
           appendChatMessage('bot', '⚠️ Error contacting AI endpoint. Please check your API settings.');
         }
       } catch (err) {
+        const loader = document.getElementById('chat-loading-indicator');
+        if (loader) loader.remove();
         appendChatMessage('bot', '⚠️ Request failed: ' + err.message);
       } finally {
         if (btn) btn.disabled = false;
@@ -1311,7 +1420,59 @@
       handleChatSubmit(null);
     }
 
-    function appendChatMessage(sender, text) {
+    function formatMarkdownText(rawText) {
+      if (!rawText) return '';
+      
+      // 1. Code blocks with copy button
+      let text = rawText.replace(/```([a-zA-Z0-9_\-]*)?\n([\s\S]*?)```/g, (match, lang, code) => {
+        const cleanCode = code.trim();
+        const codeId = 'code-' + Math.random().toString(36).substring(2, 9);
+        return `
+          <div class="my-2.5 rounded-xl border border-slate-800 bg-slate-950 overflow-hidden text-xs">
+            <div class="bg-slate-900/90 px-3 py-1.5 border-b border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+              <span class="font-mono text-emerald-400 font-semibold uppercase text-[10px]">${lang || 'code'}</span>
+              <button onclick="copyCodeSnippet('${codeId}')" class="hover:text-white flex items-center gap-1 transition-colors">
+                <i data-lucide="copy" class="w-3 h-3"></i> Copy
+              </button>
+            </div>
+            <pre class="p-3.5 overflow-x-auto text-slate-200 font-mono text-[11px] leading-relaxed"><code id="${codeId}">${escapeHtml(cleanCode)}</code></pre>
+          </div>
+        `;
+      });
+
+      // 2. Inline code
+      text = text.replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-mono text-[11px]">$1</code>');
+
+      // 3. Headings
+      text = text.replace(/^### (.*$)/gim, '<h3 class="text-sm font-bold text-white mt-3 mb-1.5 flex items-center gap-1.5">$1</h3>');
+      text = text.replace(/^## (.*$)/gim, '<h2 class="text-base font-bold text-white mt-4 mb-2 pb-1 border-b border-slate-800">$1</h2>');
+      text = text.replace(/^# (.*$)/gim, '<h1 class="text-lg font-extrabold text-white mt-4 mb-2 pb-1 border-b border-slate-800">$1</h1>');
+
+      // 4. Bold and italics
+      text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-white">$1</strong>');
+      text = text.replace(/\*(.*?)\*/g, '<em class="italic text-slate-300">$1</em>');
+
+      // 5. Unordered lists
+      text = text.replace(/^\s*[-*] (.*$)/gim, '<li class="ml-4 list-disc text-slate-300 my-0.5">$1</li>');
+
+      // 6. Blockquotes
+      text = text.replace(/^> (.*$)/gim, '<blockquote class="border-l-2 border-emerald-500 pl-3 my-2 text-slate-300 italic">$1</blockquote>');
+
+      // 7. Line breaks
+      text = text.replace(/\n/g, '<br/>');
+
+      return text;
+    }
+
+    function copyCodeSnippet(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      navigator.clipboard.writeText(el.innerText).then(() => {
+        showToast('Code copied to clipboard!');
+      });
+    }
+
+    function appendChatMessage(sender, text, isSkill = false) {
       const box = document.getElementById('chat-messages');
       if (!box) return;
       const div = document.createElement('div');
@@ -1320,7 +1481,7 @@
       if (sender === 'user') {
         div.className = 'flex gap-3 justify-end';
         div.innerHTML = `
-          <div class="bg-emerald-600 text-white rounded-2xl rounded-tr-sm p-3.5 text-xs max-w-2xl">
+          <div class="bg-emerald-600 text-white rounded-2xl rounded-tr-sm p-3.5 text-xs max-w-2xl shadow-md">
             ${escapeHtml(text)}
           </div>
           <div class="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
@@ -1328,12 +1489,18 @@
           </div>
         `;
       } else {
+        const formattedHtml = formatMarkdownText(text);
+        const skillBadge = isSkill ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 mb-2"><i data-lucide="zap" class="w-3 h-3"></i> Skill Executed</span>` : '';
+        
         div.innerHTML = `
           <div class="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
             <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
           </div>
-          <div class="bg-slate-800/60 border border-slate-700/50 rounded-2xl rounded-tl-sm p-4 text-xs text-slate-200 max-w-2xl space-y-2 whitespace-pre-wrap">
-            ${escapeHtml(text)}
+          <div class="bg-slate-800/60 border border-slate-700/50 rounded-2xl rounded-tl-sm p-4 text-xs text-slate-200 max-w-3xl space-y-2 leading-relaxed shadow-lg">
+            ${skillBadge}
+            <div class="chat-content-body space-y-2">
+              ${formattedHtml}
+            </div>
           </div>
         `;
       }

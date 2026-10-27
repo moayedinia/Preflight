@@ -415,6 +415,11 @@ class ChatRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
     mode: Optional[str] = Field("graphrag", description="Mode: 'graphrag', 'direct', or 'nl2cypher'")
 
+class ExecuteSkillRequest(BaseModel):
+    skill_name: str = Field(..., max_length=100)
+    repo_name: Optional[str] = Field(None, max_length=100)
+    params: Optional[Dict[str, Any]] = None
+
 @app.post("/api/v1/chat", dependencies=[Depends(verify_api_key)])
 def chat_rag_endpoint(payload: ChatRequest):
     """
@@ -424,6 +429,21 @@ def chat_rag_endpoint(payload: ChatRequest):
     - 'nl2cypher': Converts natural language to Neo4j Cypher and runs it.
     """
     clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+
+    # 1. Interactive Skills & Slash Command Dispatch
+    try:
+        from app.core.skills import dispatch_skill_or_command
+        skill_res = dispatch_skill_or_command(payload.message, repo_name=clean_repo)
+        if skill_res:
+            return {
+                "response": skill_res.get("markdown") or skill_res.get("error", "Skill executed."),
+                "sources": [],
+                "mode": "skill",
+                "skill": skill_res
+            }
+    except Exception as skill_err:
+        print(f"[Skill Dispatch Note] {skill_err}")
+
     mode = (payload.mode or "graphrag").strip().lower()
 
     if mode == "direct":
@@ -630,6 +650,23 @@ def analyze_impact(function_name: str, repo_name: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 # 10. Automated Architectural PR / Git Diff Review
+# 10. Interactive Skills & Commands API
+@app.get("/api/v1/skills", dependencies=[Depends(verify_api_key)])
+def list_skills_endpoint():
+    """Returns available code reading and reporting skills for interactive Copilot execution."""
+    from app.core.skills import get_available_skills_metadata
+    return {"skills": get_available_skills_metadata()}
+
+@app.post("/api/v1/skills/execute", dependencies=[Depends(verify_api_key)])
+def execute_skill_endpoint(payload: ExecuteSkillRequest):
+    """Executes a specific code reading or reporting skill dynamically."""
+    from app.core.skills import dispatch_skill_or_command
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    result = dispatch_skill_or_command(payload.skill_name, repo_name=clean_repo, params=payload.params)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Skill '{payload.skill_name}' not found.")
+    return result
+
 @app.post("/api/v1/review/diff", dependencies=[Depends(verify_api_key)])
 def review_git_diff(payload: DiffReviewRequest):
     """
