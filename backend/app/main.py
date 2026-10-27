@@ -420,6 +420,10 @@ class ExecuteSkillRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
     params: Optional[Dict[str, Any]] = None
 
+class GenerateAssetRequest(BaseModel):
+    repo_name: str = Field(..., max_length=100)
+    asset_type: str = Field(..., max_length=50)
+
 @app.post("/api/v1/chat", dependencies=[Depends(verify_api_key)])
 def chat_rag_endpoint(payload: ChatRequest):
     """
@@ -448,10 +452,21 @@ def chat_rag_endpoint(payload: ChatRequest):
 
     if mode == "direct":
         from app.core.llm import call_llm
+        context_prefix = ""
+        if clean_repo:
+            from app.core.preflight import collect_repo_code_samples
+            code_ctx = collect_repo_code_samples(repo_name=clean_repo, max_total_chars=6000)
+            context_prefix = (
+                f"\nYou are currently assisting the developer with the target codebase: '{clean_repo}'.\n"
+                f"Here are representative code and structure samples from '{clean_repo}':\n"
+                f"{code_ctx}\n"
+                f"You MUST focus your answers, code reviews, and explanations specifically on this project '{clean_repo}'.\n"
+            )
         system_prompt = (
             "You are CodeGraph Brain AI Assistant, an expert software engineer and software architect. "
             "Help the user with programming, system architecture, debugging, dead code analysis, and code reviews. "
             "Provide clean, well-formatted code snippets and practical explanations in English."
+            + context_prefix
         )
         try:
             answer = call_llm(payload.message, system_prompt)
@@ -666,6 +681,25 @@ def execute_skill_endpoint(payload: ExecuteSkillRequest):
     if not result:
         raise HTTPException(status_code=404, detail=f"Skill '{payload.skill_name}' not found.")
     return result
+
+@app.post("/api/v1/assets/generate", dependencies=[Depends(verify_api_key)])
+def generate_asset_endpoint(payload: GenerateAssetRequest):
+    """
+    Generates tailored, high-grade project deliverables (README.md or .env.example)
+    specifically for the inspected target repository.
+    """
+    from app.core.assets import generate_project_asset
+    from app.core.llm import verify_llm_connection
+    is_conn, reason = verify_llm_connection()
+    if not is_conn:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "LLM_NOT_CONNECTED",
+                "message": reason
+            }
+        )
+    return generate_project_asset(repo_name=payload.repo_name, asset_type=payload.asset_type)
 
 @app.post("/api/v1/review/diff", dependencies=[Depends(verify_api_key)])
 def review_git_diff(payload: DiffReviewRequest):

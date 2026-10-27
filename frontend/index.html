@@ -441,14 +441,18 @@
         <div id="asset-output-container" class="hidden border border-slate-800 rounded-xl p-4 bg-slate-950 space-y-3">
           <div class="flex items-center justify-between">
             <span id="asset-output-title" class="text-xs font-bold text-slate-300">Generated Content</span>
-            <div class="flex gap-2">
-              <button onclick="copyAssetOutput()" class="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1">
+            <div class="flex items-center gap-2">
+              <button onclick="downloadAssetOutput()" class="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 px-2.5 py-1 rounded bg-cyan-950/40 border border-cyan-800/40 transition-colors">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span id="asset-download-btn-text">Download File</span>
+              </button>
+              <button onclick="copyAssetOutput()" class="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-950/40 border border-emerald-800/40 transition-colors">
                 <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                 Copy to Clipboard
               </button>
             </div>
           </div>
-          <pre id="asset-output-text" class="text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto max-h-96 whitespace-pre-wrap"></pre>
+          <pre id="asset-output-text" class="text-xs text-slate-300 bg-slate-900 p-4 rounded-lg overflow-x-auto max-h-96 whitespace-pre-wrap font-mono"></pre>
         </div>
 
       </div>
@@ -1596,46 +1600,77 @@ Please provide the corrected, production-ready code with safe error boundaries a
     }
 
     // --- Ship Assets Generator ---
+    let currentAssetFilename = 'README.md';
+
     async function generateDoc(type) {
       if (!currentRepo) {
         showToast('Please select a repository first', true);
         return;
       }
 
-      showToast('Generating ' + type.toUpperCase() + ' with AI...');
       const outBox = document.getElementById('asset-output-container');
       const outText = document.getElementById('asset-output-text');
       const outTitle = document.getElementById('asset-output-title');
+      const dlBtnText = document.getElementById('asset-download-btn-text');
 
+      currentAssetFilename = type === 'readme' ? 'README.md' : '.env.example';
+      if (dlBtnText) dlBtnText.innerText = 'Download ' + currentAssetFilename;
+
+      showToast(`Generating ${currentAssetFilename} for ${currentRepo}...`);
       if (outBox) outBox.classList.remove('hidden');
-      if (outText) outText.innerText = 'Analyzing codebase files and generating document...';
-
-      let prompt = type === 'readme' 
-        ? 'Generate a world-class, professional GitHub README.md for this codebase. Include Project Overview, Key Features, Tech Stack, Getting Started, and License.'
-        : 'Scan this codebase for all environment variable usages (e.g. process.env, os.getenv) and generate a clean, secure .env.example with descriptive comments for each key.';
+      if (outText) outText.innerText = `Analyzing ${currentRepo} codebase files, routes, and configs...`;
+      if (outTitle) outTitle.innerText = type === 'readme' ? `Generated README.md (${currentRepo})` : `Generated .env.example (${currentRepo})`;
 
       try {
-        const res = await fetch(`${API_BASE}/api/v1/chat`, {
+        const res = await fetch(`${API_BASE}/api/v1/assets/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            message: prompt,
             repo_name: currentRepo,
-            mode: 'direct'
+            asset_type: type
           })
         });
 
         if (res.ok) {
           const data = await res.json();
-          if (outTitle) outTitle.innerText = type === 'readme' ? 'Generated README.md' : 'Generated .env.example';
-          if (outText) outText.innerText = data.response;
-          showToast('Generated successfully!');
+          currentAssetFilename = data.filename || currentAssetFilename;
+          if (dlBtnText) dlBtnText.innerText = 'Download ' + currentAssetFilename;
+          if (outText) outText.innerText = data.content || '';
+          showToast(`Generated ${currentAssetFilename} successfully!`);
+          if (window.lucide) lucide.createIcons();
         } else {
-          if (outText) outText.innerText = 'Failed to generate document. Ensure LLM is configured.';
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.detail?.message || errData.detail?.error || errData.detail || 'Failed to generate document.';
+          if (res.status === 503) {
+            showToast('LLM is not connected. Please configure your AI provider in Settings.', true);
+            if (outText) outText.innerText = `[Error] ${errMsg}\n\nPlease check your LLM configuration in Settings.`;
+          } else {
+            showToast(typeof errMsg === 'string' ? errMsg : 'Failed to generate document', true);
+            if (outText) outText.innerText = `[Error] ${typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)}`;
+          }
         }
       } catch (e) {
+        showToast('Generation error: ' + e.message, true);
         if (outText) outText.innerText = 'Generation error: ' + e.message;
       }
+    }
+
+    function downloadAssetOutput() {
+      const el = document.getElementById('asset-output-text');
+      if (!el || !el.innerText.trim()) {
+        showToast('No content to download', true);
+        return;
+      }
+      const blob = new Blob([el.innerText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = currentAssetFilename || 'download.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`Downloaded ${currentAssetFilename}`);
     }
 
     function copyAssetOutput() {
