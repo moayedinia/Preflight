@@ -199,8 +199,8 @@
             </div>
             <span id="badge-red-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/30">0 Blockers</span>
           </div>
-          <h3 class="text-sm font-bold text-white group-hover:text-red-300 transition-colors">Critical Blockers</h3>
-          <p class="text-xs text-slate-400 mt-1">Leaked API keys, SQL injection, unprotected admin routes, and dead buttons.</p>
+          <h3 class="text-sm font-bold text-white group-hover:text-red-300 transition-colors">Fix Before Anyone Uses This</h3>
+          <p class="text-xs text-slate-400 mt-1">Leaked API keys, unprotected admin routes, database injection, crashes, infinite loops, and dead buttons.</p>
         </div>
 
         <!-- Orange Tier -->
@@ -211,8 +211,8 @@
             </div>
             <span id="badge-orange-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30">0 Warnings</span>
           </div>
-          <h3 class="text-sm font-bold text-white group-hover:text-orange-300 transition-colors">UX & Reliability</h3>
-          <p class="text-xs text-slate-400 mt-1">Missing loading states, double clicks on payments, unbounded inputs.</p>
+          <h3 class="text-sm font-bold text-white group-hover:text-orange-300 transition-colors">Your Users Will Hit These</h3>
+          <p class="text-xs text-slate-400 mt-1">Missing loading states / double click, unbounded inputs, wrong search & sort, slow pages and heavy images.</p>
         </div>
 
         <!-- Yellow Tier -->
@@ -223,8 +223,119 @@
             </div>
             <span id="badge-yellow-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">0 Polish</span>
           </div>
-          <h3 class="text-sm font-bold text-white group-hover:text-yellow-300 transition-colors">Code Hygiene & Polish</h3>
-          <p class="text-xs text-slate-400 mt-1">Stray console.logs, missing documentation, accessibility & contrast.</p>
+          <h3 class="text-sm font-bold text-white group-hover:text-yellow-300 transition-colors">Tidy Up Before You Hire A Dev</h3>
+          <p class="text-xs text-slate-400 mt-1">Over-complex files (>500 lines), debug code and empty README, outdated deprecated browser methods.</p>
+        </div>
+
+      </div>
+
+      <!-- Verdict & 4-Area Scoring Breakdown (Spec v4) -->
+      <div id="preflight-verdict-container" class="hidden space-y-4">
+        <!-- Verdict Banner -->
+        <div id="verdict-banner" class="p-5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span id="verdict-badge" class="px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border"></span>
+              <span class="text-xs text-slate-400">Launch Verdict</span>
+            </div>
+            <h2 id="verdict-title" class="text-lg sm:text-xl font-black text-white"></h2>
+            <p id="verdict-meaning" class="text-xs text-slate-300 max-w-2xl"></p>
+          </div>
+          <div class="text-left sm:text-right shrink-0">
+            <div class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Overall Readiness</div>
+            <div id="verdict-score" class="text-3xl font-black text-white">-- / 100</div>
+          </div>
+        </div>
+
+        <!-- 4 Areas Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <!-- Area 1: Security (35%) -->
+          <div class="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-slate-300 flex items-center gap-1.5">
+                <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-red-400"></i>
+                Can someone hurt you
+              </span>
+              <span class="text-[10px] font-mono text-slate-400">35%</span>
+            </div>
+            <div class="flex items-end justify-between">
+              <span class="text-xl font-black text-white" id="score-area-security">100</span>
+              <span class="text-[11px] text-slate-400">/ 100</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div id="bar-area-security" class="bg-red-500 h-1.5 rounded-full transition-all duration-500" style="width: 100%"></div>
+            </div>
+            <div class="text-[10px] text-slate-400 flex justify-between">
+              <span>Security</span>
+              <span id="deduct-area-security" class="text-slate-500">0 deducted</span>
+            </div>
+          </div>
+
+          <!-- Area 2: Reliability (30%) -->
+          <div class="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-slate-300 flex items-center gap-1.5">
+                <i data-lucide="zap-off" class="w-3.5 h-3.5 text-amber-400"></i>
+                Does it break
+              </span>
+              <span class="text-[10px] font-mono text-slate-400">30%</span>
+            </div>
+            <div class="flex items-end justify-between">
+              <span class="text-xl font-black text-white" id="score-area-reliability">100</span>
+              <span class="text-[11px] text-slate-400">/ 100</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div id="bar-area-reliability" class="bg-amber-500 h-1.5 rounded-full transition-all duration-500" style="width: 100%"></div>
+            </div>
+            <div class="text-[10px] text-slate-400 flex justify-between">
+              <span>Reliability</span>
+              <span id="deduct-area-reliability" class="text-slate-500">0 deducted</span>
+            </div>
+          </div>
+
+          <!-- Area 3: Correctness (20%) -->
+          <div class="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-slate-300 flex items-center gap-1.5">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-blue-400"></i>
+                Does it behave properly
+              </span>
+              <span class="text-[10px] font-mono text-slate-400">20%</span>
+            </div>
+            <div class="flex items-end justify-between">
+              <span class="text-xl font-black text-white" id="score-area-correctness">100</span>
+              <span class="text-[11px] text-slate-400">/ 100</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div id="bar-area-correctness" class="bg-blue-500 h-1.5 rounded-full transition-all duration-500" style="width: 100%"></div>
+            </div>
+            <div class="text-[10px] text-slate-400 flex justify-between">
+              <span>Correctness</span>
+              <span id="deduct-area-correctness" class="text-slate-500">0 deducted</span>
+            </div>
+          </div>
+
+          <!-- Area 4: Maintainability (15%) -->
+          <div class="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-slate-300 flex items-center gap-1.5">
+                <i data-lucide="wrench" class="w-3.5 h-3.5 text-emerald-400"></i>
+                Can a developer work on it
+              </span>
+              <span class="text-[10px] font-mono text-slate-400">15%</span>
+            </div>
+            <div class="flex items-end justify-between">
+              <span class="text-xl font-black text-white" id="score-area-maintainability">100</span>
+              <span class="text-[11px] text-slate-400">/ 100</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div id="bar-area-maintainability" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-500" style="width: 100%"></div>
+            </div>
+            <div class="text-[10px] text-slate-400 flex justify-between">
+              <span>Maintainability</span>
+              <span id="deduct-area-maintainability" class="text-slate-500">0 deducted</span>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -1229,32 +1340,142 @@
       if (oBadge) oBadge.innerText = orangeCount + ' Warnings';
       if (yBadge) yBadge.innerText = yellowCount + ' Polish';
 
-      // Calculate Readiness Score
-      let score = 100 - (redCount * 25) - (orangeCount * 10) - (yellowCount * 3);
-      if (score < 0) score = 0;
-      if (allDefects.length === 0) score = 100;
+      // Spec v4 Scoring across 4 Areas
+      let secDeductions = 0;
+      let relDeductions = 0;
+      let corDeductions = 0;
+      let mainDeductions = 0;
+
+      allDefects.forEach(d => {
+        const rule = (d.rule || '').toLowerCase();
+        const tier = (d.tier || '').toLowerCase();
+        if (d.unconfirmed) return;
+
+        if (tier === 'red' || rule.includes('leaked') || rule.includes('secret') || rule.includes('admin') || rule.includes('injection') || rule.includes('crash') || rule.includes('loop') || rule.includes('dead button')) {
+          if (rule.includes('leaked') || rule.includes('secret') || rule.includes('admin') || rule.includes('injection') || rule.includes('proxy')) {
+            secDeductions += 40;
+          } else {
+            relDeductions += 40;
+          }
+        } else if (tier === 'orange' || rule.includes('loading') || rule.includes('double submission') || rule.includes('limit') || rule.includes('unbounded') || rule.includes('search') || rule.includes('sort') || rule.includes('slow') || rule.includes('heavy')) {
+          if (rule.includes('loading') || rule.includes('double submission') || rule.includes('threadpool')) {
+            relDeductions += 25;
+          } else if (rule.includes('limit') || rule.includes('unbounded')) {
+            corDeductions += 25;
+          } else if (rule.includes('search') || rule.includes('sort')) {
+            corDeductions += 12;
+          } else {
+            corDeductions += 12;
+          }
+        } else if (tier === 'yellow' || rule.includes('complex') || rule.includes('debug') || rule.includes('readme') || rule.includes('outdated') || rule.includes('deprecated') || rule.includes('console')) {
+          mainDeductions += 4;
+        }
+      });
+
+      const secScore = Math.max(0, 100 - secDeductions);
+      const relScore = Math.max(0, 100 - relDeductions);
+      const corScore = Math.max(0, 100 - corDeductions);
+      const mainScore = Math.max(0, 100 - mainDeductions);
+
+      const readinessScore = Math.min(100, Math.max(0, Math.round(
+        (secScore * 0.35) +
+        (relScore * 0.30) +
+        (corScore * 0.20) +
+        (mainScore * 0.15)
+      )));
+
+      // Update 4 Area Score UI
+      const elSec = document.getElementById('score-area-security');
+      const elRel = document.getElementById('score-area-reliability');
+      const elCor = document.getElementById('score-area-correctness');
+      const elMain = document.getElementById('score-area-maintainability');
+
+      if (elSec) elSec.innerText = secScore;
+      if (elRel) elRel.innerText = relScore;
+      if (elCor) elCor.innerText = corScore;
+      if (elMain) elMain.innerText = mainScore;
+
+      const barSec = document.getElementById('bar-area-security');
+      const barRel = document.getElementById('bar-area-reliability');
+      const barCor = document.getElementById('bar-area-correctness');
+      const barMain = document.getElementById('bar-area-maintainability');
+
+      if (barSec) barSec.style.width = secScore + '%';
+      if (barRel) barRel.style.width = relScore + '%';
+      if (barCor) barCor.style.width = corScore + '%';
+      if (barMain) barMain.style.width = mainScore + '%';
+
+      const dedSec = document.getElementById('deduct-area-security');
+      const dedRel = document.getElementById('deduct-area-reliability');
+      const dedCor = document.getElementById('deduct-area-correctness');
+      const dedMain = document.getElementById('deduct-area-maintainability');
+
+      if (dedSec) dedSec.innerText = '-' + secDeductions + ' pts';
+      if (dedRel) dedRel.innerText = '-' + relDeductions + ' pts';
+      if (dedCor) dedCor.innerText = '-' + corDeductions + ' pts';
+      if (dedMain) dedMain.innerText = '-' + mainDeductions + ' pts';
+
+      // Verdict State Determination (Spec v4)
+      let verdictState = 'ready';
+      let verdictTitle = '🟢 Ready to launch';
+      let verdictMeaning = 'Nothing serious found. Your app passed all preflight safety and reliability checks. Go.';
+      let verdictBannerBorder = 'border-emerald-500/40 bg-emerald-950/20';
+      let verdictBadgeClass = 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300';
+      let statusText = 'Ready to Ship 🚀';
+      let statusClass = 'text-[11px] text-emerald-400 font-semibold';
+      let scoreClass = 'text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5';
+
+      if (redCount > 0 || readinessScore < 70) {
+        verdictState = 'not_ready';
+        verdictTitle = '🔴 Not ready to launch';
+        verdictMeaning = `${redCount} serious problem${redCount > 1 ? 's' : ''} need fixing first. Something here will hurt you. Fix before anyone uses it.`;
+        verdictBannerBorder = 'border-red-500/50 bg-red-950/30';
+        verdictBadgeClass = 'border-red-500/60 bg-red-500/20 text-red-300';
+        statusText = 'Critical Blockers 🛑';
+        statusClass = 'text-[11px] text-red-400 font-semibold';
+        scoreClass = 'text-3xl sm:text-4xl font-black text-red-400 mt-0.5';
+      } else if (orangeCount > 0 || readinessScore < 90) {
+        verdictState = 'launch_with_care';
+        verdictTitle = '🟠 Launch with care';
+        verdictMeaning = 'Nothing dangerous, but users will hit problems. Fix UX and reliability issues for a smooth launch.';
+        verdictBannerBorder = 'border-orange-500/50 bg-orange-950/30';
+        verdictBadgeClass = 'border-orange-500/60 bg-orange-500/20 text-orange-300';
+        statusText = 'Needs Polish ⚠️';
+        statusClass = 'text-[11px] text-amber-400 font-semibold';
+        scoreClass = 'text-3xl sm:text-4xl font-black text-amber-400 mt-0.5';
+      }
+
+      // Update Verdict Banner
+      const verdictContainer = document.getElementById('preflight-verdict-container');
+      const vBanner = document.getElementById('verdict-banner');
+      const vBadge = document.getElementById('verdict-badge');
+      const vTitle = document.getElementById('verdict-title');
+      const vMeaning = document.getElementById('verdict-meaning');
+      const vScore = document.getElementById('verdict-score');
+
+      if (verdictContainer) verdictContainer.classList.remove('hidden');
+      if (vBanner) vBanner.className = 'p-5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all ' + verdictBannerBorder;
+      if (vBadge) {
+        vBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border ' + verdictBadgeClass;
+        vBadge.innerText = verdictTitle.split(' ')[0] + ' ' + (verdictState === 'not_ready' ? 'Not Ready' : verdictState === 'launch_with_care' ? 'Launch With Care' : 'Ready');
+      }
+      if (vTitle) vTitle.innerText = verdictTitle;
+      if (vMeaning) vMeaning.innerText = verdictMeaning;
+      if (vScore) vScore.innerText = readinessScore + ' / 100';
 
       const scoreEl = document.getElementById('readiness-score');
-      if (scoreEl) scoreEl.innerText = score + '%';
-
+      if (scoreEl) {
+        scoreEl.innerText = readinessScore + '%';
+        scoreEl.className = scoreClass;
+      }
       const statusEl = document.getElementById('readiness-status');
-      if (statusEl && scoreEl) {
-        if (score >= 90) {
-          scoreEl.className = 'text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5';
-          statusEl.innerText = 'Ready to Ship 🚀';
-          statusEl.className = 'text-[11px] text-emerald-400 font-semibold';
-        } else if (score >= 70) {
-          scoreEl.className = 'text-3xl sm:text-4xl font-black text-amber-400 mt-0.5';
-          statusEl.innerText = 'Needs Polish ⚠️';
-          statusEl.className = 'text-[11px] text-amber-400 font-semibold';
-        } else {
-          scoreEl.className = 'text-3xl sm:text-4xl font-black text-red-400 mt-0.5';
-          statusEl.innerText = 'Critical Blockers 🛑';
-          statusEl.className = 'text-[11px] text-red-400 font-semibold';
-        }
+      if (statusEl) {
+        statusEl.innerText = statusText;
+        statusClass = statusClass;
       }
 
       renderDefectCards();
+      if (window.lucide) lucide.createIcons();
     }
 
     function filterTier(tier) {
@@ -1298,37 +1519,77 @@
         const consequenceText = d.business_consequence || '';
         const snippetText = d.snippet || d.code_snippet || '';
 
+        let repairClean = d.repair_prompt || '';
+        if (repairClean.startsWith('Copy this and paste it into Lovable / Cursor:')) {
+          repairClean = repairClean.replace('Copy this and paste it into Lovable / Cursor:', '').trim();
+        }
+
         return `
-          <div class="border border-slate-800 rounded-xl p-4 sm:p-5 bg-slate-950/60 hover:border-slate-700/80 transition-all space-y-3 shadow-md">
+          <div class="border border-slate-800 rounded-xl p-4 sm:p-5 bg-slate-950/70 hover:border-slate-700/80 transition-all space-y-3.5 shadow-md">
+            
+            <!-- Header: Tier Badge & Action Button -->
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div class="flex flex-wrap items-center gap-2">
                 ${tierBadge}
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-slate-300 bg-slate-900 border border-slate-800">
-                  <i data-lucide="file-code-2" class="w-3 h-3 text-slate-400"></i>
-                  ${escapeHtml(fPath)}:${escapeHtml(String(lNum))}
-                </span>
-                <span class="text-xs font-bold text-white">${escapeHtml(rName)}</span>
+                <span class="text-xs font-bold text-white tracking-tight">${escapeHtml(rName)}</span>
               </div>
-              <button onclick="copyPrompt(${idx})" class="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors self-start sm:self-auto shrink-0 shadow-sm" title="Copy ready-to-use fix prompt for AI">
+              <button onclick="copyPrompt(${idx})" class="px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all self-start sm:self-auto shrink-0 shadow-sm active:scale-95" title="Copy ready-to-paste instructions into Lovable or Cursor">
                 <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                Copy Fix Prompt for AI
+                Copy Prompt for Lovable / Cursor
               </button>
             </div>
 
-            <div class="space-y-1.5 pl-0.5">
-              <div class="text-xs text-slate-200 leading-relaxed font-medium">${escapeHtml(detailText)}</div>
-              ${consequenceText ? `<div class="text-[11px] text-slate-400"><strong class="text-slate-300">Why this matters:</strong> ${escapeHtml(consequenceText)}</div>` : ''}
+            <!-- 1. What's wrong & 2. Why it matters (Spec v4 Non-technical 4-part structure) -->
+            <div class="space-y-2 rounded-lg bg-slate-900/50 p-3.5 border border-slate-800/80">
+              <div class="text-xs text-white leading-relaxed font-semibold flex items-start gap-2">
+                <span class="text-emerald-400 font-bold shrink-0">1. Problem:</span>
+                <span>${escapeHtml(detailText)}</span>
+              </div>
+              ${consequenceText ? `
+                <div class="text-xs text-slate-300 leading-relaxed flex items-start gap-2">
+                  <span class="text-amber-400 font-bold shrink-0">2. Consequence:</span>
+                  <span>${escapeHtml(consequenceText)}</span>
+                </div>
+              ` : ''}
             </div>
 
-            ${snippetText ? `
-              <div class="rounded-lg border border-slate-800/90 bg-slate-900/90 overflow-hidden text-xs">
-                <div class="px-3 py-1 bg-slate-950/80 border-b border-slate-800/80 text-[10px] font-mono text-slate-400 flex items-center justify-between">
-                  <span>Offending Code Snippet</span>
-                  <span>Line ${escapeHtml(String(lNum))}</span>
+            <!-- 4. How to fix it (Ready-to-paste Prompt Box) -->
+            ${repairClean ? `
+              <div class="rounded-lg border border-emerald-500/30 bg-emerald-950/15 p-3 space-y-1.5">
+                <div class="flex items-center justify-between text-[11px]">
+                  <span class="font-bold text-emerald-300 flex items-center gap-1">
+                    <i data-lucide="sparkles" class="w-3 h-3 text-emerald-400"></i>
+                    Copy this and paste it into Lovable / Cursor:
+                  </span>
+                  <span class="text-[10px] text-slate-400 font-mono">1-click ready</span>
                 </div>
-                <pre class="p-3 overflow-x-auto text-[11px] font-mono text-slate-200 leading-relaxed"><code>${escapeHtml(snippetText)}</code></pre>
+                <div class="p-2.5 bg-slate-950/80 border border-slate-800 rounded font-mono text-[11px] text-slate-200 leading-relaxed select-all">
+                  ${escapeHtml(repairClean)}
+                </div>
               </div>
             ` : ''}
+
+            <!-- 3. Proof & Technical Details (Collapsed behind summary link) -->
+            <details class="text-[11px] text-slate-400 pt-1 group">
+              <summary class="cursor-pointer hover:text-slate-200 font-medium flex items-center gap-1.5 list-none select-none">
+                <i data-lucide="chevron-right" class="w-3 h-3 transition-transform group-open:rotate-90"></i>
+                <span>Show technical details & code proof (${escapeHtml(fPath)}:${escapeHtml(String(lNum))})</span>
+              </summary>
+              <div class="mt-2.5 space-y-2 pl-4 border-l border-slate-800">
+                <div class="font-mono text-[11px] text-slate-300">
+                  <span class="text-slate-500">File location:</span> ${escapeHtml(fPath)} (Line ${escapeHtml(String(lNum))})
+                </div>
+                ${snippetText ? `
+                  <div class="rounded border border-slate-800 bg-slate-950 overflow-hidden">
+                    <div class="px-2.5 py-1 bg-slate-900 border-b border-slate-800 text-[10px] font-mono text-slate-400">
+                      Offending Code Proof
+                    </div>
+                    <pre class="p-2.5 overflow-x-auto text-[11px] font-mono text-slate-200 leading-relaxed"><code>${escapeHtml(snippetText)}</code></pre>
+                  </div>
+                ` : ''}
+              </div>
+            </details>
+
           </div>
         `;
       }).join('');
@@ -1339,29 +1600,29 @@
     function copyPrompt(idx) {
       const d = allDefects[idx];
       if (!d) return;
-      const tierName = (d.tier || 'red').toUpperCase();
-      const fPath = d.file_path || d.file || 'Unknown file';
-      const lNum = d.line_number || d.line || '1';
+      const fPath = d.file_path || d.file || 'codebase';
+      const lNum = d.line_number || d.line || 1;
       const rName = d.rule || 'Defect';
-      const detailText = d.detail || d.plain_english_explanation || 'Suspected issue';
-      const consequenceText = d.business_consequence || 'Risks unexpected runtime error or security vulnerability.';
-      const repairText = d.repair_prompt || 'Fix the issue defensively ensuring zero runtime crashes.';
-      const snippetText = d.snippet || d.code_snippet || '';
+      const detailText = d.detail || d.plain_english_explanation || 'Suspected defect';
+      const consequenceText = d.business_consequence || '';
+      let repairText = d.repair_prompt || '';
 
-      const prompt = `Please fix the following ${tierName} tier issue in my code:
+      // Strip existing header if already present in repairText
+      if (repairText.startsWith('Copy this and paste it into Lovable / Cursor:')) {
+        repairText = repairText.replace('Copy this and paste it into Lovable / Cursor:', '').trim();
+      }
 
-File: ${fPath} (Line: ${lNum})
-Rule: ${rName}
-Issue: ${detailText}
-Business Impact: ${consequenceText}
+      const prompt = `Copy this and paste it into Lovable / Cursor:
 
-${snippetText ? `Offending Code:\n\`\`\`\n${snippetText}\n\`\`\`\n` : ''}
-Repair Instructions:
+In file ${fPath} (around line ${lNum}), fix this issue: "${rName}".
+Problem: ${detailText}
+${consequenceText ? `Why it matters: ${consequenceText}\n` : ''}
+Fix instructions:
 ${repairText}
 
-Please provide the corrected, production-ready code with safe error boundaries and boundary validation.`;
+Please update the code accordingly. Then come back and run Preflight again to check it worked.`;
 
-      copyToClipboard(prompt, '📋 Copied AI Fix Prompt for Cursor / Claude!');
+      copyToClipboard(prompt, '📋 Copied prompt! Paste it into Lovable / Cursor');
     }
 
     function exportMarkdownReport() {

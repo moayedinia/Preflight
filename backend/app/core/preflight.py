@@ -8,54 +8,315 @@ from pathlib import Path
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 from app.core.llm import call_llm
 
-RED_SYSTEM_PROMPT = """You are the Preflight Autonomous Security & Crash Arbiter for web applications.
-Your job is to evaluate suspected 🔴 RED (Critical / Blocker) vulnerabilities.
+# ==============================================================================
+# PREFLIGHT DETECTION SPEC V4 - 13 DEFECT RULES & SYSTEM PROMPTS
+# Spec reference: PREFLIGHT_DETECTION_SPEC.md (Version 4, 12 Oct 2026)
+# Scope: Code defects for vibe-coding apps (Lovable, Cursor, Bolt, v0, Replit).
+# Excluded from scope: Colour contrast, accessibility, spelling (Design review).
+# ==============================================================================
+
+RED_RULES = [
+    "Leaked API keys: Your secret key is visible to anyone who opens your site. They can spend your money.",
+    "Unprotected admin routes: Your admin page is hidden, not protected. Anyone who guesses the address can delete your data.",
+    "Database injection: Someone typing the right characters into your search box could read or destroy your database.",
+    "Crashes on unexpected input: If a user leaves a field empty, your whole app returns an error page.",
+    "Infinite loops: This page freezes the browser and never stops loading.",
+    "Dead buttons on the main flow: Your Pay button does nothing. Customers cannot give you money."
+]
+
+ORANGE_RULES = [
+    "No loading state, double submission: Impatient users who click twice get charged twice.",
+    "No limits on what people can type: Someone pasting a long text breaks the page or the database.",
+    "Search and sort are wrong: Your list sorts 10 before 2, and search fires on every keystroke.",
+    "Slow pages and heavy images: Your homepage loads a 10MB photo. Mobile users will leave."
+]
+
+YELLOW_RULES = [
+    "Over-complex files: One file is 600 lines. Any developer you hire will charge you more to work in it.",
+    "Debug code and no documentation: Leftover test code and an empty README. Looks unfinished to anyone technical.",
+    "Outdated methods: Some code uses methods browsers have deprecated."
+]
+
+RED_SYSTEM_PROMPT = """You are the Preflight Autonomous Security & Crash Arbiter for web applications built with vibe-coding tools (Lovable, Cursor, Bolt, v0, Replit).
+Your job is to evaluate suspected 🔴 RED (Fix before anyone uses this) blocker defects strictly according to the Preflight Detection Spec v4.
+
 Inspection Rules for Red Defect Family:
-1. Leaked Keys / Secrets: Are API keys (OpenAI, AWS, Stripe) hardcoded or accessible in client-side code?
-2. Unprotected Admin Routes: Can sensitive /admin or mutation routes be called without server-side authentication?
-3. SQL/NoSQL Injection: Does the database query interpolate unescaped user input into raw strings?
-4. Fatal Server Crashes: Do route handlers lack try/catch causing unhandled 500 error pages?
-5. Infinite Render Loops: Does React useEffect have cyclic state dependency triggering 100% CPU lockups?
-6. Dead Core Buttons: Does a checkout/payment/submit button have an empty or mock click handler?
+1. Leaked API keys: Your secret key is visible to anyone who opens your site. They can spend your money.
+2. Unprotected admin routes: Your admin page is hidden, not protected. Anyone who guesses the address can delete your data.
+3. Database injection: Someone typing the right characters into your search box could read or destroy your database.
+4. Crashes on unexpected input: If a user leaves a field empty, your whole app returns an error page.
+5. Infinite loops: This page freezes the browser and never stops loading.
+6. Dead buttons on the main flow: Your Pay button does nothing. Customers cannot give you money.
+
+For every defect, you must provide the 4-part user explanation:
+1. What's wrong: In one sentence with no jargon.
+2. Why it matters to them: In consequences they care about (money, security, crash, lost customers).
+3. Proof: Offending code snippet or line details.
+4. How to fix it: Formatted specifically as a ready-to-paste prompt for AI tools:
+"Copy this and paste it into Lovable / Cursor:\n[Clear, actionable instruction naming the file and fix]"
+
 You MUST respond strictly in valid JSON format:
 {
-"is_defect": true/false,
-"confidence": float between 0.0 and 1.0,
-"plain_english_explanation": "One simple sentence for a non-coder explaining what is broken",
-"business_consequence": "One sentence explaining financial, security, or customer loss",
-"repair_prompt": "Tool-tailored instructions for an AI assistant to fix it safely"
+  "is_defect": true/false,
+  "confidence": float between 0.0 and 1.0,
+  "plain_english_explanation": "One clear sentence for a non-coder with no jargon explaining what is broken",
+  "business_consequence": "One sentence explaining financial, security, or customer loss",
+  "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
+  "defects": [
+    {
+      "rule": "Leaked API keys",
+      "file": "path/to/file",
+      "line": 1,
+      "snippet": "offending snippet",
+      "detail": "What is wrong in one plain sentence",
+      "business_consequence": "Why it matters in consequences they care about",
+      "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[instruction]"
+    }
+  ]
 }"""
 
-ORANGE_SYSTEM_PROMPT = """You are the Preflight Autonomous UX & Reliability Arbiter for web applications.
-Your job is to evaluate suspected 🟠 ORANGE (High Risk / Operational) hazards.
+ORANGE_SYSTEM_PROMPT = """You are the Preflight Autonomous UX & Reliability Arbiter for web applications built with vibe-coding tools (Lovable, Cursor, Bolt, v0, Replit).
+Your job is to evaluate suspected 🟠 ORANGE (Your users will hit these) hazards strictly according to the Preflight Detection Spec v4.
+
 Inspection Rules for Orange Defect Family:
-1. Missing Loading State: Can a user double-click a submit/pay button while an async request is in-flight?
-2. Unbounded Input Fields: Does an input/textarea accept unlimited text without maxLength or bounds checking?
-3. Un-debounced Search: Does every single keystroke fire an API request without debounce?
-4. Heavy Unoptimized Images: Are raw >2MB images loaded directly without compression or lazy loading?
+7. No loading state, double submission: Impatient users who click twice get charged twice.
+8. No limits on what people can type: Someone pasting a long text breaks the page or the database.
+9. Search and sort are wrong: Your list sorts 10 before 2, and search fires on every keystroke.
+10. Slow pages and heavy images: Your homepage loads a 10MB photo. Mobile users will leave.
+
+For every defect, provide the 4-part user explanation:
+1. What's wrong: In one sentence with no jargon.
+2. Why it matters to them: Consequences they care about (double charges, broken layouts, slow speeds).
+3. Proof: Offending code snippet or component details.
+4. How to fix it: Formatted specifically as:
+"Copy this and paste it into Lovable / Cursor:\n[Clear, actionable instruction]"
+
 You MUST respond strictly in valid JSON format:
 {
-"is_defect": true/false,
-"confidence": float between 0.0 and 1.0,
-"plain_english_explanation": "One simple sentence explaining the interaction or performance risk",
-"business_consequence": "One sentence explaining user frustration or double charging risk",
-"repair_prompt": "Clear instructions for an AI assistant to fix the state/input logic"
+  "is_defect": true/false,
+  "confidence": float between 0.0 and 1.0,
+  "plain_english_explanation": "One clear sentence explaining the interaction or reliability risk",
+  "business_consequence": "One sentence explaining user frustration or double charging risk",
+  "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
+  "defects": [
+    {
+      "rule": "No loading state, double submission",
+      "file": "path/to/file",
+      "line": 1,
+      "snippet": "offending snippet",
+      "detail": "What is wrong in one plain sentence",
+      "business_consequence": "Why it matters to users",
+      "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[instruction]"
+    }
+  ]
 }"""
 
-YELLOW_SYSTEM_PROMPT = """You are the Preflight Autonomous Code Quality Arbiter for web applications.
-Your job is to evaluate suspected 🟡 YELLOW (Hygiene / Polish) issues.
+YELLOW_SYSTEM_PROMPT = """You are the Preflight Autonomous Maintainability Arbiter for web applications built with vibe-coding tools (Lovable, Cursor, Bolt, v0, Replit).
+Your job is to evaluate suspected 🟡 YELLOW (Tidy up before you hire a developer) issues strictly according to the Preflight Detection Spec v4.
+
+SCOPE NOTE: Colour contrast, accessibility, and spelling are explicitly REMOVED from scope.
+
 Inspection Rules for Yellow Defect Family:
-1. Stray Debug Logs: Are console.log or debugger statements present in production components?
-2. Contrast / A11y: Is text contrast insufficient or are essential labels missing?
-3. Incomplete Documentation: Is README.md empty or generic template text?
+11. Over-complex files: One file is 600 lines. Any developer you hire will charge you more to work in it. (Note: Complexity is reported as an advisory suggestion).
+12. Debug code and no documentation: Leftover test code and an empty README. Looks unfinished to anyone technical.
+13. Outdated methods: Some code uses methods browsers have deprecated.
+
+For every defect, provide the 4-part user explanation:
+1. What's wrong: In one sentence with no jargon.
+2. Why it matters to them: Consequences (developer costs, maintenance friction, deprecated APIs).
+3. Proof: Offending snippet or file metrics.
+4. How to fix it: Formatted specifically as:
+"Copy this and paste it into Lovable / Cursor:\n[Clear, actionable instruction]"
+
 You MUST respond strictly in valid JSON format:
 {
-"is_defect": true/false,
-"confidence": float between 0.0 and 1.0,
-"plain_english_explanation": "Simple explanation of the hygiene defect",
-"business_consequence": "Signals poor code quality or exposes internal debug state",
-"repair_prompt": "Instructions to clean up and polish the code"
+  "is_defect": true/false,
+  "confidence": float between 0.0 and 1.0,
+  "plain_english_explanation": "One clear sentence explaining the hygiene or maintainability issue",
+  "business_consequence": "One sentence explaining impact on technical credibility or future developer costs",
+  "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
+  "defects": [
+    {
+      "rule": "Debug code and no documentation",
+      "file": "path/to/file",
+      "line": 1,
+      "snippet": "offending snippet",
+      "detail": "What is wrong in one plain sentence",
+      "business_consequence": "Why it matters",
+      "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[instruction]"
+    }
+  ]
 }"""
+
+
+# ==============================================================================
+# PART 5: PREFLIGHT 4-AREA SCORING ENGINE
+# ==============================================================================
+
+def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Computes Preflight scoring across 4 areas and overall Readiness score strictly
+    following PART 5 of the Preflight Detection Spec v4:
+
+    Area Weights & User-facing Names:
+    1. Security (35%): "Can someone hurt you"
+    2. Reliability (30%): "Does it break"
+    3. Correctness (20%): "Does it behave properly"
+    4. Maintainability (15%): "Can a developer work on it"
+
+    Deductions per confirmed finding:
+    - Red (40 pts):
+        - Leaked API keys, Unprotected admin routes, Database injection -> Deducts 40 from Security
+        - Crashes on unexpected input, Infinite loops, Dead buttons -> Deducts 40 from Reliability
+    - Orange-High (25 pts):
+        - No loading state, double submission -> Deducts 25 from Reliability
+        - No limits on what people can type -> Deducts 25 from Correctness
+    - Orange-Medium (12 pts):
+        - Search and sort are wrong -> Deducts 12 from Correctness
+        - Slow pages and heavy images -> Deducts 12 from Correctness
+    - Yellow (4 pts):
+        - Over-complex files -> Deducts 4 from Maintainability (unconfirmed suggestions subtract 0)
+        - Debug code and no documentation -> Deducts 4 from Maintainability
+        - Outdated methods -> Deducts 4 from Maintainability
+
+    Each area floors at 0. Unconfirmed findings subtract 0.
+    Readiness = round(Security * 0.35 + Reliability * 0.30 + Correctness * 0.20 + Maintainability * 0.15)
+
+    Verdict States (Part 2.1 of Spec):
+    - 🔴 Not ready: Any Red defect > 0, or Readiness < 70
+    - 🟠 Launch with care: 0 Red defects, but Orange defects present or Readiness 70-89
+    - 🟢 Ready: 0 Red defects, 0 Orange defects, and Readiness >= 90
+    """
+    sec_deductions = 0
+    rel_deductions = 0
+    cor_deductions = 0
+    main_deductions = 0
+
+    red_count = 0
+    orange_count = 0
+    yellow_count = 0
+
+    for d in all_defects:
+        rule = str(d.get("rule", "")).lower()
+        tier = str(d.get("tier", "")).lower()
+        is_unconfirmed = bool(d.get("unconfirmed", False))
+
+        # Unconfirmed findings subtract nothing per spec
+        if is_unconfirmed:
+            continue
+
+        if tier == "red" or any(k in rule for k in ["leaked", "secret", "admin", "injection", "crash", "loop", "dead button"]):
+            red_count += 1
+            if any(k in rule for k in ["leaked", "secret", "admin", "injection", "proxy"]):
+                sec_deductions += 40
+            else:
+                rel_deductions += 40
+
+        elif tier == "orange" or any(k in rule for k in ["loading", "double submission", "limit", "unbounded", "search", "sort", "slow", "heavy image"]):
+            orange_count += 1
+            if any(k in rule for k in ["loading", "double submission", "threadpool"]):
+                # Orange-High: Reliability (-25)
+                rel_deductions += 25
+            elif any(k in rule for k in ["limit", "unbounded"]):
+                # Orange-High: Correctness (-25)
+                cor_deductions += 25
+            elif any(k in rule for k in ["search", "sort"]):
+                # Orange-Medium: Correctness (-12)
+                cor_deductions += 12
+            elif any(k in rule for k in ["slow", "heavy", "image"]):
+                # Orange-Medium: Correctness (-12)
+                cor_deductions += 12
+            else:
+                cor_deductions += 12
+
+        elif tier == "yellow" or any(k in rule for k in ["complex", "debug", "documentation", "readme", "outdated", "deprecated"]):
+            yellow_count += 1
+            if "complex" in rule:
+                # Over-complex files: if explicitly scored, deducts 4
+                main_deductions += 4
+            elif any(k in rule for k in ["debug", "documentation", "readme", "console", "todo"]):
+                main_deductions += 4
+            elif any(k in rule for k in ["outdated", "deprecated"]):
+                main_deductions += 4
+            else:
+                main_deductions += 4
+
+    sec_score = max(0, 100 - sec_deductions)
+    rel_score = max(0, 100 - rel_deductions)
+    cor_score = max(0, 100 - cor_deductions)
+    main_score = max(0, 100 - main_deductions)
+
+    readiness = round(
+        (sec_score * 0.35) +
+        (rel_score * 0.30) +
+        (cor_score * 0.20) +
+        (main_score * 0.15)
+    )
+    readiness = max(0, min(100, readiness))
+
+    # Verdict determination per spec
+    if red_count > 0 or readiness < 70:
+        verdict_state = "not_ready"
+        verdict_badge = "🔴 Not ready"
+        verdict_title = "🔴 Not ready to launch"
+        if red_count > 0:
+            verdict_meaning = f"{red_count} serious problem{'s' if red_count > 1 else ''} need fixing first. Something here will hurt you. Fix before anyone uses it."
+        else:
+            verdict_meaning = "Overall readiness is below launch safety threshold. Fix critical blockers before launching."
+    elif orange_count > 0 or readiness < 90:
+        verdict_state = "launch_with_care"
+        verdict_badge = "🟠 Launch with care"
+        verdict_title = "🟠 Launch with care"
+        verdict_meaning = "Nothing dangerous, but users will hit problems. Fix UX and reliability issues for a smooth launch."
+    else:
+        verdict_state = "ready"
+        verdict_badge = "🟢 Ready"
+        verdict_title = "🟢 Ready to launch"
+        verdict_meaning = "Nothing serious found. Your app passed all preflight safety and reliability checks. Go."
+
+    return {
+        "readiness_score": readiness,
+        "verdict_state": verdict_state,
+        "verdict_badge": verdict_badge,
+        "verdict_title": verdict_title,
+        "verdict_meaning": verdict_meaning,
+        "areas": {
+            "security": {
+                "name": "Security",
+                "title": "Can someone hurt you",
+                "weight": 0.35,
+                "score": sec_score,
+                "deductions": sec_deductions
+            },
+            "reliability": {
+                "name": "Reliability",
+                "title": "Does it break",
+                "weight": 0.30,
+                "score": rel_score,
+                "deductions": rel_deductions
+            },
+            "correctness": {
+                "name": "Correctness",
+                "title": "Does it behave properly",
+                "weight": 0.20,
+                "score": cor_score,
+                "deductions": cor_deductions
+            },
+            "maintainability": {
+                "name": "Maintainability",
+                "title": "Can a developer work on it",
+                "weight": 0.15,
+                "score": main_score,
+                "deductions": main_deductions
+            }
+        },
+        "counts": {
+            "red": red_count,
+            "orange": orange_count,
+            "yellow": yellow_count,
+            "total": len(all_defects)
+        }
+    }
 
 
 def extract_json_defect(llm_output: str, fallback_defect: Dict[str, Any]) -> Dict[str, Any]:
@@ -64,18 +325,16 @@ def extract_json_defect(llm_output: str, fallback_defect: Dict[str, Any]) -> Dic
         return fallback_defect
 
     cleaned = llm_output.strip()
-    # Strip markdown fences if present
     fence_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', cleaned, re.IGNORECASE)
     if fence_match:
         cleaned = fence_match.group(1).strip()
     else:
-        # Match outermost curly braces
         braces_match = re.search(r'(\{[\s\S]*\})', cleaned)
         if braces_match:
             cleaned = braces_match.group(1).strip()
 
     try:
-        data = json.loads(cleaned)
+        data = json.loads(cleaned, strict=False)
         is_defect = bool(data.get("is_defect", fallback_defect.get("is_defect", False)))
         raw_conf = data.get("confidence", fallback_defect.get("confidence", 0.85))
         try:
@@ -117,7 +376,6 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
     if clean_repo:
         repo_dir = ALLOWED_REPO_DIR / clean_repo
         if repo_dir.exists() and repo_dir.is_dir():
-            # 1. Check README.md
             readme_path = repo_dir / "README.md"
             if readme_path.exists():
                 try:
@@ -128,7 +386,6 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
                 except Exception:
                     pass
 
-            # 2. Collect representative source files across supported languages (.cs, .razor, .py, .js, .ts, .go, etc.)
             allowed_exts = {
                 ".cs", ".razor", ".py", ".js", ".jsx", ".ts", ".tsx",
                 ".html", ".vue", ".go", ".java", ".php", ".rb", ".rs",
@@ -166,37 +423,14 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
     return "\n".join(samples)[:max_total_chars]
 
 
-RED_RULES = [
-    "Leaked Keys / Secrets: API keys or credentials hardcoded in codebase",
-    "Unprotected Admin Routes: Sensitive or mutation endpoints lacking server-side auth",
-    "SQL/NoSQL Injection: Raw unescaped query string interpolation",
-    "Fatal Server Crashes: Unhandled route exceptions causing 500 error pages",
-    "Infinite Render Loops: Cyclic state dependencies causing CPU lockups",
-    "Dead Core Buttons: Empty or mock click handlers on critical user actions"
-]
-
-ORANGE_RULES = [
-    "Missing Loading State: Async actions without busy / pending feedback",
-    "Unbounded Input Fields: Text inputs/textareas lacking maxLength bounds",
-    "Un-debounced Search: Rapid API requests fired on every keystroke",
-    "Heavy Unoptimized Images: Large raw assets without lazy-load or compression"
-]
-
-YELLOW_RULES = [
-    "Stray Debug Logs: console.log or debugger statements left in production",
-    "Contrast / A11y: Missing aria labels, alt attributes, or insufficient text contrast",
-    "Incomplete Documentation: Missing or generic README and missing docstrings"
-]
-
-
 def evaluate_red_family(code_context: str) -> Dict[str, Any]:
-    """Runs Pass 1: 🔴 RED (Critical / Blocker) vulnerabilities evaluation."""
+    """Runs Pass 1: 🔴 RED (Fix before anyone uses this) vulnerabilities evaluation."""
     fallback = {
         "is_defect": False,
         "confidence": 0.90,
         "plain_english_explanation": "No critical vulnerabilities or security blocker defects were identified in inspected routes and state cycles.",
         "business_consequence": "System operation remains safe against credential leaks, SQL injection, and fatal runtime crashes.",
-        "repair_prompt": "Continue enforcing server-side authentication guards, parameterized SQL queries, and robust try/catch exception wrappers on all API routes.",
+        "repair_prompt": "Copy this and paste it into Lovable / Cursor:\nEnsure all database queries use parameterized bindings, protect admin routes with server authentication, and wrap API endpoints with try/catch error boundaries.",
         "rules": RED_RULES
     }
 
@@ -206,16 +440,27 @@ def evaluate_red_family(code_context: str) -> Dict[str, Any]:
         fallback["is_defect"] = True
         fallback["confidence"] = 0.95
         fallback["plain_english_explanation"] = "Potential hardcoded secrets or unescaped dynamic database queries detected in codebase."
-        fallback["business_consequence"] = "High risk of credential theft, data breach, and unauthorized database access."
-        fallback["repair_prompt"] = "Move all secret keys to environment variables and utilize parameterized query bindings."
+        fallback["business_consequence"] = "Anyone who visits your site can copy your secret key and spend your money, or inject queries to read/destroy your database."
+        fallback["repair_prompt"] = (
+            "Copy this and paste it into Lovable / Cursor:\n"
+            "Move all API secret keys to server-side environment variables. Update database queries to use parameterized prepared statements instead of raw string interpolation."
+        )
 
-    user_prompt = f"""Evaluate the following codebase against the 🔴 RED (Critical / Blocker) inspection rules:
+    user_prompt = f"""Evaluate the following codebase against the 🔴 RED (Fix before anyone uses this) inspection rules from Preflight Spec v4:
+Rules:
+1. Leaked API keys: "Your secret key is visible to anyone who opens your site. They can spend your money."
+2. Unprotected admin routes: "Your admin page is hidden, not protected. Anyone who guesses the address can delete your data."
+3. Database injection: "Someone typing the right characters into your search box could read or destroy your database."
+4. Crashes on unexpected input: "If a user leaves a field empty, your whole app returns an error page."
+5. Infinite loops: "This page freezes the browser and never stops loading."
+6. Dead buttons on the main flow: "Your Pay button does nothing. Customers cannot give you money."
 
+Code Excerpt:
 ```
 {code_context[:8000]}
 ```
 
-Analyze thoroughly and respond strictly in valid JSON."""
+Respond STRICTLY in valid JSON matching your system prompt schema."""
 
     try:
         raw_resp = call_llm(user_prompt, RED_SYSTEM_PROMPT, timeout=60)
@@ -227,13 +472,13 @@ Analyze thoroughly and respond strictly in valid JSON."""
 
 
 def evaluate_orange_family(code_context: str) -> Dict[str, Any]:
-    """Runs Pass 2: 🟠 ORANGE (High Risk / Operational) hazards evaluation."""
+    """Runs Pass 2: 🟠 ORANGE (Your users will hit these) hazards evaluation."""
     fallback = {
         "is_defect": False,
         "confidence": 0.88,
         "plain_english_explanation": "No high-risk UX or operational hazards such as unbounded inputs or un-debounced search were detected.",
         "business_consequence": "Protects users from accidental double submissions and preserves API server throughput.",
-        "repair_prompt": "Ensure all async button clicks toggle loading states and inputs declare strict maxLength boundaries.",
+        "repair_prompt": "Copy this and paste it into Lovable / Cursor:\nEnsure all async button clicks toggle loading states and inputs declare strict maxLength boundaries.",
         "rules": ORANGE_RULES
     }
 
@@ -242,16 +487,25 @@ def evaluate_orange_family(code_context: str) -> Dict[str, Any]:
         fallback["is_defect"] = True
         fallback["confidence"] = 0.80
         fallback["plain_english_explanation"] = "Text inputs were found without explicit maxLength or bounds validation."
-        fallback["business_consequence"] = "Risk of buffer inflation, malicious payload pasting, and unexpected layout overflow."
-        fallback["repair_prompt"] = "Add maxLength attributes and boundary validation to all user text input fields."
+        fallback["business_consequence"] = "Someone pasting a long text breaks the page layout or the database."
+        fallback["repair_prompt"] = (
+            "Copy this and paste it into Lovable / Cursor:\n"
+            "Add maxLength limits (e.g. maxLength=255) to all user text input fields to prevent layout overflow and database errors."
+        )
 
-    user_prompt = f"""Evaluate the following codebase against the 🟠 ORANGE (High Risk / Operational) inspection rules:
+    user_prompt = f"""Evaluate the following codebase against the 🟠 ORANGE (Your users will hit these) inspection rules from Preflight Spec v4:
+Rules:
+7. No loading state, double submission: "Impatient users who click twice get charged twice."
+8. No limits on what people can type: "Someone pasting a long text breaks the page or the database."
+9. Search and sort are wrong: "Your list sorts 10 before 2, and search fires on every keystroke."
+10. Slow pages and heavy images: "Your homepage loads a 10MB photo. Mobile users will leave."
 
+Code Excerpt:
 ```
 {code_context[:8000]}
 ```
 
-Analyze thoroughly and respond strictly in valid JSON."""
+Respond STRICTLY in valid JSON matching your system prompt schema."""
 
     try:
         raw_resp = call_llm(user_prompt, ORANGE_SYSTEM_PROMPT, timeout=60)
@@ -263,13 +517,13 @@ Analyze thoroughly and respond strictly in valid JSON."""
 
 
 def evaluate_yellow_family(code_context: str) -> Dict[str, Any]:
-    """Runs Pass 3: 🟡 YELLOW (Hygiene / Polish) issues evaluation."""
+    """Runs Pass 3: 🟡 YELLOW (Tidy up before you hire a developer) issues evaluation."""
     fallback = {
         "is_defect": False,
         "confidence": 0.85,
         "plain_english_explanation": "Codebase hygiene is satisfactory with clean production components and adequate documentation.",
         "business_consequence": "Maintains professional code readability and clean runtime console output.",
-        "repair_prompt": "Keep production builds stripped of console.log debug statements and ensure all UI elements include aria labels.",
+        "repair_prompt": "Copy this and paste it into Lovable / Cursor:\nKeep production builds stripped of console.log debug statements and ensure project documentation is updated.",
         "rules": YELLOW_RULES
     }
 
@@ -278,17 +532,26 @@ def evaluate_yellow_family(code_context: str) -> Dict[str, Any]:
     if has_console_log or has_empty_readme:
         fallback["is_defect"] = True
         fallback["confidence"] = 0.85
-        fallback["plain_english_explanation"] = "Stray debug log statements or minimal documentation detected in repository."
-        fallback["business_consequence"] = "Signals incomplete polish and risks leaking internal diagnostic information in production."
-        fallback["repair_prompt"] = "Remove all stray console.log calls and enrich README.md with comprehensive setup and architectural instructions."
+        fallback["plain_english_explanation"] = "Leftover test code and an empty README detected in repository."
+        fallback["business_consequence"] = "Looks unfinished to anyone technical and clutters production browser logs."
+        fallback["repair_prompt"] = (
+            "Copy this and paste it into Lovable / Cursor:\n"
+            "Remove all leftover console.log and debugger statements from production files, and write a clear README.md explaining the app setup."
+        )
 
-    user_prompt = f"""Evaluate the following codebase against the 🟡 YELLOW (Hygiene / Polish) inspection rules:
+    user_prompt = f"""Evaluate the following codebase against the 🟡 YELLOW (Tidy up before you hire a developer) inspection rules from Preflight Spec v4:
+Note: Colour contrast, accessibility, and spelling are removed from scope.
+Rules:
+11. Over-complex files: "One file is 600 lines. Any developer you hire will charge you more to work in it."
+12. Debug code and no documentation: "Leftover test code and an empty README. Looks unfinished to anyone technical."
+13. Outdated methods: "Some code uses methods browsers have deprecated."
 
+Code Excerpt:
 ```
 {code_context[:8000]}
 ```
 
-Analyze thoroughly and respond strictly in valid JSON."""
+Respond STRICTLY in valid JSON matching your system prompt schema."""
 
     try:
         raw_resp = call_llm(user_prompt, YELLOW_SYSTEM_PROMPT, timeout=60)
@@ -341,7 +604,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
         ".idea", ".vscode", "dist", "build", ".gemini", ".system_generated",
         ".cache", "tmp", "logs"
     }
-    
+
     code_exts = {
         ".cs", ".csx", ".razor", ".py", ".js", ".jsx", ".ts", ".tsx",
         ".html", ".vue", ".go", ".java", ".php", ".rb", ".rs",
@@ -350,25 +613,49 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
     }
     all_defects: List[Dict[str, Any]] = []
 
-    # Regex patterns for RED
-    re_secret = re.compile(r'(sk-[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|stripe.*sk_live[a-zA-Z0-9_]{20,}|(?:ghp|gho|ghu)_[a-zA-Z0-9]{36}|(?:api_key|secret_key|private_key)\s*=\s*[\'"][a-zA-Z0-9_\-\.]{20,}[\'"])', re.IGNORECASE)
-    re_sql = re.compile(r'(?:cursor\.execute|session\.run)\s*\(\s*f[\'"]|\bexecute\s*\(\s*[\'"][^\'"]*\s*(?:\+|%|\.format\()|\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^\n\r]*\s*(?:\+|%|\.format\(|f[\'"])', re.IGNORECASE)
-    re_dead_btn = re.compile(r'onclick\s*=\s*[\'"]\s*(?:#|javascript:void\(0\);?|;?)\s*[\'"]|onClick\s*=\s*\{(?:\(\)\s*=>\s*\{\s*\}|\(\)\s*=>\s*undefined|undefined|null)\}', re.IGNORECASE)
+    # 1. 🔴 RED REGEXES (6 Defects per Spec v4)
+    # Defect 1: Leaked API keys
+    re_secret = re.compile(
+        r'(sk-[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|stripe.*sk_live[a-zA-Z0-9_]{20,}|(?:ghp|gho|ghu)_[a-zA-Z0-9]{36}|(?:api_key|secret_key|private_key)\s*=\s*[\'"][a-zA-Z0-9_\-\.]{20,}[\'"])',
+        re.IGNORECASE
+    )
+    # Defect 2: Unprotected admin routes
+    re_admin_route = re.compile(r'(@app\.(?:get|post|put|delete|patch)\([\'"]/(?:admin|manage|settings/billing|secret)[^\'"]*[\'"]|router\.(?:get|post|put|delete|patch)\([\'"]/(?:admin|manage)[^\'"]*[\'"])', re.IGNORECASE)
+    # Defect 3: Database injection
+    re_sql = re.compile(
+        r'(?:cursor\.execute|session\.run)\s*\(\s*f[\'"]|\bexecute\s*\(\s*[\'"][^\'"]*\s*(?:\+|%|\.format\()|\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^\n\r]*\s*(?:\+|%|\.format\(|f[\'"])',
+        re.IGNORECASE
+    )
+    # Defect 4: Crashes on unexpected input
     re_py_route = re.compile(r'@(?:app|router)\.(?:get|post|put|delete|patch)\b')
     re_empty_catch = re.compile(r'catch\s*(?:\([^)]*\))?\s*\{\s*\}', re.IGNORECASE)
+    # Defect 5: Infinite loops
+    re_infinite_loop = re.compile(r'\bwhile\s*\(\s*(?:true|1)\s*\)\s*\{(?![^}]*\bbreak\b)|\buseEffect\s*\(\s*\(\)\s*=>\s*\{[^}]*set[A-Z]\w*\([^)]*\)[^}]*\}\s*,\s*\[\s*\]\s*\)', re.IGNORECASE)
+    # Defect 6: Dead buttons on the main flow
+    re_dead_btn = re.compile(
+        r'onclick\s*=\s*[\'"]\s*(?:#|javascript:void\(0\);?|;?)\s*[\'"]|onClick\s*=\s*\{(?:\(\)\s*=>\s*\{\s*\}|\(\)\s*=>\s*undefined|undefined|null)\}',
+        re.IGNORECASE
+    )
     re_cors_proxy = re.compile(r'https?://(?:corsproxy\.io|cors-anywhere)\b', re.IGNORECASE)
-    re_sync_io = re.compile(r'\.(?:Result|GetAwaiter\(\)\.GetResult\(\))\b')
-    re_todo = re.compile(r'//\s*(?:TODO|FIXME|HACK)\b', re.IGNORECASE)
 
-    # Regex patterns for ORANGE
-    re_unbounded_input = re.compile(r'<input\b(?![^>]*\bmax[lL]ength\b)(?=[^>]*type=[\'"](?:text|email|search|url)[\'"])[^>]*>|<textarea\b(?![^>]*\bmax[lL]ength\b)[^>]*>', re.IGNORECASE)
+    # 2. 🟠 ORANGE REGEXES (4 Defects per Spec v4)
+    # Defect 7: No loading state, double submission
     re_submit_btn = re.compile(r'<button\b(?![^>]*\bdisabled\b)(?=[^>]*type=[\'"]submit[\'"])[^>]*>', re.IGNORECASE)
+    re_sync_io = re.compile(r'\.(?:Result|GetAwaiter\(\)\.GetResult\(\))\b')
+    # Defect 8: No limits on what people can type
+    re_unbounded_input = re.compile(r'<input\b(?![^>]*\bmax[lL]ength\b)(?=[^>]*type=[\'"](?:text|email|search|url)[\'"])[^>]*>|<textarea\b(?![^>]*\bmax[lL]ength\b)[^>]*>', re.IGNORECASE)
+    # Defect 9: Search and sort are wrong
     re_search_input = re.compile(r'<input\b(?=[^>]*type=[\'"]search[\'"])(?![^>]*\bdebounce\b)[^>]*>', re.IGNORECASE)
+    re_bad_sort = re.compile(r'\.sort\(\s*\)(?!\s*\.\s*map)', re.IGNORECASE)
 
-    # Regex patterns for YELLOW
+    # 3. 🟡 YELLOW REGEXES (3 Defects per Spec v4: Over-complex files, Debug code & no docs, Outdated methods)
+    # Defect 12: Debug code and no documentation
     re_console_log = re.compile(r'\b(?:console\.(?:log|debug|info)|Console\.(?:WriteLine|Write)|Debug\.WriteLine)\s*\(')
-    re_img_alt = re.compile(r'<img\b(?![^>]*\balt=)[^>]*>', re.IGNORECASE)
-    
+    re_debugger = re.compile(r'\bdebugger\s*;?')
+    re_todo = re.compile(r'//\s*(?:TODO|FIXME|HACK)\b', re.IGNORECASE)
+    # Defect 13: Outdated methods
+    re_deprecated_apis = re.compile(r'\b(?:document\.execCommand|unescape\(|escape\(|event\.keyCode|\.substr\(|__defineGetter__|__defineSetter__)\b')
+
     total_files_scanned = 0
     readme_found = False
     readme_char_count = 0
@@ -377,16 +664,16 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
     for base_dir in directories:
         for root, dirs, files in os.walk(base_dir):
             dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
-            
+
             for fname in files:
                 file_path = Path(root) / fname
                 try:
                     rel_path = file_path.relative_to(base_dir).as_posix()
                 except Exception:
                     rel_path = fname
-                
+
                 is_test_file = any(t in rel_path.lower() for t in ["test", "spec", "mock", "fixture"])
-                
+
                 if fname.lower() == "readme.md":
                     readme_found = True
                     readme_path = rel_path
@@ -397,7 +684,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
 
                 ext = file_path.suffix.lower()
 
-                # ORANGE asset check: Heavy images > 2MB
+                # Defect 10 (ORANGE): Heavy images > 2MB
                 if tier_lower == "orange" and ext in {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}:
                     try:
                         fsize = file_path.stat().st_size
@@ -405,9 +692,15 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": 1,
-                                "rule": "Heavy Unoptimized Images",
+                                "rule": "Slow pages and heavy images",
                                 "snippet": f"{fname} ({round(fsize / (1024*1024), 2)} MB)",
-                                "detail": "Image file exceeds 2MB threshold without compression or web optimization."
+                                "detail": "Your homepage loads a 10MB photo. Mobile users will leave.",
+                                "business_consequence": "Mobile users experience painful load times and abandon the app immediately.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"Compress image '{fname}' to modern WebP format under 300KB and add loading=\"lazy\" to the image tag."
+                                ),
+                                "tier": "orange"
                             })
                     except Exception:
                         pass
@@ -418,149 +711,322 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
 
                 total_files_scanned += 1
                 try:
-                    lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    raw_content = file_path.read_text(encoding="utf-8", errors="ignore")
+                    lines = raw_content.splitlines()
                 except Exception:
                     continue
+
+                # Defect 11 (YELLOW): Over-complex files > 500 lines (Reported as advisory suggestion per spec)
+                if tier_lower == "yellow" and len(lines) > 500 and not is_test_file:
+                    all_defects.append({
+                        "file": rel_path,
+                        "line": 1,
+                        "rule": "Over-complex files",
+                        "snippet": f"File total lines: {len(lines)} lines",
+                        "detail": f"One file is {len(lines)} lines. Any developer you hire will charge you more to work in it.",
+                        "business_consequence": "High complexity slows down new feature delivery and increases bugs when making changes.",
+                        "repair_prompt": (
+                            "Copy this and paste it into Lovable / Cursor:\n"
+                            f"Refactor '{rel_path}' by splitting it into smaller, focused modules under 250 lines each."
+                        ),
+                        "tier": "yellow",
+                        "unconfirmed": False
+                    })
 
                 for line_idx, line in enumerate(lines, start=1):
                     line_str = line.strip()
                     if not line_str or line_str.startswith("//") or line_str.startswith("#"):
                         continue
 
-                    # 1. 🔴 RED INSPECTIONS ONLY
+                    # 1. 🔴 RED INSPECTIONS (Defects 1 - 6)
                     if tier_lower == "red":
+                        # Defect 1: Leaked API keys
                         if not is_test_file and re_secret.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "Leaked Keys / Secrets",
+                                "rule": "Leaked API keys",
                                 "snippet": line_str[:160],
-                                "detail": "Potential hardcoded credential or API secret token detected."
+                                "detail": "Your secret key is visible to anyone who opens your site. They can spend your money.",
+                                "business_consequence": "Anyone can copy your key and rack up huge bills on your account.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"My secret key in '{rel_path}' is visible in code. Move it to a server environment variable and call it from backend only."
+                                ),
+                                "tier": "red"
                             })
 
+                        # Defect 2: Unprotected admin routes
+                        if not is_test_file and re_admin_route.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Unprotected admin routes",
+                                "snippet": line_str[:160],
+                                "detail": "Your admin page is hidden, not protected. Anyone who guesses the address can delete your data.",
+                                "business_consequence": "Unauthorized users can tamper with sensitive settings or wipe customer databases.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"Add server-side authentication middleware to protected admin routes in '{rel_path}'. Reject unauthenticated requests with 401/403."
+                                ),
+                                "tier": "red"
+                            })
+
+                        # Defect 3: Database injection
                         if not is_test_file and re_sql.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "SQL/NoSQL Injection",
+                                "rule": "Database injection",
                                 "snippet": line_str[:160],
-                                "detail": "Dynamic string concatenation or f-string used in database execution call."
+                                "detail": "Someone typing the right characters into your search box could read or destroy your database.",
+                                "business_consequence": "Malicious actors can execute arbitrary queries to extract or wipe all project records.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', change raw SQL string concatenation to parameterized queries or ORM query bindings."
+                                ),
+                                "tier": "red"
                             })
 
-                        if re_dead_btn.search(line_str):
-                            all_defects.append({
-                                "file": rel_path,
-                                "line": line_idx,
-                                "rule": "Dead Core Buttons",
-                                "snippet": line_str[:160],
-                                "detail": "Interactive button or link has empty or mock click handler."
-                            })
-
+                        # Defect 4: Crashes on unexpected input
                         if ext == ".py" and re_py_route.search(line_str):
                             block_ahead = "\n".join(lines[line_idx:line_idx + 18])
                             if "def " in block_ahead and "try:" not in block_ahead and "except" not in block_ahead:
                                 all_defects.append({
                                     "file": rel_path,
                                     "line": line_idx,
-                                    "rule": "Fatal Server Crashes",
+                                    "rule": "Crashes on unexpected input",
                                     "snippet": line_str[:160],
-                                    "detail": "API route handler does not enclose execution in a try/except error boundary."
+                                    "detail": "If a user leaves a field empty, your whole app returns an error page.",
+                                    "business_consequence": "Unhandled route exceptions return HTTP 500 crash pages to customers.",
+                                    "repair_prompt": (
+                                        "Copy this and paste it into Lovable / Cursor:\n"
+                                        f"In '{rel_path}', wrap this route in a try/except block and return a friendly 400 Bad Request error if input is missing."
+                                    ),
+                                    "tier": "red"
                                 })
 
                         if not is_test_file and re_empty_catch.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "Fatal Server Crashes",
+                                "rule": "Crashes on unexpected input",
                                 "snippet": line_str[:160],
-                                "detail": "Empty catch block silently suppresses fatal runtime exceptions."
+                                "detail": "Empty catch block silently suppresses fatal runtime exceptions.",
+                                "business_consequence": "Unexpected failures hide error details and crash silently.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', log errors and return fallback state instead of an empty catch block."
+                                ),
+                                "tier": "red"
+                            })
+
+                        # Defect 5: Infinite loops
+                        if re_infinite_loop.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Infinite loops",
+                                "snippet": line_str[:160],
+                                "detail": "This page freezes the browser and never stops loading.",
+                                "business_consequence": "Freezes user tabs and spikes CPU to 100%, causing users to close the app.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', fix the loop condition or useEffect dependency array so state updates do not cycle endlessly."
+                                ),
+                                "tier": "red"
+                            })
+
+                        # Defect 6: Dead buttons on the main flow
+                        if re_dead_btn.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Dead buttons on the main flow",
+                                "snippet": line_str[:160],
+                                "detail": "Your Pay button does nothing. Customers cannot give you money.",
+                                "business_consequence": "Users cannot complete the core checkout or action flow, directly killing revenue.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', attach an active handler function to this button so clicking executes the actual submission or payment."
+                                ),
+                                "tier": "red"
                             })
 
                         if not is_test_file and re_cors_proxy.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "Insecure Third-Party Proxy",
+                                "rule": "Leaked API keys",
                                 "snippet": line_str[:160],
-                                "detail": "Routing traffic through public unauthenticated CORS proxy compromises credential privacy."
+                                "detail": "Traffic routed through a public CORS proxy leaks API tokens and credentials.",
+                                "business_consequence": "Third-party proxy owners can inspect headers and steal your tokens.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"Remove public CORS proxy from '{rel_path}' and proxy requests through your own backend server."
+                                ),
+                                "tier": "red"
                             })
 
-                    # 2. 🟠 ORANGE INSPECTIONS ONLY
+                    # 2. 🟠 ORANGE INSPECTIONS (Defects 7 - 10)
                     elif tier_lower == "orange":
-                        if re_unbounded_input.search(line_str):
-                            all_defects.append({
-                                "file": rel_path,
-                                "line": line_idx,
-                                "rule": "Unbounded Input Fields",
-                                "snippet": line_str[:160],
-                                "detail": "User text input element declared without maxLength attribute."
-                            })
-
+                        # Defect 7: No loading state, double submission
                         if re_submit_btn.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "Missing Loading State",
+                                "rule": "No loading state, double submission",
                                 "snippet": line_str[:160],
-                                "detail": "Form submit button lacks disabled attribute to prevent in-flight double submission."
-                            })
-
-                        if re_search_input.search(line_str):
-                            all_defects.append({
-                                "file": rel_path,
-                                "line": line_idx,
-                                "rule": "Un-debounced Search",
-                                "snippet": line_str[:160],
-                                "detail": "Search input fires queries directly without debounce throttling."
+                                "detail": "Impatient users who click twice get charged twice.",
+                                "business_consequence": "Double submission leads to duplicate orders, duplicate billing, and angry refund requests.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', disable this button while the async request is loading and show a spinner."
+                                ),
+                                "tier": "orange"
                             })
 
                         if not is_test_file and re_sync_io.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "Threadpool Starvation",
+                                "rule": "No loading state, double submission",
                                 "snippet": line_str[:160],
-                                "detail": "Synchronous blocking on async task (.Result / .GetAwaiter().GetResult()) causes threadpool starvation."
+                                "detail": "Synchronous blocking on async task freezes the server threadpool.",
+                                "business_consequence": "Concurrent users experience frozen pages and timeouts.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', replace .Result / .GetAwaiter().GetResult() with async/await."
+                                ),
+                                "tier": "orange"
                             })
 
-                    # 3. 🟡 YELLOW INSPECTIONS ONLY
+                        # Defect 8: No limits on what people can type
+                        if re_unbounded_input.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "No limits on what people can type",
+                                "snippet": line_str[:160],
+                                "detail": "Someone pasting a long text breaks the page or the database.",
+                                "business_consequence": "Large payloads break frontend layout and cause database insert exceptions.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', add maxLength='255' to this input field and validate string length."
+                                ),
+                                "tier": "orange"
+                            })
+
+                        # Defect 9: Search and sort are wrong
+                        if re_search_input.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Search and sort are wrong",
+                                "snippet": line_str[:160],
+                                "detail": "Your list sorts 10 before 2, and search fires on every keystroke.",
+                                "business_consequence": "Typing rapidly sends dozens of duplicate queries, overloading your backend.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', debounce this search input with 300ms delay before triggering fetch."
+                                ),
+                                "tier": "orange"
+                            })
+
+                        if re_bad_sort.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Search and sort are wrong",
+                                "snippet": line_str[:160],
+                                "detail": "Your list sorts 10 before 2 because JavaScript default sort is alphabetical.",
+                                "business_consequence": "Users see prices and rankings in incorrect order.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', replace .sort() with .sort((a, b) => a - b) for numeric sorting."
+                                ),
+                                "tier": "orange"
+                            })
+
+                    # 3. 🟡 YELLOW INSPECTIONS (Defects 11 - 13)
                     elif tier_lower == "yellow":
+                        # Defect 12: Debug code and no documentation
                         if not is_test_file and re_console_log.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "Stray Debug Logs",
+                                "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
-                                "detail": "Diagnostic console.log statement present in production source code."
+                                "detail": "Leftover test code and console logs clutter production browser tools.",
+                                "business_consequence": "Looks unfinished to anyone technical and exposes internal state.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"Remove console.log from '{rel_path}' in production code."
+                                ),
+                                "tier": "yellow"
                             })
 
-                        if re_img_alt.search(line_str):
+                        if not is_test_file and re_debugger.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "Contrast / A11y",
+                                "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
-                                "detail": "Image tag declared without alt accessibility attribute."
+                                "detail": "Leftover debugger breakpoint left in production source code.",
+                                "business_consequence": "Halts execution unexpectedly if user opens developer tools.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"Remove debugger statement from '{rel_path}'."
+                                ),
+                                "tier": "yellow"
                             })
 
                         if re_todo.search(line_str):
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "rule": "Unresolved Technical Debt",
+                                "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
-                                "detail": "Unfinished TODO / FIXME comment found in production source."
+                                "detail": "Unfinished TODO / FIXME note found in production source.",
+                                "business_consequence": "Flags uncompleted work or technical debt.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"Resolve or tidy up the TODO comment in '{rel_path}'."
+                                ),
+                                "tier": "yellow"
                             })
 
-    # Yellow check for README
+                        # Defect 13: Outdated methods
+                        if re_deprecated_apis.search(line_str):
+                            all_defects.append({
+                                "file": rel_path,
+                                "line": line_idx,
+                                "rule": "Outdated methods",
+                                "snippet": line_str[:160],
+                                "detail": "Some code uses methods browsers have deprecated.",
+                                "business_consequence": "Deprecated browser APIs risk breaking without warning in future browser releases.",
+                                "repair_prompt": (
+                                    "Copy this and paste it into Lovable / Cursor:\n"
+                                    f"In '{rel_path}', replace deprecated browser method with standard modern alternative."
+                                ),
+                                "tier": "yellow"
+                            })
+
+    # Yellow check for README (Defect 12)
     if tier_lower == "yellow":
         if not readme_found or readme_char_count < 60:
             all_defects.append({
                 "file": readme_path or "README.md",
                 "line": 1,
-                "rule": "Incomplete Documentation",
+                "rule": "Debug code and no documentation",
                 "snippet": f"README character count: {readme_char_count} chars",
-                "detail": "README.md is either missing or contains less than 60 characters of documentation."
+                "detail": "Leftover test code and an empty README. Looks unfinished to anyone technical.",
+                "business_consequence": "Makes the project look incomplete and unmaintainable to partners or developers.",
+                "repair_prompt": (
+                    "Copy this and paste it into Lovable / Cursor:\n"
+                    "Create a concise README.md with project title, what the app does, and how to run it."
+                ),
+                "tier": "yellow"
             })
 
     rules_map = {
@@ -573,71 +1039,80 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
         "orange": ORANGE_SYSTEM_PROMPT,
         "yellow": YELLOW_SYSTEM_PROMPT
     }
-    
+
     rules = rules_map.get(tier_lower, RED_RULES)
     system_prompt = system_prompt_map.get(tier_lower, RED_SYSTEM_PROMPT)
     defect_count = len(all_defects)
     is_defect = defect_count > 0
     confidence = 0.95 if is_defect else 0.90
 
-    # Default rule-based explanation / consequence / repair
+    # Default explanations per spec
     if tier_lower == "red":
-        tier_title = "RED: Critical / Blocker Vulnerabilities"
+        tier_title = "RED: Fix Before Anyone Uses This"
         if is_defect:
-            explanation = f"Detected {defect_count} critical blocker defect(s) across scanned project files, including potential secrets, raw SQL queries, unhandled routes, or dead buttons."
-            consequence = "High risk of security exploit, data breach, unauthorized access, or complete server crash (HTTP 500)."
-            repair_prompt = f"Fix all {defect_count} critical blocker defects immediately: replace hardcoded secrets with environment variables, bind SQL queries with parameterized statements, add try/catch error boundaries to API route handlers, and connect live actions to buttons."
+            explanation = f"Detected {defect_count} critical blocker defect(s). Something here will hurt you (leaked keys, unprotected admin routes, injection, crashes, loops, or dead buttons)."
+            consequence = "Anyone who opens your site could spend your money, access private databases, or get stuck with non-functioning pay buttons."
+            repair_prompt = (
+                "Copy this and paste it into Lovable / Cursor:\n"
+                f"Fix the {defect_count} critical blockers identified: move secret keys to backend environment variables, protect admin routes, parameterize SQL, and connect active handlers to dead buttons."
+            )
         else:
-            explanation = f"Project scan passed! Zero critical security blockers or runtime crash hazards detected across {total_files_scanned} source files."
-            consequence = "System security and server stability remain at optimal enterprise production standards."
-            repair_prompt = "Maintain continuous automated secret scanning and strict parameterized database queries in CI/CD."
+            explanation = f"Project scan passed! Zero critical blockers detected across {total_files_scanned} source files."
+            consequence = "Your app is protected against leaked secrets, database injection, and main flow dead buttons."
+            repair_prompt = "No action required. Keep secret keys in environment variables and verify routes before deploying."
 
     elif tier_lower == "orange":
-        tier_title = "ORANGE: High Risk / Operational Hazards"
+        tier_title = "ORANGE: Your Users Will Hit These"
         if is_defect:
-            explanation = f"Detected {defect_count} high-risk operational defect(s) across scanned project files, such as unbounded input fields, un-debounced search inputs, or missing loading states."
-            consequence = "Risk of user double-submissions, server request flooding, payload injection overflows, and poor perceived UX responsiveness."
-            repair_prompt = f"Address all {defect_count} operational hazards: specify strict maxLength bounds on all inputs, implement debounce on search fields, and disable submit buttons during async request cycles."
+            explanation = f"Detected {defect_count} UX and operational hazard(s), such as missing loading states, unbounded inputs, or un-debounced search."
+            consequence = "Impatient users who click twice get charged twice, pasting long text breaks pages, and search fires on every keystroke."
+            repair_prompt = (
+                "Copy this and paste it into Lovable / Cursor:\n"
+                f"Fix the {defect_count} operational hazards: disable submit buttons while loading, set maxLength on inputs, and debounce search queries by 300ms."
+            )
         else:
-            explanation = f"Project scan passed! Zero UX or operational hazards detected across {total_files_scanned} source files."
-            consequence = "User interaction flows and server API throughput remain reliable and protected from runaway input loops."
-            repair_prompt = "Keep enforcing input boundaries and defensive button state bindings on all interactive components."
+            explanation = f"Project scan passed! Zero operational UX hazards detected across {total_files_scanned} source files."
+            consequence = "Form buttons, search queries, and input boundaries behave properly."
+            repair_prompt = "No action required. Maintain button loading states and input bounds."
 
     else:
-        tier_title = "YELLOW: Code Quality & Hygiene Polish"
+        tier_title = "YELLOW: Tidy Up Before You Hire A Developer"
         if is_defect:
-            explanation = f"Detected {defect_count} hygiene defect(s) across scanned project files, including stray console.log statements, missing alt attributes, or sparse documentation."
-            consequence = "Degrades code readability, clutters browser developer tools in production, and reduces team onboarding velocity."
-            repair_prompt = f"Clean up all {defect_count} hygiene issues: remove stray console.log calls, provide descriptive alt text for images, and expand README documentation."
+            explanation = f"Detected {defect_count} code hygiene issue(s), including over-complex files, stray console logs, empty README, or outdated methods."
+            consequence = "One file is over 500 lines or contains leftover test code. Looks unfinished to technical reviewers and costs more to maintain."
+            repair_prompt = (
+                "Copy this and paste it into Lovable / Cursor:\n"
+                f"Tidy up the codebase: remove console.log statements, write a clear README.md, and break down files over 500 lines into smaller modules."
+            )
         else:
-            explanation = f"Project scan passed! Codebase hygiene is clean with zero stray debug statements or missing documentation detected across {total_files_scanned} files."
-            consequence = "Ensures clean production runtime output and professional maintainability."
-            repair_prompt = "Maintain production build stripping of debug logs and adhere to team documentation standards."
+            explanation = f"Project scan passed! Codebase hygiene is clean across {total_files_scanned} files."
+            consequence = "Code is tidy and ready for technical collaboration."
+            repair_prompt = "No action required. Code hygiene is clean."
 
-    # Collect real code excerpts and invoke LLM Arbiter for deep inspection
+    # Collect code excerpts and invoke LLM Arbiter for deep inspection
     code_samples = collect_repo_code_samples(repo_name=clean_repo, max_total_chars=5000)
     findings_summary = "\n".join([f"- [{d['rule']}] {d['file']}:{d['line']} -> {d['snippet']}" for d in all_defects[:15]])
 
-    user_prompt = f"""You are conducting an enterprise-grade {tier_title} code audit.
+    user_prompt = f"""You are conducting a Preflight {tier_title} code audit for a vibe-coded web application.
 Repository: {repo_name or 'Current Project'}
 Source Files Scanned: {total_files_scanned}
 Static Analyzer Suspected Defects: {len(all_defects)}
 
-Static Analyzer Findings:
+Static Findings:
 {findings_summary or 'No obvious regex patterns matched. Inspect source files below directly.'}
 
 Representative Source Code Excerpts:
 {code_samples}
 
 Instructions:
-1. Examine both the findings and the source code excerpts for {tier_title} rules.
+1. Examine both findings and source excerpts for {tier_title} rules strictly.
 2. Determine if real defects exist (`is_defect`).
 3. If defects exist, provide:
-   - "plain_english_explanation": A concise, clear sentence describing the critical defects.
-   - "business_consequence": Impact on security, stability, UX, or compliance.
-   - "repair_prompt": Concrete, actionable fix instructions.
-   - "defects": Optional list of objects {{"file", "line", "rule", "snippet", "detail"}} for any defects found directly in the code.
-4. If the code is genuinely clean, set "is_defect": false.
+   - "plain_english_explanation": One sentence for a non-coder with no jargon.
+   - "business_consequence": Real impact (money, data loss, crashes, user drop-off).
+   - "repair_prompt": Formatted specifically as "Copy this and paste it into Lovable / Cursor:\n..."
+   - "defects": List of defect objects {{"file", "line", "rule", "snippet", "detail", "business_consequence", "repair_prompt"}}.
+4. If the code is clean, set "is_defect": false.
 
 Respond STRICTLY in valid JSON matching your system prompt schema."""
 
@@ -670,34 +1145,49 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
                         "line": d.get("line", 1),
                         "rule": d.get("rule", f"{tier_upper} Defect"),
                         "snippet": str(d.get("snippet", ""))[:160],
-                        "detail": str(d.get("detail", ""))[:300]
+                        "detail": str(d.get("detail", explanation))[:300],
+                        "business_consequence": str(d.get("business_consequence", consequence))[:300],
+                        "repair_prompt": str(d.get("repair_prompt", repair_prompt)),
+                        "tier": tier_lower
                     })
         defect_count = len(all_defects)
         if defect_count > 0:
             is_defect = True
             confidence = max(confidence, 0.92)
     except Exception as llm_err:
-        print(f"[Preflight Tier Audit] LLM Evaluation note ({tier_lower}): {llm_err}")
+        print(f"[Preflight Tier Audit] LLM Note ({tier_lower}): {llm_err}")
 
-    # Generate Markdown Report for this Tier
+    # Compute scoring & verdict for this audit pass
+    scoring = compute_preflight_scoring(all_defects)
+
+    # Format Markdown Report
     md_lines = [
         f"# Preflight Tier Audit: {tier_title}",
         f"",
         f"- **Repository:** `{repo_name or 'All Repositories'}`",
-        f"- **Audit Status:** **{'DEFECTS DETECTED' if is_defect else 'PASS - ZERO DEFECTS'}**",
+        f"- **Verdict:** **{scoring['verdict_title']}**",
+        f"- **Readiness Score:** **{scoring['readiness_score']} / 100**",
         f"- **Defects Found:** `{defect_count}`",
         f"- **Files Scanned:** `{total_files_scanned}`",
         f"",
-        f"---",
-        f"",
-        f"## 1. Executive Findings & Impact",
-        f"",
-        f"- **Plain English Explanation:** {explanation}",
-        f"- **Business & Operational Consequence:** {consequence}",
+        f"> **Verdict Meaning:** {scoring['verdict_meaning']}",
         f"",
         f"---",
         f"",
-        f"## 2. Identified Defect Occurrences Across Entire Project",
+        f"## 1. What The User Sees (4-Part Plain English Breakdown)",
+        f"",
+        f"- **1. What's wrong:** {explanation}",
+        f"- **2. Why it matters to them:** {consequence}",
+        f"- **3. Proof:** {defect_count} confirmed suspect(s) in codebase.",
+        f"- **4. How to fix it:**",
+        f"",
+        f"```text",
+        repair_prompt,
+        f"```",
+        f"",
+        f"---",
+        f"",
+        f"## 2. Identified Defect Occurrences",
         f""
     ]
 
@@ -706,24 +1196,21 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
     else:
         for idx, d in enumerate(all_defects[:50], start=1):
             md_lines.append(f"### {idx}. {d['rule']} in `{d['file']}:{d['line']}`")
-            md_lines.append(f"- **Detail:** {d['detail']}")
-            md_lines.append(f"- **Offending Code:**")
+            md_lines.append(f"- **What's wrong:** {d.get('detail', explanation)}")
+            md_lines.append(f"- **Why it matters:** {d.get('business_consequence', consequence)}")
+            md_lines.append(f"- **Proof (Code Snippet):**")
             md_lines.append(f"```text")
             md_lines.append(f"{d['snippet']}")
+            md_lines.append(f"```")
+            md_lines.append(f"- **Ready-to-Paste AI Fix:**")
+            md_lines.append(f"```text")
+            md_lines.append(f"{d.get('repair_prompt', repair_prompt)}")
             md_lines.append(f"```")
             md_lines.append("")
 
     md_lines.extend([
         "---",
-        "",
-        "## 3. Tool-Tailored AI Repair Prompt",
-        "",
-        "```text",
-        repair_prompt,
-        "```",
-        "",
-        "---",
-        "*Audit executed dynamically by CodeGraph Brain Preflight Engine.*"
+        "*Audit executed by Preflight Detection Engine according to Preflight Detection Spec v4.*"
     ])
 
     markdown_report = "\n".join(md_lines)
@@ -735,6 +1222,9 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
         r_val = d.get("rule") or f"{tier_upper} Defect"
         s_val = d.get("snippet") or d.get("code_snippet") or ""
         det_val = d.get("detail") or d.get("plain_english_explanation") or explanation
+        cons_val = d.get("business_consequence") or consequence
+        rep_val = d.get("repair_prompt") or repair_prompt
+
         enriched_defects.append({
             "file": f_val,
             "file_path": f_val,
@@ -745,8 +1235,8 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
             "code_snippet": s_val,
             "detail": det_val,
             "plain_english_explanation": det_val,
-            "business_consequence": consequence,
-            "repair_prompt": repair_prompt,
+            "business_consequence": cons_val,
+            "repair_prompt": rep_val,
             "tier": tier_lower
         })
 
@@ -766,6 +1256,7 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
         "plain_english_explanation": explanation,
         "business_consequence": consequence,
         "repair_prompt": repair_prompt,
+        "scoring": scoring,
         "markdown_report": markdown_report
     }
 
@@ -778,6 +1269,7 @@ def run_3tier_preflight_evaluation(
     Executes all three Preflight evaluation passes (Red, Orange, Yellow) concurrently.
     If custom_code is supplied, delegates to evaluate_*_family.
     Otherwise, runs deep project-wide audit_single_tier for each tier.
+    Computes overall 4-area Preflight scoring and Readiness score across all tiers.
     """
     if custom_code:
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -788,6 +1280,14 @@ def run_3tier_preflight_evaluation(
             red_result = future_red.result()
             orange_result = future_orange.result()
             yellow_result = future_yellow.result()
+        
+        all_defects = []
+        if red_result.get("is_defect"):
+            all_defects.append({"tier": "red", "rule": "RED Vulnerability", "detail": red_result.get("plain_english_explanation")})
+        if orange_result.get("is_defect"):
+            all_defects.append({"tier": "orange", "rule": "ORANGE Hazard", "detail": orange_result.get("plain_english_explanation")})
+        if yellow_result.get("is_defect"):
+            all_defects.append({"tier": "yellow", "rule": "YELLOW Polish", "detail": yellow_result.get("plain_english_explanation")})
     else:
         clean_repo = sanitize_name(repo_name) if repo_name else None
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -799,11 +1299,23 @@ def run_3tier_preflight_evaluation(
             orange_result = f_orange.result()
             yellow_result = f_yellow.result()
 
+        all_defects = []
+        all_defects.extend(red_result.get("defects", []))
+        all_defects.extend(orange_result.get("defects", []))
+        all_defects.extend(yellow_result.get("defects", []))
+
+    scoring = compute_preflight_scoring(all_defects)
+
     return {
         "repository": repo_name or "All Repositories",
         "red_defects": red_result,
         "orange_defects": orange_result,
-        "yellow_defects": yellow_result
+        "yellow_defects": yellow_result,
+        "scoring": scoring,
+        "readiness_score": scoring["readiness_score"],
+        "verdict_title": scoring["verdict_title"],
+        "verdict_meaning": scoring["verdict_meaning"],
+        "verdict_state": scoring["verdict_state"]
     }
 
 
@@ -812,18 +1324,33 @@ def compile_pure_english_markdown_report(
     analytics_data: Optional[Dict[str, Any]] = None
 ) -> str:
     """
-    Generates a 100% pure English, comprehensive Markdown report combining:
-    1. Executive Summary & Health Index
-    2. 🔴 Preflight Defect Family: RED (Critical / Blocker Vulnerabilities)
-    3. 🟠 Preflight Defect Family: ORANGE (High Risk / Operational Hazards)
-    4. 🟡 Preflight Defect Family: YELLOW (Hygiene & Polish Issues)
-    5. 🏛️ Knowledge Graph Architectural Smells (Critical Hubs, Cycles, Dead Code, Clones)
-    6. 🛠️ Action Plan & Tool-Tailored Repair Instructions
+    Generates a 100% pure English, comprehensive Markdown report strictly aligned
+    with Preflight Detection Spec v4 combining:
+    1. Verdict and Readiness Score (Part 2.1)
+    2. The 4-Area Health Breakdown (Part 5: Security, Reliability, Correctness, Maintainability)
+    3. 🔴 Preflight Defect Family: RED (Fix before anyone uses this)
+    4. 🟠 Preflight Defect Family: ORANGE (Your users will hit these)
+    5. 🟡 Preflight Defect Family: YELLOW (Tidy up before you hire a developer)
+    6. 🏛️ Knowledge Graph Architectural Smells (Critical Hubs, Cycles, Dead Code)
+    7. 🛠️ Ready-to-Paste AI Repair Prompts (Part 2.3)
     """
     repo = eval_results.get("repository", "All Repositories")
     red = eval_results.get("red_defects", {})
     orange = eval_results.get("orange_defects", {})
     yellow = eval_results.get("yellow_defects", {})
+    scoring = eval_results.get("scoring")
+
+    if not scoring:
+        all_d = []
+        all_d.extend(red.get("defects", []))
+        all_d.extend(orange.get("defects", []))
+        all_d.extend(yellow.get("defects", []))
+        scoring = compute_preflight_scoring(all_d)
+
+    readiness = scoring["readiness_score"]
+    verdict_title = scoring["verdict_title"]
+    verdict_meaning = scoring["verdict_meaning"]
+    areas = scoring["areas"]
 
     analytics = analytics_data or {}
     cycles = analytics.get("circular_dependencies") or []
@@ -832,92 +1359,76 @@ def compile_pure_english_markdown_report(
     clones = analytics.get("code_clones") or []
     hotspots = analytics.get("git_hotspots") or []
 
-    # Calculate overall health score
-    defects_count = sum([1 for item in [red, orange, yellow] if item.get("is_defect")])
-    total_smells = len(cycles) + len(hubs) + len(dead)
-    if red.get("is_defect") or len(cycles) > 2 or len(hubs) > 5:
-        overall_status = "CRITICAL RISK"
-        badge = "🔴 Critical Action Required"
-    elif orange.get("is_defect") or len(cycles) > 0 or len(dead) > 10:
-        overall_status = "WARNING"
-        badge = "🟠 Moderate Operational Risk"
-    else:
-        overall_status = "HEALTHY"
-        badge = "🟢 Production Ready"
-
-    md = f"""# CodeGraph Brain - Architecture & Preflight Code Review Report
+    md = f"""# Preflight Code Quality & Shipping Report
 
 > **Target Repository:** `{repo}`  
-> **Evaluation Mode:** 3-Tier Preflight Autonomous Arbiter & AST Knowledge Graph  
-> **System Status:** **{overall_status}** ({badge})  
+> **Evaluation Engine:** Preflight Autonomous Arbiter (Spec v4)  
+> **Verdict:** **{verdict_title}**  
+> **Readiness Score:** **{readiness} / 100**  
+
+> **Verdict Assessment:** {verdict_meaning}
 
 ---
 
-## 1. Executive Summary & System Health
+## 1. The 4-Area Readiness Breakdown
 
-| Assessment Metric | Detected Count | Risk Rating | Operational Impact |
-| :--- | :--- | :--- | :--- |
-| **🔴 RED Vulnerabilities (Blockers)** | {red.get("defect_count", (1 if red.get("is_defect") else 0))} | {('HIGH' if red.get("is_defect") else 'LOW')} | Critical security & server stability |
-| **🟠 ORANGE Hazards (Operational)** | {orange.get("defect_count", (1 if orange.get("is_defect") else 0))} | {('MEDIUM' if orange.get("is_defect") else 'LOW')} | UX degradation & runaway inputs |
-| **🟡 YELLOW Issues (Hygiene & Polish)** | {yellow.get("defect_count", (1 if yellow.get("is_defect") else 0))} | {('LOW' if yellow.get("is_defect") else 'CLEAN')} | Readability, logging & accessibility |
-| **Circular Dependency Chains** | {len(cycles)} | {('CRITICAL' if len(cycles) > 0 else 'OPTIMAL')} | Tightly-coupled architectural cycles |
-| **Critical Hubs (God Functions)** | {len(hubs)} | {('HIGH' if len(hubs) > 3 else 'ACCEPTABLE')} | High blast radius & modification fragility |
-| **Dead / Unreferenced Code** | {len(dead)} | {('EVALUATE' if len(dead) > 0 else 'CLEAN')} | Unused logic & bundle overhead |
-| **Code Clones & Duplications** | {len(clones)} | {('REFACTOR' if len(clones) > 0 else 'CLEAN')} | Maintenance duplication risks |
-| **Git Churn Hotspots** | {len(hotspots)} | {('MONITOR' if len(hotspots) > 0 else 'STABLE')} | High volatility / merge conflict zones |
+| Area | Weight | Spec Category | Score | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Security** | 35% | **Can someone hurt you** | `{areas['security']['score']} / 100` | {('🔴 DANGER' if areas['security']['score'] < 70 else '🟢 SAFE')} |
+| **Reliability** | 30% | **Does it break** | `{areas['reliability']['score']} / 100` | {('🔴 UNSTABLE' if areas['reliability']['score'] < 70 else '🟢 STABLE')} |
+| **Correctness** | 20% | **Does it behave properly** | `{areas['correctness']['score']} / 100` | {('🟠 FAULTY' if areas['correctness']['score'] < 80 else '🟢 CLEAN')} |
+| **Maintainability** | 15% | **Can a developer work on it** | `{areas['maintainability']['score']} / 100` | {('🟡 FRICTION' if areas['maintainability']['score'] < 80 else '🟢 MAINTAINABLE')} |
 
 ---
 
-## 2. 🔴 Preflight Defect Family: RED (Critical / Blocker Vulnerabilities)
+## 2. 🔴 Preflight Defect Family: RED (Fix Before Anyone Uses This)
 
-*Rules evaluated: Leaked Keys / Secrets, Unprotected Admin Routes, SQL/NoSQL Injection, Fatal Server Crashes, Infinite Render Loops, Dead Core Buttons.*
+*Defects evaluated: Leaked API keys, Unprotected admin routes, Database injection, Crashes on unexpected input, Infinite loops, Dead buttons on the main flow.*
 
-- **Defect Status:** `{("DEFECT DETECTED" if red.get("is_defect") else "PASS - NO CRITICAL DEFECTS")}`
+- **Defect Status:** `{("DEFECT DETECTED" if red.get("is_defect") else "PASS - NO BLOCKERS")}`
 - **Defects Count:** `{red.get("defect_count", (1 if red.get("is_defect") else 0))}`
-- **Confidence Score:** `{red.get("confidence", 0.0)}`
-- **Plain English Explanation:**  
+- **1. What's wrong:**  
   > {red.get("plain_english_explanation", "No critical blocker defects identified.")}
-- **Business Consequence:**  
+- **2. Why it matters to them:**  
   > {red.get("business_consequence", "Zero financial or security degradation observed.")}
-- **Tool-Tailored Repair Instructions:**  
+- **3. How to fix it:**  
   ```text
-  {red.get("repair_prompt", "Maintain existing automated security scanning and strict auth guards.")}
+  {red.get("repair_prompt", "Copy this and paste it into Lovable / Cursor:\nMaintain existing secret scanning and auth guards.")}
   ```
 
 ---
 
-## 3. 🟠 Preflight Defect Family: ORANGE (High Risk / Operational Hazards)
+## 3. 🟠 Preflight Defect Family: ORANGE (Your Users Will Hit These)
 
-*Rules evaluated: Missing Loading State, Unbounded Input Fields, Un-debounced Search, Heavy Unoptimized Images.*
+*Defects evaluated: No loading state / double submission, No limits on what people can type, Search and sort are wrong, Slow pages and heavy images.*
 
 - **Defect Status:** `{("DEFECT DETECTED" if orange.get("is_defect") else "PASS - NO OPERATIONAL HAZARDS")}`
 - **Defects Count:** `{orange.get("defect_count", (1 if orange.get("is_defect") else 0))}`
-- **Confidence Score:** `{orange.get("confidence", 0.0)}`
-- **Plain English Explanation:**  
+- **1. What's wrong:**  
   > {orange.get("plain_english_explanation", "No high-risk operational hazards identified.")}
-- **Business Consequence:**  
+- **2. Why it matters to them:**  
   > {orange.get("business_consequence", "Preserves optimal user experience and API load boundaries.")}
-- **Tool-Tailored Repair Instructions:**  
+- **3. How to fix it:**  
   ```text
-  {orange.get("repair_prompt", "Ensure all asynchronous actions disable triggers and enforce input bounds.")}
+  {orange.get("repair_prompt", "Copy this and paste it into Lovable / Cursor:\nEnsure all async actions disable triggers and enforce input bounds.")}
   ```
 
 ---
 
-## 4. 🟡 Preflight Defect Family: YELLOW (Hygiene / Polish Issues)
+## 4. 🟡 Preflight Defect Family: YELLOW (Tidy Up Before You Hire A Developer)
 
-*Rules evaluated: Stray Debug Logs, Contrast / A11y, Incomplete Documentation.*
+*Defects evaluated: Over-complex files, Debug code and no documentation, Outdated methods.*  
+*(Note: Colour contrast, accessibility, and spelling are excluded from scope).*
 
 - **Defect Status:** `{("DEFECT DETECTED" if yellow.get("is_defect") else "PASS - CLEAN HYGIENE")}`
 - **Defects Count:** `{yellow.get("defect_count", (1 if yellow.get("is_defect") else 0))}`
-- **Confidence Score:** `{yellow.get("confidence", 0.0)}`
-- **Plain English Explanation:**  
-  > {yellow.get("plain_english_explanation", "Code hygiene meets professional standards.")}
-- **Business Consequence:**  
+- **1. What's wrong:**  
+  > {yellow.get("plain_english_explanation", "Code hygiene meets maintainability standards.")}
+- **2. Why it matters to them:**  
   > {yellow.get("business_consequence", "Clean production logs and complete documentation ensure rapid team onboarding.")}
-- **Tool-Tailored Repair Instructions:**  
+- **3. How to fix it:**  
   ```text
-  {yellow.get("repair_prompt", "Strip development console statements from production builds.")}
+  {yellow.get("repair_prompt", "Copy this and paste it into Lovable / Cursor:\nStrip development console statements from production builds and create a clear README.md.")}
   ```
 
 ---
@@ -963,22 +1474,11 @@ def compile_pure_english_markdown_report(
 
     md += """---
 
-## 6. 🛠️ Remediation Roadmap & Action Checklist
+## 6. 🛠️ Ready-to-Paste Remediation Instructions
 
-1. **Immediate (Blockers):**
-   - Address any identified 🔴 RED vulnerabilities prior to deployment.
-   - Decouple circular dependencies using the Dependency Inversion Principle (DIP) or event emitters.
-
-2. **Medium-Term (Operational UX):**
-   - Introduce UI loading indicators and request deduplication/debounce for async interactions.
-   - Enforce schema validations and bounds checking across all user-facing inputs.
-
-3. **Long-Term (Hygiene & Architecture):**
-   - Refactor identified God Functions into single-responsibility service modules.
-   - Safely prune verified dead code candidates to reduce test surface area and bundle size.
-   - Remove lingering debug logs and verify accessibility contrast across all interfaces.
+Copy and paste the repair prompts directly into Lovable, Cursor, Bolt, or v0, re-run Preflight, and watch your Readiness score rise from 40 to 90+.
 
 ---
-*Report generated automatically by CodeGraph Brain Preflight Autonomous Arbiter.*
+*Report generated automatically by Preflight Autonomous Arbiter.*
 """
     return md

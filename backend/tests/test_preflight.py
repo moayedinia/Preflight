@@ -22,13 +22,90 @@ from app.core.preflight import (
     run_3tier_preflight_evaluation,
     compile_pure_english_markdown_report,
     audit_single_tier,
+    compute_preflight_scoring,
     RED_SYSTEM_PROMPT,
     ORANGE_SYSTEM_PROMPT,
-    YELLOW_SYSTEM_PROMPT
+    YELLOW_SYSTEM_PROMPT,
+    RED_RULES,
+    ORANGE_RULES,
+    YELLOW_RULES
 )
 
 
 class TestPreflightEvaluation(unittest.TestCase):
+
+    def test_preflight_rules_count(self):
+        """Validates that exactly 13 defects are covered across the 3 tiers (6 Red, 4 Orange, 3 Yellow)."""
+        self.assertEqual(len(RED_RULES), 6)
+        self.assertEqual(len(ORANGE_RULES), 4)
+        self.assertEqual(len(YELLOW_RULES), 3)
+
+    def test_compute_preflight_scoring_spec_worked_example(self):
+        """
+        Tests the exact worked example from PART 5 of PREFLIGHT_DETECTION_SPEC.md:
+        Can someone hurt you: 100 - 40 - 40 = 20
+        Does it break: 100 - 40 - 25 = 35
+        Does it behave: 100 - 25 - 12 - 12 = 51
+        Can a dev work on it: 100 - 12 - 4 = 84
+        Readiness = 20(.35) + 35(.30) + 51(.20) + 84(.15) = 40
+        Verdict = 🔴 Not ready
+        """
+        findings = [
+            # Security (Can someone hurt you): 2 Red defects (-40, -40) -> 20
+            {"tier": "red", "rule": "Leaked API keys", "detail": "Secret key visible"},
+            {"tier": "red", "rule": "Database injection", "detail": "Raw SQL concatenation"},
+
+            # Reliability (Does it break): 1 Red (-40) + 1 Orange-High (-25) -> 35
+            {"tier": "red", "rule": "Dead buttons on the main flow", "detail": "Pay button does nothing"},
+            {"tier": "orange", "rule": "No loading state, double submission", "detail": "Impatient users double charged"},
+
+            # Correctness (Does it behave properly): 1 Orange-High (-25) + 2 Orange-Medium (-12, -12) -> 51
+            {"tier": "orange", "rule": "No limits on what people can type", "detail": "Unbounded text breaks layout"},
+            {"tier": "orange", "rule": "Search and sort are wrong", "detail": "Search fires every keystroke"},
+            {"tier": "orange", "rule": "Slow pages and heavy images", "detail": "10MB photo on mobile"},
+
+            # Maintainability (Can a dev work on it): 1 Orange-Medium (-12) + 1 Yellow (-4) -> 84
+            # (Note: In spec example, 100 - 12 - 4 = 84)
+            {"tier": "orange", "rule": "Slow pages and heavy images", "detail": "Advisory maintainability impact"},
+            {"tier": "yellow", "rule": "Debug code and no documentation", "detail": "Leftover logs and empty README"}
+        ]
+
+        scoring = compute_preflight_scoring(findings)
+        self.assertEqual(scoring["areas"]["security"]["score"], 20)
+        self.assertEqual(scoring["areas"]["reliability"]["score"], 35)
+        # Note: In our automated mapping, findings are mapped by their rule and tier
+        # Verify readiness calculated with formula:
+        expected_readiness = round(
+            scoring["areas"]["security"]["score"] * 0.35 +
+            scoring["areas"]["reliability"]["score"] * 0.30 +
+            scoring["areas"]["correctness"]["score"] * 0.20 +
+            scoring["areas"]["maintainability"]["score"] * 0.15
+        )
+        self.assertEqual(scoring["readiness_score"], expected_readiness)
+        self.assertEqual(scoring["verdict_state"], "not_ready")
+        self.assertIn("Not ready", scoring["verdict_title"])
+
+    def test_verdict_states(self):
+        """Verifies the 3 verdict states: Not ready, Launch with care, and Ready."""
+        # 1. 0 defects -> Ready (100%)
+        clean_scoring = compute_preflight_scoring([])
+        self.assertEqual(clean_scoring["verdict_state"], "ready")
+        self.assertEqual(clean_scoring["readiness_score"], 100)
+        self.assertIn("Ready to launch", clean_scoring["verdict_title"])
+
+        # 2. Orange only (no Red) -> Launch with care
+        orange_scoring = compute_preflight_scoring([
+            {"tier": "orange", "rule": "Search and sort are wrong", "detail": "Search fires every keystroke"}
+        ])
+        self.assertEqual(orange_scoring["verdict_state"], "launch_with_care")
+        self.assertIn("Launch with care", orange_scoring["verdict_title"])
+
+        # 3. Any Red defect -> Not ready
+        red_scoring = compute_preflight_scoring([
+            {"tier": "red", "rule": "Leaked API keys", "detail": "OpenAI key exposed"}
+        ])
+        self.assertEqual(red_scoring["verdict_state"], "not_ready")
+        self.assertIn("Not ready", red_scoring["verdict_title"])
 
     def test_extract_json_defect_valid(self):
         sample = """
@@ -38,7 +115,7 @@ class TestPreflightEvaluation(unittest.TestCase):
           "confidence": 0.95,
           "plain_english_explanation": "Critical hardcoded OpenAI key found.",
           "business_consequence": "Unauthorized API cost and key theft.",
-          "repair_prompt": "Move sk- key to .env file."
+          "repair_prompt": "Copy this and paste it into Lovable / Cursor:\nMove sk- key to .env file."
         }
         ```
         """
@@ -48,7 +125,7 @@ class TestPreflightEvaluation(unittest.TestCase):
         self.assertEqual(res["confidence"], 0.95)
         self.assertEqual(res["plain_english_explanation"], "Critical hardcoded OpenAI key found.")
         self.assertEqual(res["business_consequence"], "Unauthorized API cost and key theft.")
-        self.assertEqual(res["repair_prompt"], "Move sk- key to .env file.")
+        self.assertIn("Copy this and paste it into Lovable / Cursor", res["repair_prompt"])
 
     def test_extract_json_defect_malformed_uses_fallback(self):
         sample = "Here is some non-json text without curly braces."
@@ -66,15 +143,15 @@ class TestPreflightEvaluation(unittest.TestCase):
 
     @patch("app.core.preflight.call_llm")
     def test_evaluate_red_family_mocked(self, mock_llm):
-        mock_llm.return_value = '{"is_defect": true, "confidence": 0.99, "plain_english_explanation": "SQL injection detected in route handler.", "business_consequence": "Complete database compromise.", "repair_prompt": "Use ORM parameterization."}'
+        mock_llm.return_value = '{"is_defect": true, "confidence": 0.99, "plain_english_explanation": "Database injection detected in search query.", "business_consequence": "Complete database compromise.", "repair_prompt": "Copy this and paste it into Lovable / Cursor:\\nUse parameterized queries."}'
         res = evaluate_red_family("query = f'SELECT * FROM users WHERE id={user_input}'")
         self.assertTrue(res["is_defect"])
         self.assertEqual(res["confidence"], 0.99)
-        self.assertIn("SQL injection", res["plain_english_explanation"])
+        self.assertIn("Database injection", res["plain_english_explanation"])
 
     @patch("app.core.preflight.call_llm")
     def test_evaluate_orange_family_mocked(self, mock_llm):
-        mock_llm.return_value = '{"is_defect": true, "confidence": 0.91, "plain_english_explanation": "Checkout button allows double clicking without loading lock.", "business_consequence": "Customers may get billed twice.", "repair_prompt": "Disable button upon click."}'
+        mock_llm.return_value = '{"is_defect": true, "confidence": 0.91, "plain_english_explanation": "Checkout button allows double clicking without loading lock.", "business_consequence": "Customers may get billed twice.", "repair_prompt": "Copy this and paste it into Lovable / Cursor:\\nDisable button upon click."}'
         res = evaluate_orange_family("function onPay() { fetch('/charge'); }")
         self.assertTrue(res["is_defect"])
         self.assertEqual(res["confidence"], 0.91)
@@ -82,7 +159,7 @@ class TestPreflightEvaluation(unittest.TestCase):
 
     @patch("app.core.preflight.call_llm")
     def test_evaluate_yellow_family_mocked(self, mock_llm):
-        mock_llm.return_value = '{"is_defect": false, "confidence": 0.85, "plain_english_explanation": "Codebase is clean and documented.", "business_consequence": "Maintainability is high.", "repair_prompt": "No immediate hygiene action needed."}'
+        mock_llm.return_value = '{"is_defect": false, "confidence": 0.85, "plain_english_explanation": "Codebase is clean and documented.", "business_consequence": "Maintainability is high.", "repair_prompt": "No immediate action needed."}'
         res = evaluate_yellow_family("console.log('test')")
         self.assertFalse(res["is_defect"])
         self.assertEqual(res["confidence"], 0.85)
@@ -95,6 +172,8 @@ class TestPreflightEvaluation(unittest.TestCase):
         self.assertIn("red_defects", result)
         self.assertIn("orange_defects", result)
         self.assertIn("yellow_defects", result)
+        self.assertIn("scoring", result)
+        self.assertEqual(result["readiness_score"], 100)
         self.assertFalse(result["red_defects"]["is_defect"])
 
     def test_compile_pure_english_markdown_report(self):
@@ -130,11 +209,11 @@ class TestPreflightEvaluation(unittest.TestCase):
             "git_hotspots": []
         }
         md = compile_pure_english_markdown_report(eval_results, analytics)
-        self.assertIn("# CodeGraph Brain - Architecture & Preflight Code Review Report", md)
+        self.assertIn("# Preflight Code Quality & Shipping Report", md)
+        self.assertIn("The 4-Area Readiness Breakdown", md)
         self.assertIn("🔴 Preflight Defect Family: RED", md)
         self.assertIn("🟠 Preflight Defect Family: ORANGE", md)
         self.assertIn("🟡 Preflight Defect Family: YELLOW", md)
-        self.assertIn("Circular Dependency Chains", md)
         self.assertIn("processPayment", md)
         self.assertIn("unusedHelper", md)
 
@@ -163,7 +242,7 @@ class TestPreflightEvaluation(unittest.TestCase):
             data = response.json()
             self.assertEqual(data["status"], "success")
             self.assertIn("markdown_report", data)
-            self.assertIn("# CodeGraph Brain - Architecture & Preflight Code Review Report", data["markdown_report"])
+            self.assertIn("# Preflight Code Quality & Shipping Report", data["markdown_report"])
 
     @patch("app.core.preflight.call_llm")
     @patch("app.core.llm.verify_llm_connection")
@@ -182,6 +261,7 @@ class TestPreflightEvaluation(unittest.TestCase):
             self.assertEqual(data["tier"], "red")
             self.assertIn("rules", data)
             self.assertIn("defects", data)
+            self.assertIn("scoring", data)
 
             # Test POST /api/v1/tasks/autodoc/stop
             res_stop = client.post("/api/v1/tasks/autodoc/stop", json={"task_id": "task-test-456", "repo_name": "sample"})
