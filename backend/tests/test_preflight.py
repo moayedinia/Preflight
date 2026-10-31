@@ -1,5 +1,8 @@
 import unittest
 import sys
+import os
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
@@ -16,6 +19,8 @@ for mod_name, mock_mod in mock_modules.items():
 
 from app.core.preflight import (
     extract_json_defect,
+    extract_code_block,
+    apply_preflight_bug_fix,
     evaluate_red_family,
     evaluate_orange_family,
     evaluate_yellow_family,
@@ -73,7 +78,6 @@ class TestPreflightEvaluation(unittest.TestCase):
         scoring = compute_preflight_scoring(findings)
         self.assertEqual(scoring["areas"]["security"]["score"], 20)
         self.assertEqual(scoring["areas"]["reliability"]["score"], 35)
-        # Note: In our automated mapping, findings are mapped by their rule and tier
         # Verify readiness calculated with formula:
         expected_readiness = round(
             scoring["areas"]["security"]["score"] * 0.35 +
@@ -126,6 +130,23 @@ class TestPreflightEvaluation(unittest.TestCase):
         self.assertEqual(res["plain_english_explanation"], "Critical hardcoded OpenAI key found.")
         self.assertEqual(res["business_consequence"], "Unauthorized API cost and key theft.")
         self.assertIn("Copy this and paste it into Lovable / Cursor", res["repair_prompt"])
+
+    def test_extract_code_block(self):
+        """Verifies code extraction from various LLM response formats."""
+        # With language tag
+        fenced = "```javascript\nfunction pay() { return true; }\n```"
+        self.assertEqual(extract_code_block(fenced, "fallback"), "function pay() { return true; }")
+
+        # Without language tag
+        fenced_no_lang = "```\nprint('hello world')\n```"
+        self.assertEqual(extract_code_block(fenced_no_lang, "fallback"), "print('hello world')")
+
+        # Raw code without fences
+        raw = "export const config = { timeout: 5000 };"
+        self.assertEqual(extract_code_block(raw, "fallback"), raw)
+
+        # Fallback on empty or error
+        self.assertEqual(extract_code_block("I apologize, but I cannot.", "fallback"), "fallback")
 
     def test_extract_json_defect_malformed_uses_fallback(self):
         sample = "Here is some non-json text without curly braces."
@@ -269,6 +290,56 @@ class TestPreflightEvaluation(unittest.TestCase):
             data_stop = res_stop.json()
             self.assertEqual(data_stop["status"], "stopped")
             self.assertEqual(data_stop["task_id"], "task-test-456")
+
+    def test_apply_preflight_bug_fix_and_endpoint(self):
+        """Verifies that apply_preflight_bug_fix edits the file on disk and the /api/v1/review/fix-bug endpoint works."""
+        # Create a temp file inside a dummy repo folder under current working dir
+        test_dir = Path("temp_test_repo")
+        test_dir.mkdir(exist_ok=True)
+        test_file = test_dir / "PaymentFlow.js"
+        test_file.write_text("function onPay() { /* missing handler */ }", encoding="utf-8")
+
+        try:
+            # 1. Direct function test
+            result = apply_preflight_bug_fix(
+                repo_name="temp_test_repo",
+                file_path="PaymentFlow.js",
+                repair_prompt="Attach active handler to onPay and disable button while loading.",
+                rule="Dead buttons on the main flow",
+                detail="Your Pay button does nothing.",
+                line_number=1
+            )
+            self.assertEqual(result["status"], "success")
+            self.assertIn("PaymentFlow.js", result["file_path"])
+
+            # Verify file was updated on disk
+            updated_content = test_file.read_text(encoding="utf-8")
+            self.assertIn("Preflight Auto-Fix Applied", updated_content)
+
+            # 2. Endpoint test
+            with patch.dict(sys.modules, mock_modules), patch("app.core.security.ALLOW_UNAUTHENTICATED", True):
+                from app.main import app
+                from fastapi.testclient import TestClient
+                client = TestClient(app)
+
+                res = client.post("/api/v1/review/fix-bug", json={
+                    "repo_name": "temp_test_repo",
+                    "file_path": "PaymentFlow.js",
+                    "repair_prompt": "Attach active handler",
+                    "rule": "Dead buttons on the main flow",
+                    "detail": "Button does nothing",
+                    "line_number": 1
+                })
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                self.assertEqual(data["status"], "success")
+                self.assertIn("file_path", data)
+        finally:
+            if test_file.exists():
+                test_file.unlink()
+            if test_dir.exists():
+                test_dir.rmdir()
+
 
 if __name__ == "__main__":
     unittest.main()

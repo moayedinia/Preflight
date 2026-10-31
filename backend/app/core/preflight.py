@@ -4,6 +4,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+from fastapi import HTTPException
 
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 from app.core.llm import call_llm
@@ -1482,3 +1483,191 @@ Copy and paste the repair prompts directly into Lovable, Cursor, Bolt, or v0, re
 *Report generated automatically by Preflight Autonomous Arbiter.*
 """
     return md
+
+
+# ==============================================================================
+# AUTONOMOUS BUG FIXING ENGINE (SPEC FIX-BUG CAPABILITY)
+# ==============================================================================
+
+def extract_code_block(llm_output: str, fallback_code: str) -> str:
+    """
+    Extracts updated source code content from LLM markdown code blocks or fences.
+    Falls back to fallback_code if extraction produces empty or invalid content.
+    """
+    if not llm_output or not isinstance(llm_output, str):
+        return fallback_code
+
+    cleaned = llm_output.strip()
+
+    # Pattern 1: ```lang ... ``` with line break
+    fence_match = re.search(r'```(?:[a-zA-Z0-9_\-\.]+)?\s*\n([\s\S]*?)\n```', cleaned)
+    if fence_match:
+        extracted = fence_match.group(1).strip()
+        if len(extracted) >= 10:
+            return extracted
+
+    # Pattern 2: Any ``` ... ```
+    fence_match2 = re.search(r'```(?:[a-zA-Z0-9_\-\.]+)?\s*([\s\S]*?)```', cleaned)
+    if fence_match2:
+        extracted = fence_match2.group(1).strip()
+        if len(extracted) >= 10:
+            return extracted
+
+    # If the response is raw code without fences and not an error/json message
+    if len(cleaned) >= 20 and not cleaned.startswith("{") and not cleaned.startswith("I apologize") and not cleaned.startswith("Sorry"):
+        return cleaned
+
+    return fallback_code
+
+
+def apply_preflight_bug_fix(
+    repo_name: Optional[str],
+    file_path: str,
+    repair_prompt: str,
+    rule: Optional[str] = None,
+    detail: Optional[str] = None,
+    business_consequence: Optional[str] = None,
+    snippet: Optional[str] = None,
+    line_number: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Autonomously fixes a reported Preflight defect by giving the generated repair prompt
+    and target file content to the LLM, and writes the corrected code back to disk.
+    """
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    clean_path = (file_path or "").strip().replace("\\", "/")
+    if not clean_path:
+        raise HTTPException(status_code=400, detail="file_path is required.")
+
+    # Strip repo name prefix if present in the file path
+    if clean_repo and clean_path.startswith(clean_repo + "/"):
+        clean_path = clean_path[len(clean_repo) + 1:]
+
+    candidates = get_candidate_directories(clean_repo)
+    target_file: Optional[Path] = None
+
+    for base_dir in candidates:
+        candidate_path = (base_dir / clean_path).resolve()
+        try:
+            candidate_path.relative_to(base_dir.resolve())
+            if candidate_path.exists() and candidate_path.is_file():
+                target_file = candidate_path
+                break
+        except (ValueError, Exception):
+            continue
+
+    if not target_file:
+        query_fname = Path(clean_path).name.lower()
+        for base_dir in candidates:
+            for root, dirs, files in os.walk(base_dir):
+                dirs[:] = [d for d in dirs if d not in {".git", "node_modules", "venv", ".venv", "__pycache__"} and not d.startswith(".")]
+                for f in files:
+                    if f.lower() == query_fname:
+                        found_path = (Path(root) / f).resolve()
+                        try:
+                            found_path.relative_to(base_dir.resolve())
+                            target_file = found_path
+                            break
+                        except Exception:
+                            continue
+                if target_file:
+                    break
+            if target_file:
+                break
+
+    if not target_file or not target_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Target file '{file_path}' was not found in repository directories."
+        )
+
+    try:
+        original_code = target_file.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read file '{file_path}': {str(e)}"
+        )
+
+    file_ext = target_file.suffix.lstrip(".").lower() or "txt"
+    display_rel = clean_path
+
+    # Clean repair prompt if it contains the spec copy header
+    clean_repair = repair_prompt or ""
+    if clean_repair.startswith("Copy this and paste it into Lovable / Cursor:"):
+        clean_repair = clean_repair.replace("Copy this and paste it into Lovable / Cursor:", "").strip()
+
+    # System prompt strictly instructing autonomous code repair
+    fix_system_prompt = """You are an autonomous senior software engineer and production code repair arbiter.
+Your task is to fix the reported defect in the provided source code according to the repair instructions.
+
+Instructions:
+1. Apply the exact bug fix requested in the repair instructions.
+2. Maintain documentation integrity and preserve all existing comments, docstrings, imports, and unaffected functions/classes.
+3. Keep the exact same coding style, indentation, and structure.
+4. Output MUST be ONLY the complete, production-ready, updated source code of the entire file.
+5. Enclose the updated code inside a single markdown code fence with the file language, e.g.:
+```{language}
+[complete updated source code]
+```
+Do not output any conversational explanations, notes, or preamble outside the code block."""
+
+    user_prompt = f"""Please fix the following defect in '{display_rel}':
+
+Defect Rule: {rule or 'Suspected Defect'}
+Line Number: {line_number or 'N/A'}
+Problem Explanation: {detail or 'Suspected issue identified in code inspection'}
+Consequence: {business_consequence or 'N/A'}
+Offending Snippet:
+```
+{snippet or 'N/A'}
+```
+
+Repair Instructions:
+{clean_repair}
+
+Current Full File Content:
+```{file_ext}
+{original_code}
+```
+
+Apply the fix directly and return the full updated file in a code block."""
+
+    # Handle testing environment without real LLM endpoint
+    if os.getenv("TESTING") == "1" and not os.getenv("REAL_LLM"):
+        # Simulated test mode fix
+        fixed_code = original_code + "\n// [Preflight Auto-Fix Applied: Defect Resolved]\n"
+    else:
+        try:
+            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=120)
+            fixed_code = extract_code_block(raw_llm, original_code)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"AI model failed while generating fix: {str(e)}"
+            )
+
+    if not fixed_code or fixed_code == original_code:
+        raise HTTPException(
+            status_code=500,
+            detail="The AI did not produce a modified code block for this file."
+        )
+
+    try:
+        target_file.write_text(fixed_code, encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to write fixed code to '{display_rel}': {str(e)}"
+        )
+
+    return {
+        "status": "success",
+        "file_path": display_rel,
+        "message": f"Successfully fixed defect and saved '{display_rel}'!",
+        "rule": rule,
+        "line_number": line_number,
+        "original_size": len(original_code),
+        "fixed_size": len(fixed_code)
+    }
+

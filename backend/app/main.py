@@ -56,7 +56,7 @@ from app.core.repo_manager import (
     delete_repository
 )
 from app.core.reviewer import generate_architectural_code_review
-from app.core.preflight import run_3tier_preflight_evaluation, compile_pure_english_markdown_report, audit_single_tier
+from app.core.preflight import run_3tier_preflight_evaluation, compile_pure_english_markdown_report, audit_single_tier, apply_preflight_bug_fix
 
 
 try:
@@ -803,6 +803,46 @@ def audit_single_tier_post(tier_name: str, payload: Optional[AutoDocRequest] = N
     repo = payload.repo_name if payload else None
     clean_repo = sanitize_name(repo) if repo else None
     return audit_single_tier(tier=tier_name, repo_name=clean_repo)
+
+
+class PreflightFixBugRequest(BaseModel):
+    repo_name: Optional[str] = Field(None, max_length=100)
+    file_path: str = Field(..., max_length=500)
+    repair_prompt: str = Field(..., max_length=10_000)
+    rule: Optional[str] = Field(None, max_length=200)
+    detail: Optional[str] = Field(None, max_length=1000)
+    business_consequence: Optional[str] = Field(None, max_length=1000)
+    snippet: Optional[str] = Field(None, max_length=5000)
+    line_number: Optional[int] = Field(None, ge=1)
+
+
+@app.post("/api/v1/review/fix-bug", dependencies=[Depends(verify_api_key)])
+def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest):
+    """
+    Autonomously fixes a detected Preflight defect using the generated AI repair prompt,
+    updates the source file on disk, and saves the changes.
+    """
+    from app.core.llm import verify_llm_connection
+    is_connected, reason = verify_llm_connection()
+    if not is_connected and os.getenv("TESTING") != "1":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "LLM_NOT_CONNECTED",
+                "message": reason
+            }
+        )
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    return apply_preflight_bug_fix(
+        repo_name=clean_repo,
+        file_path=payload.file_path,
+        repair_prompt=payload.repair_prompt,
+        rule=payload.rule,
+        detail=payload.detail,
+        business_consequence=payload.business_consequence,
+        snippet=payload.snippet,
+        line_number=payload.line_number
+    )
 
 
 # 11. GitHub CI/CD Webhook Trigger
