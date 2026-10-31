@@ -43,8 +43,10 @@ ARG USER_GID=1000
 RUN (groupadd -g ${USER_GID} appgroup 2>/dev/null || groupadd appgroup) && \
     (useradd -u ${USER_UID} -g appgroup -s /bin/bash -m appuser 2>/dev/null || useradd -g appgroup -s /bin/bash -m appuser)
 
-# Configure pip index mirror only if specified
-RUN if [ -n "${PYPI_MIRROR}" ]; then \
+# Resilient pip configuration (timeouts, retries, and optional mirror)
+RUN pip config set global.timeout 120 && \
+    pip config set global.retries 10 && \
+    if [ -n "${PYPI_MIRROR}" ]; then \
         pip config set global.index-url "${PYPI_MIRROR}"; \
     fi && \
     if [ -n "${PYPI_HOST}" ]; then \
@@ -52,7 +54,7 @@ RUN if [ -n "${PYPI_MIRROR}" ]; then \
     fi
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
+RUN pip install --no-cache-dir --retries 10 --timeout 120 -r requirements.txt
 
 # Create sandboxed repos directory and set ownership
 RUN mkdir -p /app/repos && chown -R appuser:appgroup /app
