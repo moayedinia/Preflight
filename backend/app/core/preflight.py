@@ -1360,6 +1360,10 @@ def compile_pure_english_markdown_report(
     clones = analytics.get("code_clones") or []
     hotspots = analytics.get("git_hotspots") or []
 
+    red_repair = red.get("repair_prompt") or "Copy this and paste it into Lovable / Cursor:\nMaintain existing secret scanning and auth guards."
+    orange_repair = orange.get("repair_prompt") or "Copy this and paste it into Lovable / Cursor:\nEnsure all async actions disable triggers and enforce input bounds."
+    yellow_repair = yellow.get("repair_prompt") or "Copy this and paste it into Lovable / Cursor:\nStrip development console statements from production builds and create a clear README.md."
+
     md = f"""# Preflight Code Quality & Shipping Report
 
 > **Target Repository:** `{repo}`  
@@ -1394,7 +1398,7 @@ def compile_pure_english_markdown_report(
   > {red.get("business_consequence", "Zero financial or security degradation observed.")}
 - **3. How to fix it:**  
   ```text
-  {red.get("repair_prompt", "Copy this and paste it into Lovable / Cursor:\nMaintain existing secret scanning and auth guards.")}
+  {red_repair}
   ```
 
 ---
@@ -1411,7 +1415,7 @@ def compile_pure_english_markdown_report(
   > {orange.get("business_consequence", "Preserves optimal user experience and API load boundaries.")}
 - **3. How to fix it:**  
   ```text
-  {orange.get("repair_prompt", "Copy this and paste it into Lovable / Cursor:\nEnsure all async actions disable triggers and enforce input bounds.")}
+  {orange_repair}
   ```
 
 ---
@@ -1429,7 +1433,7 @@ def compile_pure_english_markdown_report(
   > {yellow.get("business_consequence", "Clean production logs and complete documentation ensure rapid team onboarding.")}
 - **3. How to fix it:**  
   ```text
-  {yellow.get("repair_prompt", "Copy this and paste it into Lovable / Cursor:\nStrip development console statements from production builds and create a clear README.md.")}
+  {yellow_repair}
   ```
 
 ---
