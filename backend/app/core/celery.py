@@ -23,5 +23,12 @@ if Celery is not None:
         enable_utc=True,
     )
 else:
-    celery_app = None
+    class _MockCelery:
+        def task(self, *args, **kwargs):
+            def decorator(fn):
+                fn.delay = fn
+                return fn
+            return decorator
+
+    celery_app = _MockCelery()
 

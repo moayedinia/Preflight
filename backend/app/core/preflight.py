@@ -264,6 +264,11 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
             verdict_meaning = f"{red_count} serious problem{'s' if red_count > 1 else ''} need fixing first. Something here will hurt you. Fix before anyone uses it."
         else:
             verdict_meaning = "Overall readiness is below launch safety threshold. Fix critical blockers before launching."
+    elif readiness >= 100 or (orange_count == 0 and readiness >= 90):
+        verdict_state = "ready"
+        verdict_badge = "🟢 Ready"
+        verdict_title = "🟢 Ready to launch"
+        verdict_meaning = "Nothing serious found. Your app passed all preflight safety and reliability checks. Go."
     elif orange_count > 0 or readiness < 90:
         verdict_state = "launch_with_care"
         verdict_badge = "🟠 Launch with care"

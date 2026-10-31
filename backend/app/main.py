@@ -845,6 +845,52 @@ def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest):
     )
 
 
+# --- ISOLATED SANDBOX EXECUTION ENGINE ---
+class SandboxStartRequest(BaseModel):
+    repo_name: Optional[str] = Field(None, max_length=100)
+    command: Optional[str] = Field(None, max_length=500)
+    port: Optional[int] = Field(None, ge=1024, le=65535)
+
+class SandboxStopRequest(BaseModel):
+    repo_name: Optional[str] = Field(None, max_length=100)
+
+
+@app.get("/api/v1/sandbox/plan", dependencies=[Depends(verify_api_key)])
+def get_sandbox_launch_plan_endpoint(repo_name: Optional[str] = None):
+    """Deeply inspects the repository and README to discover how to launch the project."""
+    from app.core.sandbox import discover_project_launch_plan
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    return discover_project_launch_plan(clean_repo)
+
+
+@app.post("/api/v1/sandbox/start", dependencies=[Depends(verify_api_key)])
+def start_sandbox_endpoint(payload: SandboxStartRequest):
+    """Launches the project in an isolated execution sandbox."""
+    from app.core.sandbox import start_sandbox_session
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    return start_sandbox_session(
+        repo_name=clean_repo,
+        custom_command=payload.command,
+        custom_port=payload.port
+    )
+
+
+@app.post("/api/v1/sandbox/stop", dependencies=[Depends(verify_api_key)])
+def stop_sandbox_endpoint(payload: SandboxStopRequest):
+    """Terminates the running isolated sandbox session."""
+    from app.core.sandbox import stop_sandbox_session
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    return stop_sandbox_session(repo_name=clean_repo)
+
+
+@app.get("/api/v1/sandbox/status", dependencies=[Depends(verify_api_key)])
+def get_sandbox_status_endpoint(repo_name: Optional[str] = None):
+    """Retrieves live status, port, uptime, and terminal output of the sandbox."""
+    from app.core.sandbox import get_sandbox_session_status
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    return get_sandbox_session_status(repo_name=clean_repo)
+
+
 # 11. GitHub CI/CD Webhook Trigger
 @app.post("/api/v1/webhooks/github")
 async def github_webhook(request: Request):

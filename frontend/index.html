@@ -175,6 +175,10 @@
                 <i data-lucide="play" class="w-4 h-4 fill-slate-950"></i>
                 Run Full Audit
               </button>
+              <button onclick="openSandboxModal()" id="btn-launch-sandbox" class="px-3.5 py-2.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-1.5" title="Scan and launch project inside an isolated sandbox">
+                <i data-lucide="rocket" class="w-4 h-4"></i>
+                <span>Launch Project</span>
+              </button>
               <button onclick="reindexCurrentRepo()" title="Re-index current project with active model" class="px-3 py-2.5 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm">
                 <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                 <span class="hidden sm:inline">Reindex</span>
@@ -789,6 +793,104 @@
     <span id="toast-msg">Success</span>
   </div>
 
+  <!-- ================= MODAL: ISOLATED PROJECT SANDBOX ================= -->
+  <div id="modal-sandbox" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-5 flex flex-col max-h-[92vh]">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+            <i data-lucide="rocket" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              Isolated Execution Sandbox
+              <span id="sandbox-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700">
+                ⚪ Stopped
+              </span>
+            </h3>
+            <p class="text-xs text-slate-400">Runs your audited codebase in a sandboxed, isolated environment separated from everything.</p>
+          </div>
+        </div>
+        <button onclick="closeSandboxModal()" class="text-slate-400 hover:text-white transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Discovery & Configuration Card -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+        <div class="space-y-1">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Project Type</div>
+          <div id="sandbox-detected-type" class="text-sm font-bold text-indigo-300">Scanning...</div>
+          <div id="sandbox-detected-from" class="text-[10px] text-slate-500">Heuristics & README</div>
+        </div>
+
+        <div class="space-y-1">
+          <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Execution Command</label>
+          <input type="text" id="sandbox-cmd-input" placeholder="e.g. npm run dev or python main.py" class="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs text-white font-mono outline-none" />
+        </div>
+
+        <div class="space-y-1">
+          <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Assigned Isolated Port</label>
+          <div class="flex items-center gap-2">
+            <input type="number" id="sandbox-port-input" value="9100" class="w-24 bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs text-white font-mono outline-none" />
+            <a id="sandbox-open-app-btn" href="#" target="_blank" class="hidden flex-1 px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-md">
+              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+              Open App
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center justify-between gap-3 pt-1">
+        <div class="flex items-center gap-2">
+          <button onclick="triggerStartSandbox()" id="btn-sandbox-start" class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2">
+            <i data-lucide="play" class="w-4 h-4 fill-slate-950"></i>
+            Start Sandbox
+          </button>
+          <button onclick="triggerStopSandbox()" id="btn-sandbox-stop" class="hidden px-4 py-2 bg-red-600/80 hover:bg-red-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2">
+            <i data-lucide="square" class="w-4 h-4 fill-white"></i>
+            Stop Sandbox
+          </button>
+          <button onclick="triggerRescanSandbox()" class="px-3 py-2 border border-slate-800 hover:border-slate-700 bg-slate-900 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5">
+            <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+            Re-scan Instructions
+          </button>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
+            <input type="checkbox" id="sandbox-autoscroll" checked class="rounded bg-slate-800 border-slate-700 text-indigo-500 focus:ring-0" />
+            Auto-scroll
+          </label>
+          <button onclick="clearSandboxTerminal()" class="px-2.5 py-1 text-slate-400 hover:text-slate-200 text-xs rounded border border-slate-800 hover:bg-slate-800 transition-colors">
+            Clear Logs
+          </button>
+        </div>
+      </div>
+
+      <!-- Terminal Output -->
+      <div class="flex-1 bg-black/90 border border-slate-800 rounded-xl p-3 flex flex-col min-h-[220px] overflow-hidden shadow-inner font-mono">
+        <div class="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2 text-[11px] text-slate-500">
+          <div class="flex items-center gap-2">
+            <div class="flex gap-1.5">
+              <div class="w-2.5 h-2.5 rounded-full bg-red-500/60"></div>
+              <div class="w-2.5 h-2.5 rounded-full bg-amber-500/60"></div>
+              <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/60"></div>
+            </div>
+            <span>Sandbox Console (stdout / stderr)</span>
+          </div>
+          <span id="sandbox-uptime-text" class="text-[10px]">Uptime: 0s</span>
+        </div>
+        <pre id="sandbox-terminal" class="flex-1 overflow-y-auto text-[11px] leading-relaxed text-emerald-400 whitespace-pre-wrap select-text font-mono space-y-0.5">Initializing sandbox...</pre>
+      </div>
+
+    </div>
+  </div>
+
+
   <!-- ================= JAVASCRIPT LOGIC ================= -->
   <script>
     // --- API Configuration ---
@@ -1329,9 +1431,10 @@
     }
 
     function renderAuditResults() {
-      const redCount = allDefects.filter(d => d.tier === 'red').length;
-      const orangeCount = allDefects.filter(d => d.tier === 'orange').length;
-      const yellowCount = allDefects.filter(d => d.tier === 'yellow').length;
+      const activeDefects = allDefects.filter(d => !d.unconfirmed && !d.fixed);
+      const redCount = activeDefects.filter(d => d.tier === 'red').length;
+      const orangeCount = activeDefects.filter(d => d.tier === 'orange').length;
+      const yellowCount = activeDefects.filter(d => d.tier === 'yellow').length;
 
       const rBadge = document.getElementById('badge-red-count');
       const oBadge = document.getElementById('badge-orange-count');
@@ -1434,6 +1537,15 @@
         statusText = 'Critical Blockers 🛑';
         statusClass = 'text-[11px] text-red-400 font-semibold';
         scoreClass = 'text-3xl sm:text-4xl font-black text-red-400 mt-0.5';
+      } else if (readinessScore >= 100 || (orangeCount === 0 && readinessScore >= 90)) {
+        verdictState = 'ready';
+        verdictTitle = '🟢 Ready to launch';
+        verdictMeaning = 'Nothing serious found. Your app passed all preflight safety and reliability checks. Go.';
+        verdictBannerBorder = 'border-emerald-500/40 bg-emerald-950/20';
+        verdictBadgeClass = 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300';
+        statusText = 'Ready to Ship 🚀';
+        statusClass = 'text-[11px] text-emerald-400 font-semibold';
+        scoreClass = 'text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5';
       } else if (orangeCount > 0 || readinessScore < 90) {
         verdictState = 'launch_with_care';
         verdictTitle = '🟠 Launch with care';
@@ -2324,6 +2436,178 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
     // --- On Window Load ---
     window.addEventListener('DOMContentLoaded', initApp);
+  
+    // ============================================================
+    // ISOLATED EXECUTION SANDBOX CONTROLLER
+    // ============================================================
+    let sandboxPollTimer = null;
+    let sandboxCurrentStatus = 'stopped';
+
+    async function openSandboxModal() {
+      openModal('modal-sandbox');
+      if (window.lucide) lucide.createIcons();
+      await triggerRescanSandbox();
+      pollSandboxStatus();
+      if (!sandboxPollTimer) {
+        sandboxPollTimer = setInterval(pollSandboxStatus, 2000);
+      }
+    }
+
+    function closeSandboxModal() {
+      closeModal('modal-sandbox');
+      if (sandboxPollTimer) {
+        clearInterval(sandboxPollTimer);
+        sandboxPollTimer = null;
+      }
+    }
+
+    async function triggerRescanSandbox() {
+      const typeEl = document.getElementById('sandbox-detected-type');
+      const fromEl = document.getElementById('sandbox-detected-from');
+      const cmdInput = document.getElementById('sandbox-cmd-input');
+      const portInput = document.getElementById('sandbox-port-input');
+
+      if (typeEl) typeEl.innerText = 'Scanning project...';
+      try {
+        const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
+        const res = await fetch(`${API_BASE}/api/v1/sandbox/plan${repoParam}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const plan = await res.json();
+        if (typeEl) typeEl.innerText = plan.project_type || 'Generic';
+        if (fromEl) fromEl.innerText = `${plan.detected_from || 'Heuristics'} (${plan.readme_file || 'No README'})`;
+        if (cmdInput && (!cmdInput.value || cmdInput.value === 'python -m http.server 9100')) {
+          cmdInput.value = plan.command || '';
+        }
+        if (portInput) {
+          portInput.value = plan.assigned_port || 9100;
+        }
+      } catch (e) {
+        console.error('Failed to scan project for sandbox:', e);
+        if (typeEl) typeEl.innerText = 'Detection Error';
+      }
+    }
+
+    async function pollSandboxStatus() {
+      try {
+        const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
+        const res = await fetch(`${API_BASE}/api/v1/sandbox/status${repoParam}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        updateSandboxUI(data);
+      } catch (e) {
+        console.warn('Sandbox status poll error:', e);
+      }
+    }
+
+    function updateSandboxUI(data) {
+      sandboxCurrentStatus = data.status || 'stopped';
+      const badge = document.getElementById('sandbox-status-badge');
+      const startBtn = document.getElementById('btn-sandbox-start');
+      const stopBtn = document.getElementById('btn-sandbox-stop');
+      const openAppBtn = document.getElementById('sandbox-open-app-btn');
+      const uptimeText = document.getElementById('sandbox-uptime-text');
+      const term = document.getElementById('sandbox-terminal');
+      const autoscroll = document.getElementById('sandbox-autoscroll')?.checked;
+
+      if (badge) {
+        if (sandboxCurrentStatus === 'running') {
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse';
+          badge.innerText = '🟢 Running';
+        } else if (sandboxCurrentStatus === 'starting') {
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40';
+          badge.innerText = '🟡 Starting';
+        } else if (sandboxCurrentStatus === 'crashed') {
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/40';
+          badge.innerText = '🔴 Crashed';
+        } else {
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700';
+          badge.innerText = '⚪ Stopped';
+        }
+      }
+
+      if (startBtn && stopBtn) {
+        if (sandboxCurrentStatus === 'running' || sandboxCurrentStatus === 'starting') {
+          startBtn.classList.add('hidden');
+          stopBtn.classList.remove('hidden');
+        } else {
+          startBtn.classList.remove('hidden');
+          stopBtn.classList.add('hidden');
+        }
+      }
+
+      if (openAppBtn) {
+        if (sandboxCurrentStatus === 'running' && data.port) {
+          openAppBtn.classList.remove('hidden');
+          openAppBtn.href = `http://localhost:${data.port}`;
+        } else {
+          openAppBtn.classList.add('hidden');
+        }
+      }
+
+      if (uptimeText) {
+        uptimeText.innerText = `Uptime: ${data.uptime_seconds || 0}s (PID: ${data.pid || 'N/A'})`;
+      }
+
+      if (term && Array.isArray(data.logs)) {
+        term.innerText = data.logs.join('\n') || 'Sandbox ready. Click "Start Sandbox" to run.';
+        if (autoscroll) {
+          term.scrollTop = term.scrollHeight;
+        }
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    async function triggerStartSandbox() {
+      const cmdInput = document.getElementById('sandbox-cmd-input');
+      const portInput = document.getElementById('sandbox-port-input');
+      const term = document.getElementById('sandbox-terminal');
+
+      const cmd = (cmdInput?.value || '').trim();
+      const port = parseInt(portInput?.value, 10) || 9100;
+
+      if (term) term.innerText += '\n[Starting] Dispatching launch command...';
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/sandbox/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo_name: currentRepo,
+            command: cmd,
+            port: port
+          })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        updateSandboxUI(data);
+        showToast('Sandbox launched successfully! 🚀');
+      } catch (e) {
+        console.error('Failed to start sandbox:', e);
+        showToast(`Failed to launch sandbox: ${e.message}`);
+      }
+    }
+
+    async function triggerStopSandbox() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/sandbox/stop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo_name: currentRepo })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        updateSandboxUI(data);
+        showToast('Sandbox stopped.');
+      } catch (e) {
+        console.error('Failed to stop sandbox:', e);
+        showToast(`Failed to stop sandbox: ${e.message}`);
+      }
+    }
+
+    function clearSandboxTerminal() {
+      const term = document.getElementById('sandbox-terminal');
+      if (term) term.innerText = '';
+    }
+
   </script>
 </body>
 </html>
