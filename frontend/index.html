@@ -1137,49 +1137,8 @@
           });
         }
 
-        // Render Repositories Grid
-        if (grid) {
-          grid.innerHTML = repos.map(r => `
-            <div class="border border-slate-800 rounded-xl p-5 bg-slate-950/40 hover:border-slate-700 transition-all flex flex-col justify-between gap-4">
-              <div>
-                <div class="flex items-center justify-between mb-2">
-                  <h4 class="text-sm font-bold text-white truncate">${escapeHtml(r.name)}</h4>
-                  <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-mono">${r.languages ? escapeHtml(r.languages.join(', ')) : 'Codebase'}</span>
-                </div>
-                <div class="grid grid-cols-3 gap-2 py-2 border-y border-slate-800/80 my-2 text-center">
-                  <div>
-                    <div class="text-[10px] text-slate-500 uppercase">Files</div>
-                    <div class="text-xs font-bold text-slate-200">${r.files_count ?? r.file_count ?? r.total_files ?? 0}</div>
-                  </div>
-                  <div>
-                    <div class="text-[10px] text-slate-500 uppercase">Classes</div>
-                    <div class="text-xs font-bold text-slate-200">${r.classes_count ?? r.class_count ?? r.total_classes ?? 0}</div>
-                  </div>
-                  <div>
-                    <div class="text-[10px] text-slate-500 uppercase">Functions</div>
-                    <div class="text-xs font-bold text-slate-200">${r.functions_count ?? r.func_count ?? r.total_functions ?? 0}</div>
-                  </div>
-                </div>
-              </div>
-              <div class="flex items-center justify-between pt-2 border-t border-slate-800/80">
-                <div class="flex items-center gap-2">
-                  <button onclick="selectAndAuditRepo('${escapeHtml(r.name)}')" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5" title="Audit code with Preflight">
-                    <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-                    Run Audit
-                  </button>
-                  <button onclick="reindexRepo('${escapeHtml(r.name)}')" id="btn-reindex-${escapeHtml(r.name)}" class="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5" title="Re-index codebase with the latest active model">
-                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-                    Reindex
-                  </button>
-                </div>
-                <button onclick="deleteRepo('${escapeHtml(r.name)}')" class="text-xs text-red-400 hover:text-red-300 p-1.5 transition-colors rounded-lg hover:bg-red-500/10" title="Delete Repository">
-                  <i data-lucide="trash-2" class="w-4 h-4"></i>
-                </button>
-              </div>
-            </div>
-          `).join('');
-          if (window.lucide) lucide.createIcons();
-        }
+        cachedReposList = repos;
+        renderRepositoriesGrid();
 
       } catch (e) {
         console.error('Error loading repositories:', e);
@@ -1188,29 +1147,109 @@
       }
     }
 
+    let cachedReposList = [];
+
+    function renderRepositoriesGrid() {
+      const grid = document.getElementById('repos-grid');
+      if (!grid) return;
+      if (!cachedReposList || cachedReposList.length === 0) {
+        grid.innerHTML = '<div class="p-8 text-center text-slate-500 text-xs col-span-full">No repositories imported yet. Click "Import Project" to begin.</div>';
+        return;
+      }
+
+      grid.innerHTML = cachedReposList.map(r => {
+        const isCurrent = (r.name === currentRepo);
+        const borderClass = isCurrent 
+          ? 'border-emerald-500/60 bg-emerald-950/20 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/30' 
+          : 'border-slate-800 bg-slate-950/40 hover:border-slate-700 hover:bg-slate-900/40';
+
+        return `
+          <div onclick="selectRepo('${escapeHtml(r.name)}', false)" class="border rounded-xl p-5 transition-all flex flex-col justify-between gap-4 cursor-pointer relative group ${borderClass}">
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2 truncate">
+                  <div class="w-2.5 h-2.5 rounded-full ${isCurrent ? 'bg-emerald-400 ring-4 ring-emerald-500/20 animate-pulse' : 'bg-slate-600'}"></div>
+                  <h4 class="text-sm font-bold ${isCurrent ? 'text-emerald-300' : 'text-white group-hover:text-slate-200'} truncate">${escapeHtml(r.name)}</h4>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  ${isCurrent ? '<span class="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold uppercase tracking-wider">Active</span>' : ''}
+                  <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-mono">${r.languages ? escapeHtml(r.languages.join(', ')) : 'Codebase'}</span>
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 py-2 border-y border-slate-800/80 my-2 text-center">
+                <div>
+                  <div class="text-[10px] text-slate-500 uppercase">Files</div>
+                  <div class="text-xs font-bold text-slate-200">${r.files_count ?? r.file_count ?? r.total_files ?? 0}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] text-slate-500 uppercase">Classes</div>
+                  <div class="text-xs font-bold text-slate-200">${r.classes_count ?? r.class_count ?? r.total_classes ?? 0}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] text-slate-500 uppercase">Functions</div>
+                  <div class="text-xs font-bold text-slate-200">${r.functions_count ?? r.func_count ?? r.total_functions ?? 0}</div>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800/80" onclick="event.stopPropagation()">
+              <div class="flex items-center gap-2">
+                <button onclick="selectRepo('${escapeHtml(r.name)}', false)" class="px-3 py-1.5 ${isCurrent ? 'bg-emerald-500 text-slate-950 font-bold' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'} text-xs rounded-lg font-medium transition-all flex items-center gap-1.5" title="Select project without running audit">
+                  <i data-lucide="${isCurrent ? 'check-circle' : 'mouse-pointer'}" class="w-3.5 h-3.5"></i>
+                  ${isCurrent ? 'Selected' : 'Select'}
+                </button>
+                <button onclick="selectRepo('${escapeHtml(r.name)}', true)" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5" title="Select and run Preflight audit">
+                  <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                  Run Audit
+                </button>
+                <button onclick="reindexRepo('${escapeHtml(r.name)}')" id="btn-reindex-${escapeHtml(r.name)}" class="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5" title="Re-index codebase with the latest active model">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                  Reindex
+                </button>
+              </div>
+              <button onclick="deleteRepo('${escapeHtml(r.name)}')" class="text-xs text-red-400 hover:text-red-300 p-1.5 transition-colors rounded-lg hover:bg-red-500/10" title="Delete Repository">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      if (window.lucide) lucide.createIcons();
+    }
+
     function onRepoChanged() {
       const select = document.getElementById('repo-select');
       if (!select) return;
-      currentRepo = select.value;
+      selectRepo(select.value, false);
+    }
+
+    function selectRepo(repoName, shouldAudit = false) {
+      if (!repoName) return;
+      currentRepo = repoName;
       localStorage.setItem('preflight_active_repo', currentRepo);
+      
+      const select = document.getElementById('repo-select');
+      if (select && select.value !== repoName) select.value = repoName;
+      
       const badge = document.getElementById('active-repo-badge');
       if (badge) badge.innerText = 'Project: ' + currentRepo;
-      runPreflightAudit();
+
+      // Update card visual states
+      renderRepositoriesGrid();
+
+      showToast(`Selected project: ${currentRepo}`);
+
+      if (shouldAudit) {
+        switchView('preflight');
+        if (currentApiKey) {
+          runPreflightAudit();
+        } else {
+          showApiKeyRequiredNotice(repoName);
+        }
+      }
     }
 
     function selectAndAuditRepo(repoName) {
-      currentRepo = repoName;
-      localStorage.setItem('preflight_active_repo', currentRepo);
-      const select = document.getElementById('repo-select');
-      if (select) select.value = repoName;
-      const badge = document.getElementById('active-repo-badge');
-      if (badge) badge.innerText = 'Project: ' + currentRepo;
-      switchView('preflight');
-      if (currentApiKey) {
-        runPreflightAudit();
-      } else {
-        showApiKeyRequiredNotice(repoName);
-      }
+      selectRepo(repoName, true);
     }
 
     async function deleteRepo(name) {
