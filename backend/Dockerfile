@@ -51,11 +51,8 @@ RUN if [ -n "${PYPI_MIRROR}" ]; then \
         pip config set global.trusted-host "${PYPI_HOST}"; \
     fi
 
-# Upgrade pip to latest version first
-RUN pip install --no-cache-dir --upgrade pip
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
 
 # Create sandboxed repos directory and set ownership
 RUN mkdir -p /app/repos && chown -R appuser:appgroup /app
