@@ -80,29 +80,47 @@ def _sanitize_docker_proxy_env():
             val = os.getenv(var)
             if val and ("localhost" in val or "127.0.0.1" in val):
                 os.environ[var] = val.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
+        
+        # Ensure NO_PROXY always bypasses host.docker.internal, loopback, and docker network aliases
+        required_no_proxy = ["localhost", "127.0.0.1", "host.docker.internal", "neo4j", "redis", "api", "celery_worker", "mcp_server"]
+        for no_var in ["NO_PROXY", "no_proxy"]:
+            current = os.getenv(no_var, "")
+            parts = [p.strip() for p in current.split(",") if p.strip()]
+            for req in required_no_proxy:
+                if req not in parts:
+                    parts.append(req)
+            os.environ[no_var] = ",".join(parts)
 
 def execute_llm_http(method: str, url: str, **kwargs):
     """
     Executes an HTTP request for LLM calls with automatic resilience:
     1. Docker container -> host mapping (localhost/127.0.0.1 -> host.docker.internal)
-    2. Docker proxy environment sanitization
-    3. Proxy bypass retry if proxy connection fails/refuses
-    4. Meaningful diagnostic message if host refuses connection
+    2. Local target proxy bypass (host.docker.internal must never route through outbound proxy)
+    3. Docker proxy environment sanitization
+    4. Proxy bypass retry if proxy connection fails/times out
+    5. Meaningful diagnostic message if host refuses connection
     """
     _sanitize_docker_proxy_env()
     target_url = resolve_docker_target_url(url)
+    
+    # If the target is host machine or container network, NEVER route through external proxy
+    is_local_target = any(h in target_url.lower() for h in [
+        "host.docker.internal", "localhost", "127.0.0.1", "::1"
+    ])
+    if is_local_target and "proxies" not in kwargs:
+        kwargs["proxies"] = {"http": None, "https": None}
     
     fn = requests.get if method.lower() == "get" else requests.post
     
     try:
         return fn(target_url, **kwargs)
-    except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError) as first_err:
+    except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as first_err:
         err_msg = str(first_err)
-        # Check if error is related to proxy or connection refused (e.g. [Errno 111])
-        is_refusal = any(sig in err_msg for sig in ["Connection refused", "NewConnectionError", "ProxyError", "111", "20128"])
+        # Check if error is related to proxy, timeout, or connection refused (e.g. [Errno 111])
+        is_refusal = any(sig in err_msg for sig in ["Connection refused", "NewConnectionError", "ProxyError", "Read timed out", "timeout", "111", "20128"])
         
-        if is_refusal:
-            # Fallback 1: Try without proxy in case of stale proxy env
+        if is_refusal and kwargs.get("proxies") != {"http": None, "https": None}:
+            # Fallback 1: Try without proxy in case of stale/hanging proxy
             no_proxy_kwargs = dict(kwargs)
             no_proxy_kwargs["proxies"] = {"http": None, "https": None}
             try:
@@ -139,7 +157,7 @@ def normalize_llm_base_url(base_url: str) -> str:
         normalized += "/v1"
     return _clean_slashes(normalized)
 
-def verify_llm_connection(timeout: float = 3.0) -> Tuple[bool, str]:
+def verify_llm_connection(timeout: float = 10.0) -> Tuple[bool, str]:
     """
     Checks if the LLM provider has an API key and is reachable.
     Returns (True, 'Connected') or (False, 'Reason message').
