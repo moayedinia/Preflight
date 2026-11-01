@@ -1503,17 +1503,28 @@ def extract_code_block(llm_output: str, fallback_code: str) -> str:
     """
     Extracts updated source code content from LLM markdown code blocks or fences.
     Falls back to fallback_code if extraction produces empty or invalid content.
+    Safeguards against truncated outputs to prevent source code corruption.
     """
     if not llm_output or not isinstance(llm_output, str):
         return fallback_code
 
     cleaned = llm_output.strip()
 
+    # Detect unclosed code block (e.g. LLM hit token limit before completing the file)
+    if cleaned.startswith("```"):
+        fences_count = cleaned.count("```")
+        if fences_count == 1:
+            logger.warning("LLM code response was truncated (only 1 code fence found). Aborting code replacement to prevent corruption.")
+            return fallback_code
+
     # Pattern 1: ```lang ... ``` with line break
     fence_match = re.search(r'```(?:[a-zA-Z0-9_\-\.]+)?\s*\n([\s\S]*?)\n```', cleaned)
     if fence_match:
         extracted = fence_match.group(1).strip()
         if len(extracted) >= 10:
+            if len(fallback_code) > 200 and len(extracted) < len(fallback_code) * 0.4:
+                logger.warning(f"Extracted code is suspiciously small ({len(extracted)} vs {len(fallback_code)} chars). Aborting to prevent truncation.")
+                return fallback_code
             return extracted
 
     # Pattern 2: Any ``` ... ```
@@ -1521,10 +1532,15 @@ def extract_code_block(llm_output: str, fallback_code: str) -> str:
     if fence_match2:
         extracted = fence_match2.group(1).strip()
         if len(extracted) >= 10:
+            if len(fallback_code) > 200 and len(extracted) < len(fallback_code) * 0.4:
+                logger.warning(f"Extracted code is suspiciously small ({len(extracted)} vs {len(fallback_code)} chars). Aborting.")
+                return fallback_code
             return extracted
 
     # If the response is raw code without fences and not an error/json message
-    if len(cleaned) >= 20 and not cleaned.startswith("{") and not cleaned.startswith("I apologize") and not cleaned.startswith("Sorry"):
+    if len(cleaned) >= 20 and not cleaned.startswith("{") and not cleaned.startswith("I apologize") and not cleaned.startswith("Sorry") and not cleaned.startswith("```"):
+        if len(fallback_code) > 200 and len(cleaned) < len(fallback_code) * 0.4:
+            return fallback_code
         return cleaned
 
     return fallback_code
@@ -1649,7 +1665,7 @@ Apply the fix directly and return the full updated file in a code block."""
         fixed_code = original_code + "\n// [Preflight Auto-Fix Applied: Defect Resolved]\n"
     else:
         try:
-            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=120)
+            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=180, max_tokens=8192)
             fixed_code = extract_code_block(raw_llm, original_code)
         except Exception as e:
             raise HTTPException(
@@ -1660,7 +1676,7 @@ Apply the fix directly and return the full updated file in a code block."""
     if not fixed_code or fixed_code == original_code:
         raise HTTPException(
             status_code=500,
-            detail="The AI did not produce a modified code block for this file."
+            detail="The AI fix was incomplete or truncated by token limits. The original file has been preserved safely without any corruption."
         )
 
     try:

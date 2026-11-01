@@ -267,7 +267,7 @@ def _extract_content_from_response(response: requests.Response) -> str:
     preview = text[:300].replace("\n", " ")
     raise ValueError(f"Invalid LLM response format: {preview}")
 
-def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
+def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_tokens: Optional[int] = None) -> str:
     """Calls any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, Ollama, vLLM) with auto-fallbacks."""
     if os.getenv("TESTING") == "1" or os.getenv("MOCK_LLM") == "1":
         return '{"is_defect": false, "confidence": 0.95, "plain_english_explanation": "Test mode clean.", "business_consequence": "None.", "repair_prompt": "None."}'
@@ -292,6 +292,8 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
         "temperature": 0.1,
         "stream": False
     }
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
 
     base_url = config.get("base_url", "") or "https://api.openai.com/v1"
     norm_base = normalize_llm_base_url(base_url)
