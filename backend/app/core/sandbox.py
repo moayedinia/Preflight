@@ -492,6 +492,17 @@ def _is_host_proxy_reachable(host: str = "host.docker.internal", port: int = 108
     return False
 
 
+def _safe_exists(p_str: Optional[str]) -> bool:
+    """Safely checks if a file/path exists without crashing on PermissionError (e.g. non-root user)."""
+    if not p_str:
+        return False
+    try:
+        p = Path(p_str)
+        return p.is_file() or p.exists()
+    except (PermissionError, OSError):
+        return False
+
+
 def ensure_runtime_prerequisites(cmd_str: str, session: "SandboxSession", env: Dict[str, str]) -> bool:
     """
     Verifies that the required CLI runtime for the command exists in the sandbox environment.
@@ -518,9 +529,8 @@ def ensure_runtime_prerequisites(cmd_str: str, session: "SandboxSession", env: D
             "/usr/local/bin/dotnet",
             "/usr/share/dotnet/dotnet",
             str(Path.home() / ".dotnet" / "dotnet"),
-            "/root/.dotnet/dotnet"
         ]
-        found_dotnet = next((p for p in dotnet_candidates if p and Path(p).exists()), None)
+        found_dotnet = next((p for p in dotnet_candidates if _safe_exists(p)), None)
         if found_dotnet:
             dotnet_dir = str(Path(found_dotnet).parent)
             current_path = env.get("PATH", os.environ.get("PATH", ""))
@@ -579,7 +589,7 @@ def ensure_runtime_prerequisites(cmd_str: str, session: "SandboxSession", env: D
             f"/usr/local/bin/{binary_name}",
             f"/usr/bin/{binary_name}"
         ]
-        found_node = next((p for p in node_candidates if p and Path(p).exists()), None)
+        found_node = next((p for p in node_candidates if _safe_exists(p)), None)
         if found_node:
             node_dir = str(Path(found_node).parent)
             current_path = env.get("PATH", os.environ.get("PATH", ""))
@@ -596,7 +606,7 @@ def ensure_runtime_prerequisites(cmd_str: str, session: "SandboxSession", env: D
         return True
 
     # 4. Handle other generic commands
-    if shutil.which(binary_name) is None and not Path(binary_name).exists():
+    if shutil.which(binary_name) is None and not _safe_exists(binary):
         session.log(f"⚠️ Required executable '{binary_name}' was not found in system PATH.")
         session.log("💡 If this command requires specific packages, please ensure they are installed in the container.")
         return False
