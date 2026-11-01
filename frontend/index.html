@@ -1491,7 +1491,7 @@
       allDefects.forEach(d => {
         const rule = (d.rule || '').toLowerCase();
         const tier = (d.tier || '').toLowerCase();
-        if (d.unconfirmed) return;
+        if (d.unconfirmed || d.fixed) return;
 
         if (tier === 'red' || rule.includes('leaked') || rule.includes('secret') || rule.includes('admin') || rule.includes('injection') || rule.includes('crash') || rule.includes('loop') || rule.includes('dead button')) {
           if (rule.includes('leaked') || rule.includes('secret') || rule.includes('admin') || rule.includes('injection') || rule.includes('proxy')) {
@@ -1567,16 +1567,7 @@
       let statusClass = 'text-[11px] text-emerald-400 font-semibold';
       let scoreClass = 'text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5';
 
-      if (redCount > 0 || readinessScore < 70) {
-        verdictState = 'not_ready';
-        verdictTitle = '🔴 Not ready to launch';
-        verdictMeaning = `${redCount} serious problem${redCount > 1 ? 's' : ''} need fixing first. Something here will hurt you. Fix before anyone uses it.`;
-        verdictBannerBorder = 'border-red-500/50 bg-red-950/30';
-        verdictBadgeClass = 'border-red-500/60 bg-red-500/20 text-red-300';
-        statusText = 'Critical Blockers 🛑';
-        statusClass = 'text-[11px] text-red-400 font-semibold';
-        scoreClass = 'text-3xl sm:text-4xl font-black text-red-400 mt-0.5';
-      } else if (readinessScore >= 100 || (orangeCount === 0 && readinessScore >= 90)) {
+      if (readinessScore >= 95 || (redCount === 0 && orangeCount === 0 && readinessScore >= 85)) {
         verdictState = 'ready';
         verdictTitle = '🟢 Ready to launch';
         verdictMeaning = 'Nothing serious found. Your app passed all preflight safety and reliability checks. Go.';
@@ -1585,7 +1576,16 @@
         statusText = 'Ready to Ship 🚀';
         statusClass = 'text-[11px] text-emerald-400 font-semibold';
         scoreClass = 'text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5';
-      } else if (orangeCount > 0 || readinessScore < 90) {
+      } else if (redCount > 0 || readinessScore < 70) {
+        verdictState = 'not_ready';
+        verdictTitle = '🔴 Not ready to launch';
+        verdictMeaning = `${redCount} serious problem${redCount > 1 ? 's' : ''} need fixing first. Something here will hurt you. Fix before anyone uses it.`;
+        verdictBannerBorder = 'border-red-500/50 bg-red-950/30';
+        verdictBadgeClass = 'border-red-500/60 bg-red-500/20 text-red-300';
+        statusText = 'Critical Blockers 🛑';
+        statusClass = 'text-[11px] text-red-400 font-semibold';
+        scoreClass = 'text-3xl sm:text-4xl font-black text-red-400 mt-0.5';
+      } else {
         verdictState = 'launch_with_care';
         verdictTitle = '🟠 Launch with care';
         verdictMeaning = 'Nothing dangerous, but users will hit problems. Fix UX and reliability issues for a smooth launch.';
@@ -2485,7 +2485,9 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     async function openSandboxModal() {
       openModal('modal-sandbox');
       if (window.lucide) lucide.createIcons();
-      await triggerRescanSandbox();
+      const cmdInput = document.getElementById('sandbox-cmd-input');
+      if (cmdInput) cmdInput.value = '';
+      await triggerRescanSandbox(true);
       pollSandboxStatus();
       if (!sandboxPollTimer) {
         sandboxPollTimer = setInterval(pollSandboxStatus, 2000);
@@ -2514,7 +2516,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         const plan = await res.json();
         if (typeEl) typeEl.innerText = plan.project_type || 'Generic';
         if (fromEl) fromEl.innerText = `${plan.detected_from || 'Heuristics'} (${plan.readme_file || 'No README'})`;
-        if (cmdInput && (!cmdInput.value || cmdInput.value === 'python -m http.server 9100')) {
+        if (cmdInput) {
           cmdInput.value = plan.command || '';
         }
         if (portInput) {

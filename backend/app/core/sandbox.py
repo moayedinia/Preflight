@@ -2,7 +2,6 @@ import os
 import sys
 import re
 import json
-import time
 import socket
 import logging
 import threading
@@ -12,14 +11,21 @@ from typing import Dict, Any, Optional, List, Tuple
 from collections import deque
 from datetime import datetime
 
-from app.core.security import ALLOWED_REPO_DIR, validate_safe_path, sanitize_name
-from app.core.llm import call_llm
+from app.core.security import ALLOWED_REPO_DIR, sanitize_name
+from app.core.llm import call_llm, verify_llm_connection
 
 logger = logging.getLogger("codegraph.sandbox")
 
 # Global registry of active sandboxes: repo_name -> SandboxSession
 _ACTIVE_SANDBOXES: Dict[str, "SandboxSession"] = {}
 _SANDBOX_LOCK = threading.Lock()
+
+# Directories to skip when scanning file trees
+_IGNORE_DIRS = {
+    ".git", ".github", ".vscode", ".idea", "node_modules", "bin", "obj",
+    "__pycache__", ".venv", "venv", "env", "target", "dist", "build",
+    ".next", ".nuxt", ".output", "coverage", ".pytest_cache"
+}
 
 
 def find_available_port(start_port: int = 9100, max_port: int = 9990) -> int:
@@ -50,19 +56,352 @@ def _read_snippet_safe(file_path: Path, max_bytes: int = 16384) -> str:
         return ""
 
 
+def _collect_repo_file_tree(repo_dir: Path, max_files: int = 80, max_depth: int = 3) -> List[str]:
+    """Collects relative paths of key files in the repository up to max_depth."""
+    tree = []
+    try:
+        def _walk(current: Path, depth: int):
+            if depth > max_depth or len(tree) >= max_files:
+                return
+            for item in sorted(current.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+                if item.name in _IGNORE_DIRS or item.name.startswith("."):
+                    continue
+                rel = item.relative_to(repo_dir).as_posix()
+                tree.append(rel + ("/" if item.is_dir() else ""))
+                if item.is_dir():
+                    _walk(item, depth + 1)
+                if len(tree) >= max_files:
+                    break
+        _walk(repo_dir, 1)
+    except Exception as e:
+        logger.debug(f"Error collecting file tree: {e}")
+    return tree
+
+
+def detect_heuristic_launch_plan(repo_dir: Path, file_tree: List[str], readme_content: str, readme_file_used: str) -> Dict[str, Any]:
+    """
+    Comprehensive multi-language heuristic scanner supporting:
+    - C# / .NET (Blazor, WebAPI, MVC, Console)
+    - Node.js / TypeScript (Next.js, Vite, React, Express, Nest, etc.)
+    - Python (FastAPI, Flask, Django, etc.)
+    - Java / Kotlin (Maven pom.xml, Gradle)
+    - Go (go.mod)
+    - Rust (Cargo.toml)
+    - PHP (Artisan, Composer)
+    - Docker / Static Web
+    """
+    detected_type = "Generic"
+    detected_cmd = ""
+    detected_install = ""
+    detected_port = 5000
+    detected_from = "heuristics"
+
+    file_names_lower = [f.lower() for f in file_tree]
+
+    # 1. C# / .NET Detection
+    sln_files = [f for f in file_tree if f.endswith(".sln")]
+    csproj_files = [f for f in file_tree if f.endswith(".csproj")]
+    fsproj_files = [f for f in file_tree if f.endswith(".fsproj")]
+
+    if sln_files or csproj_files or fsproj_files or any(f.endswith(".cs") for f in file_tree):
+        detected_type = "C# (.NET)"
+        detected_install = "dotnet restore"
+        detected_port = 5000
+        detected_from = ".NET Solution / Project"
+
+        # Check for Blazor / ASP.NET / Web project
+        web_project = None
+        for proj in csproj_files:
+            proj_path = repo_dir / proj
+            proj_txt = _read_snippet_safe(proj_path, 8000).lower()
+            if "blazor" in proj_txt or "microsoft.net.sdk.web" in proj_txt or "web" in proj.lower():
+                web_project = proj
+                detected_type = "C# (.NET Blazor / Web)"
+                break
+        
+        target_proj = web_project or (csproj_files[0] if csproj_files else None)
+        if target_proj:
+            detected_cmd = f"dotnet run --project {target_proj}"
+        elif sln_files:
+            detected_cmd = "dotnet run"
+        else:
+            detected_cmd = "dotnet run"
+
+    # 2. Node.js / JavaScript / TypeScript Detection
+    elif any(f == "package.json" or f.endswith("/package.json") for f in file_tree):
+        pkg_json_rel = next((f for f in file_tree if f == "package.json" or f.endswith("/package.json")), "package.json")
+        pkg_json_path = repo_dir / pkg_json_rel
+        try:
+            with open(pkg_json_path, "r", encoding="utf-8", errors="replace") as f:
+                pkg_data = json.load(f)
+            scripts = pkg_data.get("scripts", {})
+            deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
+
+            if "next" in deps:
+                detected_type = "Node.js (Next.js)"
+                detected_port = 3000
+            elif "vite" in deps:
+                detected_type = "Node.js (Vite)"
+                detected_port = 5173
+            elif "react-scripts" in deps:
+                detected_type = "Node.js (Create React App)"
+                detected_port = 3000
+            elif "nuxt" in deps:
+                detected_type = "Node.js (Nuxt)"
+                detected_port = 3000
+            elif "express" in deps or "fastify" in deps or "nest" in deps:
+                detected_type = "Node.js (Server API)"
+                detected_port = 3000
+            else:
+                detected_type = "Node.js"
+                detected_port = 3000
+
+            pm = "npm"
+            if (repo_dir / "pnpm-lock.yaml").exists():
+                pm = "pnpm"
+            elif (repo_dir / "yarn.lock").exists():
+                pm = "yarn"
+            elif (repo_dir / "bun.lockb").exists():
+                pm = "bun"
+
+            detected_install = f"{pm} install"
+            sub_prefix = f"cd {Path(pkg_json_rel).parent} && " if "/" in pkg_json_rel else ""
+
+            if "dev" in scripts:
+                detected_cmd = f"{sub_prefix}{pm} run dev"
+            elif "start" in scripts:
+                detected_cmd = f"{sub_prefix}{pm} start"
+            elif "serve" in scripts:
+                detected_cmd = f"{sub_prefix}{pm} run serve"
+            else:
+                main_file = pkg_data.get("main", "index.js")
+                detected_cmd = f"{sub_prefix}node {main_file}"
+
+            detected_from = "package.json scripts"
+        except Exception as e:
+            logger.debug(f"Error parsing package.json: {e}")
+
+    # 3. Python Detection (FastAPI, Flask, Django, etc.)
+    elif (repo_dir / "requirements.txt").exists() or (repo_dir / "pyproject.toml").exists() or any(f.endswith(".py") for f in file_tree):
+        detected_type = "Python"
+        detected_install = "pip install -r requirements.txt" if (repo_dir / "requirements.txt").exists() else "pip install -e ."
+        detected_port = 8000
+
+        is_fastapi = False
+        fastapi_target = ""
+        for py_f in [repo_dir / "main.py", repo_dir / "app.py", repo_dir / "app" / "main.py"]:
+            if py_f.exists():
+                txt = _read_snippet_safe(py_f, 4000)
+                if "FastAPI" in txt or "uvicorn" in txt:
+                    is_fastapi = True
+                    mod_name = "app.main:app" if "app" in py_f.parts else f"{py_f.stem}:app"
+                    fastapi_target = mod_name
+                    break
+
+        if is_fastapi:
+            detected_type = "Python (FastAPI)"
+            detected_cmd = f"uvicorn {fastapi_target} --host 0.0.0.0 --port {{PORT}}"
+            detected_from = "FastAPI entrypoint"
+        elif (repo_dir / "manage.py").exists():
+            detected_type = "Python (Django)"
+            detected_cmd = "python manage.py runserver 0.0.0.0:{PORT}"
+            detected_from = "Django manage.py"
+        elif (repo_dir / "app.py").exists():
+            detected_type = "Python (Flask / App)"
+            detected_cmd = "python app.py"
+            detected_from = "app.py"
+        elif (repo_dir / "main.py").exists():
+            detected_type = "Python (Main)"
+            detected_cmd = "python main.py"
+            detected_from = "main.py"
+        else:
+            py_candidates = [f for f in file_tree if f.endswith(".py") and "/" not in f]
+            detected_cmd = f"python {py_candidates[0]}" if py_candidates else "python -m http.server {PORT}"
+            detected_from = "Python script"
+
+    # 4. Java / Kotlin Detection (Maven / Gradle)
+    elif (repo_dir / "pom.xml").exists():
+        detected_type = "Java (Maven)"
+        detected_install = "mvn clean install -DskipTests"
+        detected_cmd = "mvn spring-boot:run"
+        detected_port = 8080
+        detected_from = "Maven pom.xml"
+    elif (repo_dir / "build.gradle").exists() or (repo_dir / "build.gradle.kts").exists():
+        detected_type = "Java/Kotlin (Gradle)"
+        gradle_cmd = "./gradlew" if sys.platform != "win32" and (repo_dir / "gradlew").exists() else "gradle"
+        detected_install = f"{gradle_cmd} build -x test"
+        detected_cmd = f"{gradle_cmd} bootRun"
+        detected_port = 8080
+        detected_from = "Gradle build file"
+
+    # 5. Rust Detection (Cargo)
+    elif (repo_dir / "Cargo.toml").exists():
+        detected_type = "Rust"
+        detected_install = "cargo build"
+        detected_cmd = "cargo run"
+        detected_port = 8080
+        detected_from = "Cargo.toml"
+
+    # 6. Go Detection (go.mod)
+    elif (repo_dir / "go.mod").exists():
+        detected_type = "Go"
+        detected_install = "go mod download"
+        detected_cmd = "go run ."
+        detected_port = 8080
+        detected_from = "go.mod"
+
+    # 7. PHP Detection (Artisan / Composer)
+    elif (repo_dir / "artisan").exists():
+        detected_type = "PHP (Laravel)"
+        detected_install = "composer install"
+        detected_cmd = "php artisan serve --port={PORT}"
+        detected_port = 8000
+        detected_from = "Laravel artisan"
+    elif (repo_dir / "composer.json").exists():
+        detected_type = "PHP"
+        detected_install = "composer install"
+        detected_cmd = "php -S 0.0.0.0:{PORT}"
+        detected_port = 8000
+        detected_from = "composer.json"
+
+    # 8. Static HTML fallback
+    elif (repo_dir / "index.html").exists():
+        detected_type = "Static HTML / Web"
+        detected_install = ""
+        detected_cmd = "python -m http.server {PORT}"
+        detected_port = 8080
+        detected_from = "index.html"
+    else:
+        detected_type = "Generic Codebase"
+        detected_cmd = "python -m http.server {PORT}"
+        detected_port = 8000
+
+    # 9. Extract explicit CLI command from README if present
+    if readme_content:
+        patterns = [
+            r"```(?:bash|sh|shell|powershell|cmd)?\s*[\r\n]+(?:\$\s*)?((?:dotnet\s+run[^\r\n]*))",
+            r"```(?:bash|sh|shell)?\s*[\r\n]+(?:\$\s*)?((?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve)[^\r\n]*)",
+            r"```(?:bash|sh|shell)?\s*[\r\n]+(?:\$\s*)?((?:uvicorn\s+[\w\.\:\-]+|python\s+[\w\.\/\-]+\.py|flask\s+run)[^\r\n]*)",
+            r"```(?:bash|sh|shell)?\s*[\r\n]+(?:\$\s*)?((?:cargo\s+run|go\s+run\s+\.)[^\r\n]*)"
+        ]
+        for pat in patterns:
+            m = re.search(pat, readme_content, re.IGNORECASE)
+            if m:
+                extracted = m.group(1).strip()
+                if extracted:
+                    detected_cmd = extracted
+                    detected_from = f"{readme_file_used} instructions"
+                    break
+
+    return {
+        "project_type": detected_type,
+        "command": detected_cmd,
+        "install_command": detected_install,
+        "default_port": detected_port,
+        "detected_from": detected_from
+    }
+
+
+def analyze_launch_with_llm(
+    repo_name: str,
+    file_tree: List[str],
+    readme_content: str,
+    readme_file_used: str,
+    heuristic_plan: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """
+    Leverages the configured AI model to analyze the codebase structure and README instructions,
+    returning the precise language, framework, execution command, and port.
+    """
+    if os.getenv("TESTING") == "1":
+        return None
+
+    try:
+        is_conn, _ = verify_llm_connection(timeout=3.0)
+        if not is_conn:
+            return None
+
+        # Build clean representation of files
+        files_str = "\n".join(f"- {f}" for f in file_tree[:45])
+        readme_snippet = readme_content[:3500] if readme_content else "No README file found."
+
+        system_prompt = (
+            "You are an expert autonomous DevOps and systems engineer. "
+            "Analyze the provided repository files and README to deduce the exact commands to run this application. "
+            "Return valid JSON ONLY, without markdown fences or additional conversational text."
+        )
+
+        user_prompt = f"""Target Repository: '{repo_name}'
+
+Files present in repository:
+{files_str}
+
+README instructions snippet ({readme_file_used or 'N/A'}):
+```
+{readme_snippet}
+```
+
+Preliminary Heuristic Detection:
+- Type: {heuristic_plan.get('project_type')}
+- Default Command: {heuristic_plan.get('command')}
+- Default Port: {heuristic_plan.get('default_port')}
+
+Instructions:
+1. Identify the exact programming language and framework (e.g., "C# (.NET 8 Blazor WASM)", "Node.js (Next.js)", "Python (FastAPI)", "Go", "Rust", etc.).
+2. Determine the exact single CLI command to run this project in a terminal.
+   - For C# / .NET projects with .sln or .csproj, use the appropriate `dotnet run --project <path>` or `dotnet run`.
+   - For Node.js, use `npm run dev` or `npm start`.
+   - For Python, use `python <file>.py` or `uvicorn ...`.
+3. Provide the install/build command (e.g. `dotnet restore`, `npm install`, `pip install -r requirements.txt`).
+4. Provide the expected HTTP port number (integer).
+5. Give a 1-sentence explanation of why this command is correct based on the files/README.
+
+Return strictly valid JSON with these keys:
+{{
+  "project_type": "string",
+  "command": "string",
+  "install_command": "string",
+  "port": 5000,
+  "explanation": "string"
+}}"""
+
+        raw_resp = call_llm(user_prompt, system_prompt, timeout=20)
+        # Parse JSON from response
+        match = re.search(r"\{[\s\S]*\}", raw_resp)
+        if match:
+            data = json.loads(match.group(0))
+            cmd = (data.get("command") or "").strip()
+            if cmd:
+                port_val = data.get("port")
+                if not isinstance(port_val, int) or port_val <= 0 or port_val > 65535:
+                    port_val = heuristic_plan.get("default_port", 5000)
+
+                return {
+                    "project_type": data.get("project_type") or heuristic_plan.get("project_type"),
+                    "command": cmd,
+                    "install_command": data.get("install_command") or heuristic_plan.get("install_command", ""),
+                    "default_port": port_val,
+                    "detected_from": "AI Architecture Analysis (LLM)",
+                    "readme_summary": data.get("explanation") or f"Synthesized from {readme_file_used or 'codebase files'} via AI model."
+                }
+    except Exception as e:
+        logger.debug(f"AI launch plan analysis skipped: {e}")
+
+    return None
+
+
 def discover_project_launch_plan(repo_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Deeply scans the repository to discover how to launch and execute the application.
-    1. Reads README files (README.md, README, instructions) to detect explicit startup instructions.
-    2. Inspects manifest files (package.json, requirements.txt, pyproject.toml, Cargo.toml, go.mod, etc.).
-    3. Uses LLM-assisted analysis when available to synthesize the optimal startup command.
-    4. Proposes target port, installation command, and start command.
+    Combines:
+    1. Multi-language manifest and directory tree inspection (C#, Node, Python, Java, Go, Rust, etc.).
+    2. README setup/run instructions extraction.
+    3. AI Model analysis via LLM to synthesize the exact launch parameters.
     """
     clean_repo = sanitize_name(repo_name) if repo_name else None
     if clean_repo:
         repo_dir = ALLOWED_REPO_DIR / clean_repo
     elif ALLOWED_REPO_DIR.exists():
-        # Check first available directory in ALLOWED_REPO_DIR
         subdirs = [p for p in ALLOWED_REPO_DIR.iterdir() if p.is_dir() and not p.name.startswith(".")]
         repo_dir = subdirs[0] if subdirs else ALLOWED_REPO_DIR
     else:
@@ -83,7 +422,7 @@ def discover_project_launch_plan(repo_name: Optional[str] = None) -> Dict[str, A
             "readme_summary": "Repository directory not found on disk."
         }
 
-    # 1. Inspect README files
+    # 1. Read README files
     readme_candidates = [
         repo_dir / "README.md",
         repo_dir / "readme.md",
@@ -99,189 +438,44 @@ def discover_project_launch_plan(repo_name: Optional[str] = None) -> Dict[str, A
             readme_file_used = r_file.name
             break
 
-    # 2. Inspect Manifest Files
-    pkg_json_path = repo_dir / "package.json"
-    req_txt_path = repo_dir / "requirements.txt"
-    pyproject_path = repo_dir / "pyproject.toml"
-    cargo_path = repo_dir / "Cargo.toml"
-    go_path = repo_dir / "go.mod"
-    docker_compose_path = repo_dir / "docker-compose.yml"
-    index_html_path = repo_dir / "index.html"
+    # 2. Collect Directory Tree
+    file_tree = _collect_repo_file_tree(repo_dir)
 
-    has_pkg_json = pkg_json_path.exists()
-    has_python = req_txt_path.exists() or pyproject_path.exists() or any(repo_dir.glob("*.py"))
-    has_cargo = cargo_path.exists()
-    has_go = go_path.exists()
+    # 3. Comprehensive Multi-Language Heuristics
+    plan = detect_heuristic_launch_plan(repo_dir, file_tree, readme_content, readme_file_used)
 
-    detected_type = "Generic"
-    detected_cmd = ""
-    detected_install = ""
-    detected_port = 8000
-    detected_from = "heuristics"
+    # 4. AI-Enhanced Model Analysis
+    ai_plan = analyze_launch_with_llm(
+        repo_name=clean_repo or repo_dir.name,
+        file_tree=file_tree,
+        readme_content=readme_content,
+        readme_file_used=readme_file_used,
+        heuristic_plan=plan
+    )
 
-    # Analyze Node.js / JavaScript / TypeScript
-    if has_pkg_json:
-        try:
-            with open(pkg_json_path, "r", encoding="utf-8", errors="replace") as f:
-                pkg_data = json.load(f)
-            scripts = pkg_data.get("scripts", {})
-            deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
-
-            # Detect Framework
-            if "next" in deps:
-                detected_type = "Node.js (Next.js)"
-                detected_port = 3000
-            elif "vite" in deps:
-                detected_type = "Node.js (Vite)"
-                detected_port = 5173
-            elif "react-scripts" in deps:
-                detected_type = "Node.js (Create React App)"
-                detected_port = 3000
-            elif "nuxt" in deps:
-                detected_type = "Node.js (Nuxt)"
-                detected_port = 3000
-            elif "express" in deps or "fastify" in deps or "koa" in deps:
-                detected_type = "Node.js (Server API)"
-                detected_port = 3000
-            else:
-                detected_type = "Node.js"
-                detected_port = 3000
-
-            # Detect Package Manager
-            pm = "npm"
-            if (repo_dir / "pnpm-lock.yaml").exists():
-                pm = "pnpm"
-            elif (repo_dir / "yarn.lock").exists():
-                pm = "yarn"
-            elif (repo_dir / "bun.lockb").exists():
-                pm = "bun"
-
-            detected_install = f"{pm} install"
-
-            if "dev" in scripts:
-                detected_cmd = f"{pm} run dev"
-            elif "start" in scripts:
-                detected_cmd = f"{pm} start"
-            elif "serve" in scripts:
-                detected_cmd = f"{pm} run serve"
-            else:
-                main_file = pkg_data.get("main", "index.js")
-                detected_cmd = f"node {main_file}"
-
-            detected_from = "package.json scripts"
-        except Exception as e:
-            logger.warning(f"Error parsing package.json: {e}")
-
-    # Analyze Python
-    elif has_python:
-        detected_type = "Python"
-        detected_install = "pip install -r requirements.txt" if req_txt_path.exists() else "pip install ."
-
-        # Scan for common Python entrypoints
-        py_files = [p.name for p in repo_dir.glob("*.py")]
-        app_sub_py = [p.relative_to(repo_dir).as_posix() for p in repo_dir.glob("app/*.py")]
-
-        # Look for FastAPI / Uvicorn
-        is_fastapi = False
-        fastapi_target = ""
-        for check_file in [repo_dir / "main.py", repo_dir / "app.py", repo_dir / "app" / "main.py"]:
-            if check_file.exists():
-                txt = _read_snippet_safe(check_file, 4000)
-                if "FastAPI" in txt or "uvicorn" in txt:
-                    is_fastapi = True
-                    mod_name = "app.main:app" if "app" in check_file.parts else f"{check_file.stem}:app"
-                    fastapi_target = mod_name
-                    break
-
-        if is_fastapi:
-            detected_type = "Python (FastAPI)"
-            detected_port = 8000
-            detected_cmd = f"uvicorn {fastapi_target} --host 0.0.0.0 --port {{PORT}}"
-            detected_from = "FastAPI entrypoint"
-        elif "manage.py" in py_files:
-            detected_type = "Python (Django)"
-            detected_port = 8000
-            detected_cmd = "python manage.py runserver 0.0.0.0:{PORT}"
-            detected_from = "Django manage.py"
-        elif "app.py" in py_files:
-            detected_type = "Python (Flask / App)"
-            detected_port = 5000
-            detected_cmd = "python app.py"
-            detected_from = "app.py"
-        elif "main.py" in py_files:
-            detected_type = "Python (Main)"
-            detected_port = 8000
-            detected_cmd = "python main.py"
-            detected_from = "main.py"
-        elif py_files:
-            detected_cmd = f"python {py_files[0]}"
-            detected_from = f"{py_files[0]}"
-        else:
-            detected_cmd = "python -m http.server {PORT}"
-            detected_port = 8000
-
-    # Analyze Rust
-    elif has_cargo:
-        detected_type = "Rust"
-        detected_install = "cargo build"
-        detected_cmd = "cargo run"
-        detected_port = 8080
-        detected_from = "Cargo.toml"
-
-    # Analyze Go
-    elif has_go:
-        detected_type = "Go"
-        detected_install = "go mod download"
-        detected_cmd = "go run ."
-        detected_port = 8080
-        detected_from = "go.mod"
-
-    # Static HTML fallback
-    elif index_html_path.exists():
-        detected_type = "Static HTML / Web"
-        detected_install = ""
-        detected_cmd = "python -m http.server {PORT}"
-        detected_port = 8080
-        detected_from = "index.html"
-    else:
-        detected_type = "Generic"
-        detected_cmd = "python -m http.server {PORT}"
-        detected_port = 8000
-
-    # 3. Fast Regex Discovery from README files
-    readme_summary = ""
-    if readme_content:
-        patterns = [
-            r"```(?:bash|sh|shell)?\s*[\r\n]+(?:\$\s*)?((?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve)[^\r\n]*)",
-            r"```(?:bash|sh|shell)?\s*[\r\n]+(?:\$\s*)?((?:uvicorn\s+[\w\.\:\-]+|python\s+[\w\.\/\-]+\.py|flask\s+run)[^\r\n]*)",
-            r"```(?:bash|sh|shell)?\s*[\r\n]+(?:\$\s*)?((?:cargo\s+run|go\s+run\s+\.)[^\r\n]*)"
-        ]
-        for pat in patterns:
-            m = re.search(pat, readme_content, re.IGNORECASE)
-            if m:
-                extracted_cmd = m.group(1).strip()
-                if extracted_cmd:
-                    detected_cmd = extracted_cmd
-                    detected_from = f"{readme_file_used} instructions"
-                    readme_summary = f"Detected startup command from {readme_file_used}: `{detected_cmd}`"
-                    break
-
-    if not readme_summary and readme_file_used:
-        readme_summary = f"Discovered run instructions from {readme_file_used} and project structure."
+    if ai_plan:
+        plan.update(ai_plan)
 
     assigned_port = find_available_port(start_port=9100)
 
+    readme_summary = plan.get("readme_summary")
+    if not readme_summary:
+        if readme_file_used:
+            readme_summary = f"Discovered launch configuration from {readme_file_used} and project files."
+        else:
+            readme_summary = f"Discovered launch configuration for {plan['project_type']} project."
+
     return {
         "repo_name": clean_repo or repo_dir.name,
-        "project_type": detected_type,
-        "command": detected_cmd,
-        "install_command": detected_install,
-        "default_port": detected_port,
+        "project_type": plan["project_type"],
+        "command": plan["command"],
+        "install_command": plan.get("install_command", ""),
+        "default_port": plan["default_port"],
         "assigned_port": assigned_port,
         "working_dir": str(repo_dir),
-        "detected_from": detected_from,
+        "detected_from": plan["detected_from"],
         "readme_file": readme_file_used or "None",
-        "readme_summary": readme_summary or "Ready to launch in isolated sandbox."
+        "readme_summary": readme_summary
     }
 
 
@@ -322,13 +516,13 @@ class SandboxSession:
         env = dict(os.environ)
         env["PORT"] = str(self.port)
         env["HOST"] = "0.0.0.0"
+        env["ASPNETCORE_URLS"] = f"http://0.0.0.0:{self.port}"
         env["PYTHONUNBUFFERED"] = "1"
         env["CI"] = "true"
         # Avoid loopback proxy interference in sandbox
         env["NO_PROXY"] = "localhost,127.0.0.1,host.docker.internal"
         env["no_proxy"] = "localhost,127.0.0.1,host.docker.internal"
 
-        # Platform-specific process group creation
         kwargs: Dict[str, Any] = {
             "cwd": str(self.working_dir),
             "env": env,
@@ -339,18 +533,15 @@ class SandboxSession:
         }
 
         if sys.platform == "win32":
-            # CREATE_NEW_PROCESS_GROUP allows killing whole tree cleanly
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             kwargs["preexec_fn"] = os.setsid
 
         try:
-            # Use shell=True to handle complex npm/python commands cross-platform
             self.process = subprocess.Popen(cmd_str, shell=True, **kwargs)
             self.status = "running"
             self.log(f"✅ Sandbox process started (PID: {self.process.pid}). URL: http://localhost:{self.port}")
 
-            # Background log collector thread
             def _stream_logs():
                 try:
                     for line in iter(self.process.stdout.readline, ""):
@@ -389,7 +580,6 @@ class SandboxSession:
 
         try:
             if sys.platform == "win32":
-                # Kill process tree using taskkill
                 subprocess.run(
                     ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
                     stdout=subprocess.DEVNULL,
@@ -427,7 +617,7 @@ class SandboxSession:
             "pid": self.process.pid if self.process else None,
             "uptime_seconds": uptime,
             "exit_code": self.exit_code,
-            "logs": list(self.logs)[-200:]  # Latest 200 lines
+            "logs": list(self.logs)[-200:]
         }
 
 
@@ -441,7 +631,6 @@ def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optio
     working_dir = Path(plan["working_dir"])
 
     with _SANDBOX_LOCK:
-        # Stop existing session if currently active
         key = clean_repo or "default"
         existing = _ACTIVE_SANDBOXES.get(key)
         if existing and existing.status in ("starting", "running"):
@@ -490,8 +679,7 @@ def get_sandbox_session_status(repo_name: Optional[str] = None) -> Dict[str, Any
                 "pid": None,
                 "uptime_seconds": 0,
                 "exit_code": None,
-                "logs": [f"Sandbox is ready. Detected run configuration: {plan['command']}"],
+                "logs": [f"Sandbox ready. Detected launch command: {plan['command']}"],
                 "plan": plan
             }
-        data = session.to_dict()
-        return data
+        return session.to_dict()

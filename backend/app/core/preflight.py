@@ -201,9 +201,10 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
         rule = str(d.get("rule", "")).lower()
         tier = str(d.get("tier", "")).lower()
         is_unconfirmed = bool(d.get("unconfirmed", False))
+        is_fixed = bool(d.get("fixed", False))
 
-        # Unconfirmed findings subtract nothing per spec
-        if is_unconfirmed:
+        # Unconfirmed or fixed findings subtract nothing per spec
+        if is_unconfirmed or is_fixed:
             continue
 
         if tier == "red" or any(k in rule for k in ["leaked", "secret", "admin", "injection", "crash", "loop", "dead button"]):
