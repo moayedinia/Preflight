@@ -6,6 +6,8 @@ import socket
 import logging
 import threading
 import subprocess
+import shutil
+import shlex
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from collections import deque
@@ -479,6 +481,129 @@ def discover_project_launch_plan(repo_name: Optional[str] = None) -> Dict[str, A
     }
 
 
+def _is_host_proxy_reachable(host: str = "host.docker.internal", port: int = 10808, timeout: float = 1.0) -> bool:
+    """Checks if the host or local proxy is reachable."""
+    for target in [host, "127.0.0.1", "localhost"]:
+        try:
+            with socket.create_connection((target, port), timeout=timeout):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def ensure_runtime_prerequisites(cmd_str: str, session: "SandboxSession", env: Dict[str, str]) -> bool:
+    """
+    Verifies that the required CLI runtime for the command exists in the sandbox environment.
+    If missing, attempts auto-provisioning or emits clear diagnostic guidance into session logs.
+    """
+    clean_cmd = cmd_str.strip()
+    try:
+        tokens = shlex.split(clean_cmd)
+    except Exception:
+        tokens = clean_cmd.split()
+    if not tokens:
+        return True
+
+    idx = 0
+    while idx < len(tokens) and "=" in tokens[idx] and not tokens[idx].startswith("./") and not tokens[idx].startswith("/"):
+        idx += 1
+    binary = tokens[idx] if idx < len(tokens) else tokens[0]
+    binary_name = Path(binary).name.lower()
+
+    # 1. Handle C# / .NET
+    if binary_name in ("dotnet", "dotnet.exe"):
+        dotnet_candidates = [
+            shutil.which("dotnet"),
+            "/usr/local/bin/dotnet",
+            "/usr/share/dotnet/dotnet",
+            str(Path.home() / ".dotnet" / "dotnet"),
+            "/root/.dotnet/dotnet"
+        ]
+        found_dotnet = next((p for p in dotnet_candidates if p and Path(p).exists()), None)
+        if found_dotnet:
+            dotnet_dir = str(Path(found_dotnet).parent)
+            current_path = env.get("PATH", os.environ.get("PATH", ""))
+            if dotnet_dir not in current_path.split(os.pathsep):
+                env["PATH"] = f"{dotnet_dir}{os.pathsep}{current_path}"
+            env["DOTNET_ROOT"] = dotnet_dir
+            return True
+
+        session.log("⚠️ .NET SDK ('dotnet') is not found in the sandbox environment.")
+        session.log("⏳ Attempting automatic on-demand installation of .NET 8 SDK... please wait.")
+
+        try:
+            proxy_args = []
+            install_env = dict(os.environ)
+            if _is_host_proxy_reachable("host.docker.internal", 10808):
+                proxy_url = "http://host.docker.internal:10808"
+                proxy_args = ["-x", proxy_url]
+                install_env["http_proxy"] = proxy_url
+                install_env["https_proxy"] = proxy_url
+                install_env["HTTP_PROXY"] = proxy_url
+                install_env["HTTPS_PROXY"] = proxy_url
+
+            script_path = Path("/tmp/dotnet-install.sh")
+            if not script_path.exists():
+                session.log("📥 Downloading official .NET install script...")
+                dl_cmd = ["curl", "-sSL"] + proxy_args + ["https://dot.net/v1/dotnet-install.sh", "-o", str(script_path)]
+                subprocess.run(dl_cmd, check=True, timeout=30, capture_output=True)
+
+            target_install_dir = Path.home() / ".dotnet"
+            target_install_dir.mkdir(parents=True, exist_ok=True)
+            session.log(f"📦 Installing .NET 8 SDK into {target_install_dir}...")
+            install_cmd = ["bash", str(script_path), "--channel", "8.0", "--install-dir", str(target_install_dir)]
+            proc = subprocess.run(install_cmd, env=install_env, timeout=300, capture_output=True, text=True)
+
+            installed_dotnet = target_install_dir / "dotnet"
+            if installed_dotnet.exists():
+                session.log("✅ .NET 8 SDK installed successfully into sandbox!")
+                dotnet_dir = str(target_install_dir)
+                current_path = env.get("PATH", os.environ.get("PATH", ""))
+                env["PATH"] = f"{dotnet_dir}{os.pathsep}{current_path}"
+                env["DOTNET_ROOT"] = dotnet_dir
+                return True
+            else:
+                err_preview = (proc.stderr or proc.stdout or "Unknown installer error")[:250]
+                session.log(f"❌ .NET auto-installation failed: {err_preview}")
+        except Exception as ex:
+            session.log(f"❌ Failed to auto-install .NET SDK: {str(ex)}")
+
+        session.log("💡 Tip: To run C# projects, install .NET 8 SDK inside the container or rebuild the image.")
+        return False
+
+    # 2. Handle Node.js / npm
+    if binary_name in ("node", "npm", "npx", "yarn", "pnpm"):
+        node_candidates = [
+            shutil.which(binary_name),
+            f"/usr/local/bin/{binary_name}",
+            f"/usr/bin/{binary_name}"
+        ]
+        found_node = next((p for p in node_candidates if p and Path(p).exists()), None)
+        if found_node:
+            node_dir = str(Path(found_node).parent)
+            current_path = env.get("PATH", os.environ.get("PATH", ""))
+            if node_dir not in current_path.split(os.pathsep):
+                env["PATH"] = f"{node_dir}{os.pathsep}{current_path}"
+            return True
+
+        session.log(f"⚠️ Node.js runtime ('{binary_name}') was not found in the sandbox environment.")
+        session.log("💡 Tip: Install Node.js & npm inside the container to execute JavaScript/TypeScript applications.")
+        return False
+
+    # 3. Handle Python
+    if binary_name in ("python", "python3", "uvicorn", "gunicorn"):
+        return True
+
+    # 4. Handle other generic commands
+    if shutil.which(binary_name) is None and not Path(binary_name).exists():
+        session.log(f"⚠️ Required executable '{binary_name}' was not found in system PATH.")
+        session.log("💡 If this command requires specific packages, please ensure they are installed in the container.")
+        return False
+
+    return True
+
+
 class SandboxSession:
     """Manages an isolated execution instance for a target codebase."""
 
@@ -531,6 +656,14 @@ class SandboxSession:
             "text": True,
             "bufsize": 1,
         }
+
+        # Check language runtime prerequisites (e.g. dotnet, node, python)
+        prereq_ok = ensure_runtime_prerequisites(cmd_str, self, env)
+        if not prereq_ok:
+            self.status = "crashed"
+            self.exit_code = 127
+            self.log("🛑 Launch halted: Required language runtime is missing in the sandbox environment.")
+            return
 
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP

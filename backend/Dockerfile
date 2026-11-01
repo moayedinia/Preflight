@@ -24,10 +24,13 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONIOENCODING=utf-8
 
-# Install necessary build tools and security dependencies
+# Install necessary build tools, system dependencies, and sandbox runtime prerequisites
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
+    curl \
+    ca-certificates \
+    libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure Git globally to preserve non-ASCII / Persian UTF-8 filenames and commits
