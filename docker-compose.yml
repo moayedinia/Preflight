@@ -76,6 +76,8 @@ services:
       - ./frontend:/app/frontend:ro
     ports:
       - "8000:8000"
+      - "9100-9110:9100-9110"
+      - "7080:7080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:

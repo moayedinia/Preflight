@@ -123,11 +123,11 @@ def detect_heuristic_launch_plan(repo_dir: Path, file_tree: List[str], readme_co
         
         target_proj = web_project or (csproj_files[0] if csproj_files else None)
         if target_proj:
-            detected_cmd = f"dotnet run --project {target_proj}"
+            detected_cmd = f"dotnet run --project {target_proj} --urls http://0.0.0.0:{{PORT}} --no-launch-profile"
         elif sln_files:
-            detected_cmd = "dotnet run"
+            detected_cmd = "dotnet run --urls http://0.0.0.0:{PORT} --no-launch-profile"
         else:
-            detected_cmd = "dotnet run"
+            detected_cmd = "dotnet run --urls http://0.0.0.0:{PORT} --no-launch-profile"
 
     # 2. Node.js / JavaScript / TypeScript Detection
     elif any(f == "package.json" or f.endswith("/package.json") for f in file_tree):
@@ -756,6 +756,7 @@ class SandboxSession:
             "status": self.status,
             "port": self.port,
             "url": f"http://localhost:{self.port}",
+            "proxy_url": f"/api/v1/sandbox/proxy/{self.repo_name}/",
             "command": self.command,
             "pid": self.process.pid if self.process else None,
             "uptime_seconds": uptime,
@@ -818,6 +819,7 @@ def get_sandbox_session_status(repo_name: Optional[str] = None) -> Dict[str, Any
                 "status": "stopped",
                 "port": plan["assigned_port"],
                 "url": f"http://localhost:{plan['assigned_port']}",
+                "proxy_url": f"/api/v1/sandbox/proxy/{key}/",
                 "command": plan["command"],
                 "pid": None,
                 "uptime_seconds": 0,
@@ -826,3 +828,104 @@ def get_sandbox_session_status(repo_name: Optional[str] = None) -> Dict[str, Any
                 "plan": plan
             }
         return session.to_dict()
+
+
+async def proxy_sandbox_http_request(repo_name: Optional[str], subpath: str, request: Any) -> Any:
+    """
+    Reverse proxies browser HTTP traffic from host through FastAPI into the isolated sandbox process.
+    Bypasses Docker internal network isolation so the user can interact with the app seamlessly from any browser.
+    """
+    from starlette.responses import Response, StreamingResponse, RedirectResponse
+    import requests
+
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    key = clean_repo or "default"
+    session = _ACTIVE_SANDBOXES.get(key)
+
+    if not session or session.status not in ("running", "starting"):
+        html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Sandbox Not Running</title>
+<style>body{{font-family:system-ui,-apple-system,sans-serif;background:#090d16;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
+.card{{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:32px;max-width:480px;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5)}}
+h2{{color:#f87171;margin-top:0}}p{{color:#94a3b8;font-size:14px;line-height:1.6}}</style>
+</head><body><div class="card">
+<h2>⚠️ Sandbox is Stopped</h2>
+<p>The sandbox process for <b>{clean_repo or 'the project'}</b> is not currently running.<br>
+Please open the dashboard and click <b>Start Sandbox</b> first.</p>
+</div></body></html>"""
+        return Response(content=html, status_code=503, media_type="text/html")
+
+    # If subpath is empty and request URL does not end with trailing slash, redirect with slash
+    if not subpath and not request.url.path.endswith("/"):
+        query = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(url=f"{request.url.path}/{query}", status_code=307)
+
+    target_port = session.port
+    target_url = f"http://127.0.0.1:{target_port}/{subpath.lstrip('/')}"
+    if request.url.query:
+        target_url += f"?{request.url.query}"
+
+    req_headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in ("host", "content-length", "connection")
+    }
+    req_headers["Host"] = f"localhost:{target_port}"
+
+    body = None
+    if request.method in ("POST", "PUT", "PATCH"):
+        body = await request.body()
+
+    try:
+        resp = requests.request(
+            method=request.method,
+            url=target_url,
+            headers=req_headers,
+            data=body,
+            stream=True,
+            allow_redirects=False,
+            timeout=30
+        )
+    except requests.exceptions.ConnectionError:
+        html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2"><title>Sandbox Initializing</title>
+<style>body{{font-family:system-ui,-apple-system,sans-serif;background:#090d16;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
+.card{{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:32px;max-width:480px;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5)}}
+.spinner{{width:32px;height:32px;border:3px solid #374151;border-top-color:#6366f1;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}}
+@keyframes spin{{to{{transform:rotate(360deg)}}}}
+h2{{color:#818cf8;margin-top:0}}p{{color:#94a3b8;font-size:14px;line-height:1.6}}</style>
+</head><body><div class="card"><div class="spinner"></div>
+<h2>App is Initializing...</h2>
+<p>The application is compiling and preparing to serve on port <b>{target_port}</b>.<br>
+This page will refresh automatically in 2 seconds.</p>
+</div></body></html>"""
+        return Response(content=html, status_code=200, media_type="text/html")
+    except Exception as e:
+        return Response(content=f"Sandbox Proxy Error: {str(e)}", status_code=502, media_type="text/plain")
+
+    out_headers = {}
+    for k, v in resp.headers.items():
+        if k.lower() not in ("content-encoding", "content-length", "transfer-encoding", "connection"):
+            out_headers[k] = v
+
+    content_type = resp.headers.get("content-type", "").lower()
+
+    # Rewrite base href in HTML so relative SPA assets resolve via proxy
+    if "text/html" in content_type:
+        raw_bytes = resp.content
+        try:
+            html_text = raw_bytes.decode(resp.encoding or "utf-8", errors="replace")
+            proxy_prefix = f"/api/v1/sandbox/proxy/{clean_repo}/"
+            if '<base href="/"' in html_text or "<base href='/'" in html_text:
+                html_text = re.sub(r"""<base\s+href=['"][^'"]*['"]\s*/?>""", f'<base href="{proxy_prefix}" />', html_text, count=1)
+            elif "<head>" in html_text:
+                html_text = html_text.replace("<head>", f'<head><base href="{proxy_prefix}" />', 1)
+            return Response(content=html_text, status_code=resp.status_code, headers=out_headers, media_type="text/html")
+        except Exception:
+            pass
+
+    return StreamingResponse(
+        resp.iter_content(chunk_size=32768),
+        status_code=resp.status_code,
+        headers=out_headers,
+        media_type=resp.headers.get("content-type")
+    )

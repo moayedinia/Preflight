@@ -891,6 +891,14 @@ def get_sandbox_status_endpoint(repo_name: Optional[str] = None):
     return get_sandbox_session_status(repo_name=clean_repo)
 
 
+@app.api_route("/api/v1/sandbox/proxy/{repo_name}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+@app.api_route("/api/v1/sandbox/proxy/{repo_name}/{subpath:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+async def sandbox_proxy_endpoint(repo_name: str, subpath: str = "", request: Request = None):
+    """Reverse proxies browser HTTP traffic to the isolated sandbox process inside the container."""
+    from app.core.sandbox import proxy_sandbox_http_request
+    return await proxy_sandbox_http_request(repo_name, subpath, request)
+
+
 # 11. GitHub CI/CD Webhook Trigger
 @app.post("/api/v1/webhooks/github")
 async def github_webhook(request: Request):
