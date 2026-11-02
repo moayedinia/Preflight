@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   neo4j:
     image: neo4j:5.11
@@ -63,8 +61,8 @@ services:
     build:
       context: ./backend
       args:
-        - HTTP_PROXY=${HTTP_PROXY:-http://host.docker.internal:10808}
-        - HTTPS_PROXY=${HTTPS_PROXY:-http://host.docker.internal:10808}
+        - HTTP_PROXY=${HTTP_PROXY:-}
+        - HTTPS_PROXY=${HTTPS_PROXY:-}
         - NO_PROXY=localhost,127.0.0.1,neo4j,redis,api,celery_worker,mcp_server
         - PYPI_MIRROR=${PYPI_MIRROR:-}
         - PYPI_HOST=${PYPI_HOST:-}
@@ -76,8 +74,6 @@ services:
       - ./frontend:/app/frontend:ro
     ports:
       - "8000:8000"
-      - "9100-9110:9100-9110"
-      - "7080:7080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -105,11 +101,15 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - LLM_API_KEY=${LLM_API_KEY:-}
+      - SANDBOX_RUNNER_URL=http://sandbox_runner:8010
+      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-change-me-in-production}
     depends_on:
       neo4j:
         condition: service_healthy
       redis:
         condition: service_healthy
+      sandbox_runner:
+        condition: service_started
     networks:
       codegraph_net:
         aliases:
@@ -117,12 +117,38 @@ services:
           - graphrag_api
     restart: unless-stopped
 
+  sandbox_runner:
+    build:
+      context: ./backend
+    container_name: graphrag_sandbox_runner
+    command: uvicorn app.sandbox_runner:app --host 0.0.0.0 --port 8010
+    user: root
+    volumes:
+      - ./repos:/app/repos:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONPATH=/app
+      - ALLOWED_REPO_DIR=/app/repos
+      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-change-me-in-production}
+      - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-768m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-256}
+    networks:
+      codegraph_net:
+        aliases:
+          - sandbox_runner
+      sandbox_net:
+        aliases:
+          - sandbox_runner_gateway
+    restart: unless-stopped
+
   celery_worker:
     build:
       context: ./backend
       args:
-        - HTTP_PROXY=${HTTP_PROXY:-http://host.docker.internal:10808}
-        - HTTPS_PROXY=${HTTPS_PROXY:-http://host.docker.internal:10808}
+        - HTTP_PROXY=${HTTP_PROXY:-}
+        - HTTPS_PROXY=${HTTPS_PROXY:-}
         - NO_PROXY=localhost,127.0.0.1,neo4j,redis,api,celery_worker,mcp_server
         - PYPI_MIRROR=${PYPI_MIRROR:-}
         - PYPI_HOST=${PYPI_HOST:-}
@@ -173,8 +199,8 @@ services:
     build:
       context: ./backend
       args:
-        - HTTP_PROXY=${HTTP_PROXY:-http://host.docker.internal:10808}
-        - HTTPS_PROXY=${HTTPS_PROXY:-http://host.docker.internal:10808}
+        - HTTP_PROXY=${HTTP_PROXY:-}
+        - HTTPS_PROXY=${HTTPS_PROXY:-}
         - NO_PROXY=localhost,127.0.0.1,neo4j,redis,api,celery_worker,mcp_server
         - PYPI_MIRROR=${PYPI_MIRROR:-}
         - PYPI_HOST=${PYPI_HOST:-}
@@ -241,6 +267,9 @@ services:
 networks:
   codegraph_net:
     name: codegraph_net
+    driver: bridge
+  sandbox_net:
+    name: preflight_sandbox_net
     driver: bridge
 
 volumes:

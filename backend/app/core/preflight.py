@@ -1,6 +1,9 @@
 import os
 import re
 import json
+import ast
+import hashlib
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -595,6 +598,35 @@ def get_candidate_directories(repo_name: Optional[str] = None) -> List[Path]:
     return candidates
 
 
+def _validate_llm_defect_evidence(
+    defect: Dict[str, Any], candidates: List[Path], repo_name: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Accept an LLM-only finding only when its exact snippet exists on disk now."""
+    raw_path = str(defect.get("file") or defect.get("file_path") or "").strip().replace("\\", "/")
+    snippet = str(defect.get("snippet") or defect.get("code_snippet") or "").strip()
+    if not raw_path or not snippet or raw_path in {"codebase", repo_name or ""}:
+        return None
+    if repo_name and raw_path.startswith(repo_name + "/"):
+        raw_path = raw_path[len(repo_name) + 1:]
+
+    for base_dir in candidates:
+        candidate = (base_dir / raw_path).resolve()
+        try:
+            candidate.relative_to(base_dir.resolve())
+        except ValueError:
+            continue
+        if not candidate.is_file():
+            continue
+        content = candidate.read_text(encoding="utf-8", errors="ignore")
+        if snippet not in content:
+            continue
+        verified = dict(defect)
+        verified["file"] = candidate.relative_to(base_dir.resolve()).as_posix()
+        verified["snippet"] = snippet
+        return verified
+    return None
+
+
 def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Exclusively and independently audits the specified tier (RED, ORANGE, or YELLOW).
@@ -1146,15 +1178,23 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
         # Merge LLM-discovered defects if present
         if isinstance(llm_eval.get("defects"), list):
             for d in llm_eval["defects"]:
-                if isinstance(d, dict) and d.get("rule"):
+                verified = _validate_llm_defect_evidence(d, directories, clean_repo) if isinstance(d, dict) else None
+                if verified and verified.get("rule"):
+                    duplicate = any(
+                        existing.get("file") == verified.get("file")
+                        and existing.get("snippet") == verified.get("snippet")
+                        for existing in all_defects
+                    )
+                    if duplicate:
+                        continue
                     all_defects.append({
-                        "file": d.get("file", repo_name or "codebase"),
-                        "line": d.get("line", 1),
-                        "rule": d.get("rule", f"{tier_upper} Defect"),
-                        "snippet": str(d.get("snippet", ""))[:160],
-                        "detail": str(d.get("detail", explanation))[:300],
-                        "business_consequence": str(d.get("business_consequence", consequence))[:300],
-                        "repair_prompt": str(d.get("repair_prompt", repair_prompt)),
+                        "file": verified["file"],
+                        "line": verified.get("line", 1),
+                        "rule": verified.get("rule", f"{tier_upper} Defect"),
+                        "snippet": verified["snippet"][:160],
+                        "detail": str(verified.get("detail", explanation))[:300],
+                        "business_consequence": str(verified.get("business_consequence", consequence))[:300],
+                        "repair_prompt": str(verified.get("repair_prompt", repair_prompt)),
                         "tier": tier_lower
                     })
         defect_count = len(all_defects)
@@ -1509,6 +1549,10 @@ def extract_code_block(llm_output: str, fallback_code: str) -> str:
         return fallback_code
 
     cleaned = llm_output.strip()
+    # Some models emit four or more wrapper backticks. Normalize only the
+    # outer wrapper so a fence is never accidentally written into source code.
+    cleaned = re.sub(r'^`{4,}', '```', cleaned)
+    cleaned = re.sub(r'`{4,}$', '```', cleaned)
 
     # Detect unclosed code block (e.g. LLM hit token limit before completing the file)
     if cleaned.startswith("```"):
@@ -1525,6 +1569,8 @@ def extract_code_block(llm_output: str, fallback_code: str) -> str:
             if len(fallback_code) > 200 and len(extracted) < len(fallback_code) * 0.4:
                 logger.warning(f"Extracted code is suspiciously small ({len(extracted)} vs {len(fallback_code)} chars). Aborting to prevent truncation.")
                 return fallback_code
+            if extracted.startswith("```") or extracted.endswith("```"):
+                return fallback_code
             return extracted
 
     # Pattern 2: Any ``` ... ```
@@ -1535,6 +1581,8 @@ def extract_code_block(llm_output: str, fallback_code: str) -> str:
             if len(fallback_code) > 200 and len(extracted) < len(fallback_code) * 0.4:
                 logger.warning(f"Extracted code is suspiciously small ({len(extracted)} vs {len(fallback_code)} chars). Aborting.")
                 return fallback_code
+            if extracted.startswith("```") or extracted.endswith("```"):
+                return fallback_code
             return extracted
 
     # If the response is raw code without fences and not an error/json message
@@ -1544,6 +1592,45 @@ def extract_code_block(llm_output: str, fallback_code: str) -> str:
         return cleaned
 
     return fallback_code
+
+
+def _validate_fixed_source(original: str, fixed: str, suffix: str, snippet: Optional[str]) -> None:
+    """Rejects unchanged, truncated, fenced, or syntactically broken LLM output."""
+    if not fixed or fixed == original:
+        raise HTTPException(status_code=422, detail="The AI returned no effective code change; the original file was preserved.")
+    if re.search(r'^\s*```|```\s*$', fixed):
+        raise HTTPException(status_code=422, detail="The AI response still contained Markdown fences; the original file was preserved.")
+
+    original_len = max(len(original), 1)
+    if len(original) >= 400 and len(fixed) < original_len * 0.80:
+        raise HTTPException(
+            status_code=422,
+            detail=f"The AI response appears truncated ({len(fixed)} of {len(original)} characters); the original file was preserved.",
+        )
+
+    clean_snippet = (snippet or "").strip()
+    if 8 <= len(clean_snippet) <= 5000 and clean_snippet in original and clean_snippet in fixed:
+        raise HTTPException(
+            status_code=422,
+            detail="The reported offending snippet was unchanged by the AI; the original file was preserved.",
+        )
+
+    if suffix.lower() == ".py":
+        try:
+            ast.parse(fixed)
+        except SyntaxError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The proposed Python fix is not syntactically valid (line {exc.lineno}); the original file was preserved.",
+            ) from exc
+    elif suffix.lower() == ".json":
+        try:
+            json.loads(fixed)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The proposed JSON fix is invalid (line {exc.lineno}); the original file was preserved.",
+            ) from exc
 
 
 def apply_preflight_bug_fix(
@@ -1582,29 +1669,10 @@ def apply_preflight_bug_fix(
         except (ValueError, Exception):
             continue
 
-    if not target_file:
-        query_fname = Path(clean_path).name.lower()
-        for base_dir in candidates:
-            for root, dirs, files in os.walk(base_dir):
-                dirs[:] = [d for d in dirs if d not in {".git", "node_modules", "venv", ".venv", "__pycache__"} and not d.startswith(".")]
-                for f in files:
-                    if f.lower() == query_fname:
-                        found_path = (Path(root) / f).resolve()
-                        try:
-                            found_path.relative_to(base_dir.resolve())
-                            target_file = found_path
-                            break
-                        except Exception:
-                            continue
-                if target_file:
-                    break
-            if target_file:
-                break
-
     if not target_file or not target_file.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"Target file '{file_path}' was not found in repository directories."
+            detail=f"Exact target file '{file_path}' was not found. Preflight will not guess by filename because that could modify the wrong file."
         )
 
     try:
@@ -1673,14 +1741,22 @@ Apply the fix directly and return the full updated file in a code block."""
                 detail=f"AI model failed while generating fix: {str(e)}"
             )
 
-    if not fixed_code or fixed_code == original_code:
-        raise HTTPException(
-            status_code=500,
-            detail="The AI fix was incomplete or truncated by token limits. The original file has been preserved safely without any corruption."
-        )
+    _validate_fixed_source(original_code, fixed_code, target_file.suffix, snippet)
 
     try:
-        target_file.write_text(fixed_code, encoding="utf-8")
+        base_dir = next(base for base in candidates if target_file.is_relative_to(base.resolve()))
+        actual_rel = target_file.relative_to(base_dir.resolve()).as_posix()
+        backup_path = base_dir / ".preflight-backups" / f"{actual_rel}.{os.getpid()}.{time.time_ns()}.bak"
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        backup_path.write_text(original_code, encoding="utf-8")
+
+        temp_path = target_file.with_name(f".{target_file.name}.preflight-{os.getpid()}.tmp")
+        temp_path.write_text(fixed_code, encoding="utf-8")
+        os.replace(temp_path, target_file)
+        persisted_code = target_file.read_text(encoding="utf-8")
+        if persisted_code != fixed_code:
+            os.replace(backup_path, target_file)
+            raise RuntimeError("Post-write verification failed; original content was restored.")
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -1689,11 +1765,16 @@ Apply the fix directly and return the full updated file in a code block."""
 
     return {
         "status": "success",
-        "file_path": display_rel,
-        "message": f"Successfully fixed defect and saved '{display_rel}'!",
+        "file_path": actual_rel,
+        "resolved_file_path": str(target_file),
+        "backup_path": str(backup_path),
+        "message": f"Successfully fixed defect and verified '{actual_rel}' on disk!",
         "rule": rule,
         "line_number": line_number,
         "original_size": len(original_code),
-        "fixed_size": len(fixed_code)
+        "fixed_size": len(fixed_code),
+        "original_sha256": hashlib.sha256(original_code.encode("utf-8")).hexdigest(),
+        "fixed_sha256": hashlib.sha256(fixed_code.encode("utf-8")).hexdigest(),
+        "changed": True,
     }
 

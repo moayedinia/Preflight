@@ -20,4 +20,5 @@ mcp>=1.2.0,<2
 python-multipart>=0.0.6
 requests>=2.31.0
 orjson>=3.9.0
+docker>=7.1.0,<8
 

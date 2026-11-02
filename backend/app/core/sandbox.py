@@ -8,6 +8,7 @@ import threading
 import subprocess
 import shutil
 import shlex
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from collections import deque
@@ -17,6 +18,36 @@ from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 from app.core.llm import call_llm, verify_llm_connection
 
 logger = logging.getLogger("codegraph.sandbox")
+
+SANDBOX_RUNNER_URL = os.getenv("SANDBOX_RUNNER_URL", "").rstrip("/")
+SANDBOX_RUNNER_TOKEN = os.getenv("SANDBOX_RUNNER_TOKEN", "")
+
+
+def _runner_headers() -> Dict[str, str]:
+    return {"X-Sandbox-Token": SANDBOX_RUNNER_TOKEN} if SANDBOX_RUNNER_TOKEN else {}
+
+
+def _runner_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
+    """Calls the isolated runner without exposing its Docker socket to the API."""
+    import requests
+
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers.update(_runner_headers())
+    try:
+        response = requests.request(
+            method,
+            f"{SANDBOX_RUNNER_URL}{path}",
+            headers=headers,
+            timeout=kwargs.pop("timeout", 30),
+            **kwargs,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as exc:
+        detail = ""
+        if getattr(exc, "response", None) is not None:
+            detail = f": {exc.response.text[:500]}"
+        raise RuntimeError(f"Sandbox runner is unavailable{detail}") from exc
 
 # Global registry of active sandboxes: repo_name -> SandboxSession
 _ACTIVE_SANDBOXES: Dict[str, "SandboxSession"] = {}
@@ -681,7 +712,15 @@ class SandboxSession:
             kwargs["preexec_fn"] = os.setsid
 
         try:
-            self.process = subprocess.Popen(cmd_str, shell=True, **kwargs)
+            # Avoid an intermediate cmd.exe for simple Windows commands. It can
+            # outlive the child and keep the repository working directory locked.
+            if sys.platform == "win32" and not re.search(r"[&|<>^]", cmd_str):
+                popen_command: Any = shlex.split(cmd_str, posix=False)
+                use_shell = False
+            else:
+                popen_command = cmd_str
+                use_shell = True
+            self.process = subprocess.Popen(popen_command, shell=use_shell, **kwargs)
             self.status = "running"
             self.log(f"✅ Sandbox process started (PID: {self.process.pid}). URL: http://localhost:{self.port}")
 
@@ -729,18 +768,38 @@ class SandboxSession:
                     stderr=subprocess.DEVNULL,
                     check=False
                 )
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=2)
+                # A shell command may leave a grandchild alive when taskkill is
+                # restricted. Kill anything still listening on the session port.
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     f"Get-NetTCPConnection -LocalPort {self.port} -State Listen -ErrorAction SilentlyContinue | "
+                     "ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=5,
+                )
             else:
                 import signal
                 os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
                 time.sleep(0.5)
                 if self.process.poll() is None:
                     os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                self.process.wait(timeout=2)
         except Exception as e:
             logger.debug(f"Error terminating sandbox process: {e}")
             try:
                 self.process.kill()
             except Exception:
                 pass
+
+        if self._reader_thread and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=2)
 
         self.log("Sandbox process terminated.")
 
@@ -774,6 +833,22 @@ def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optio
     port = custom_port or plan["assigned_port"]
     working_dir = Path(plan["working_dir"])
 
+    if SANDBOX_RUNNER_URL:
+        result = _runner_request(
+            "POST",
+            "/sessions/start",
+            json={
+                "repo_name": clean_repo or plan["repo_name"],
+                "project_type": plan["project_type"],
+                "command": cmd,
+                "install_command": plan.get("install_command", ""),
+                "port": port,
+            },
+            timeout=120,
+        )
+        result["proxy_url"] = f"/api/v1/sandbox/proxy/{clean_repo or plan['repo_name']}/"
+        return result
+
     with _SANDBOX_LOCK:
         key = clean_repo or "default"
         existing = _ACTIVE_SANDBOXES.get(key)
@@ -796,6 +871,9 @@ def stop_sandbox_session(repo_name: Optional[str] = None) -> Dict[str, Any]:
     clean_repo = sanitize_name(repo_name) if repo_name else None
     key = clean_repo or "default"
 
+    if SANDBOX_RUNNER_URL:
+        return _runner_request("POST", "/sessions/stop", json={"repo_name": key})
+
     with _SANDBOX_LOCK:
         session = _ACTIVE_SANDBOXES.get(key)
         if not session:
@@ -809,6 +887,11 @@ def get_sandbox_session_status(repo_name: Optional[str] = None) -> Dict[str, Any
     """Returns the current status, port, and live logs of the sandbox session."""
     clean_repo = sanitize_name(repo_name) if repo_name else None
     key = clean_repo or "default"
+
+    if SANDBOX_RUNNER_URL:
+        result = _runner_request("GET", f"/sessions/{key}/status")
+        result["proxy_url"] = f"/api/v1/sandbox/proxy/{key}/"
+        return result
 
     with _SANDBOX_LOCK:
         session = _ACTIVE_SANDBOXES.get(key)
@@ -837,6 +920,54 @@ async def proxy_sandbox_http_request(repo_name: Optional[str], subpath: str, req
     """
     from starlette.responses import Response, StreamingResponse, RedirectResponse
     import requests
+
+    if SANDBOX_RUNNER_URL:
+        clean_repo = sanitize_name(repo_name) if repo_name else "default"
+        target = f"{SANDBOX_RUNNER_URL}/sessions/{clean_repo}/proxy/{subpath.lstrip('/')}"
+        if request.url.query:
+            target += f"?{request.url.query}"
+        headers = {
+            k: v for k, v in request.headers.items()
+            if k.lower() not in ("host", "content-length", "connection")
+        }
+        headers.update(_runner_headers())
+        body = await request.body() if request.method in ("POST", "PUT", "PATCH", "DELETE") else None
+        try:
+            upstream = requests.request(
+                request.method, target, headers=headers, data=body,
+                stream=True, allow_redirects=False, timeout=30,
+            )
+        except requests.RequestException as exc:
+            return Response(content=f"Sandbox runner unavailable: {exc}", status_code=502)
+        forwarded_headers = {
+            k: v for k, v in upstream.headers.items()
+            if k.lower() not in ("content-encoding", "content-length", "transfer-encoding", "connection")
+        }
+        content_type = upstream.headers.get("content-type", "").lower()
+        if "text/html" in content_type:
+            html_text = upstream.content.decode(upstream.encoding or "utf-8", errors="replace")
+            proxy_prefix = f"/api/v1/sandbox/proxy/{clean_repo}/"
+            if re.search(r"<base\s+href=", html_text, flags=re.IGNORECASE):
+                html_text = re.sub(
+                    r"<base\s+href=['\"][^'\"]*['\"]\s*/?>",
+                    f'<base href="{proxy_prefix}" />', html_text, count=1,
+                    flags=re.IGNORECASE,
+                )
+            else:
+                html_text = re.sub(
+                    r"<head([^>]*)>", f'<head\\1><base href="{proxy_prefix}" />',
+                    html_text, count=1, flags=re.IGNORECASE,
+                )
+            return Response(
+                content=html_text, status_code=upstream.status_code,
+                headers=forwarded_headers, media_type="text/html",
+            )
+        return StreamingResponse(
+            upstream.iter_content(chunk_size=32768),
+            status_code=upstream.status_code,
+            headers=forwarded_headers,
+            media_type=upstream.headers.get("content-type"),
+        )
 
     clean_repo = sanitize_name(repo_name) if repo_name else None
     key = clean_repo or "default"

@@ -54,6 +54,24 @@ Access the dashboard:
 - 📚 **Swagger API Docs:** `http://localhost:8001/docs`
 - 🤖 **MCP SSE Server for Cursor/Claude Desktop:** `http://localhost:8002`
 
+### Isolated project previews
+
+Reviewed projects are not executed inside the API container. A private
+`sandbox_runner` service creates a short-lived container for each preview and
+selects a runtime image for Node.js, Python, .NET, Maven, Gradle, Go, Rust, PHP,
+or static sites. Source files are copied to a disposable Docker volume; the
+reviewed repository is never mounted directly into the execution container.
+
+The runner applies memory, CPU, and process limits, drops Linux capabilities,
+and attaches previews to a network separate from Neo4j and Redis. Preview
+traffic is available only through the API reverse proxy, so no dynamic host
+port range is required.
+
+The runner requires access to the local Docker Engine through
+`/var/run/docker.sock`. Configure a strong `SANDBOX_RUNNER_TOKEN` in `.env`
+before deploying outside a local development machine. The first launch for a
+language may take longer while its runtime image is downloaded.
+
 ---
 
 ## ⚙️ Environment Configuration

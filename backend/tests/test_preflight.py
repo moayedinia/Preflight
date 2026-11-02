@@ -2,6 +2,7 @@ import unittest
 import sys
 import os
 import tempfile
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
@@ -20,6 +21,8 @@ for mod_name, mock_mod in mock_modules.items():
 from app.core.preflight import (
     extract_json_defect,
     extract_code_block,
+    _validate_fixed_source,
+    _validate_llm_defect_evidence,
     apply_preflight_bug_fix,
     evaluate_red_family,
     evaluate_orange_family,
@@ -148,6 +151,11 @@ class TestPreflightEvaluation(unittest.TestCase):
         # Fallback on empty or error
         self.assertEqual(extract_code_block("I apologize, but I cannot.", "fallback"), "fallback")
 
+        # Models occasionally use four wrapper backticks. They must never leak
+        # into a source file.
+        four_fences = "````python\nprint('safe')\n````"
+        self.assertEqual(extract_code_block(four_fences, "fallback"), "print('safe')")
+
     def test_extract_json_defect_malformed_uses_fallback(self):
         sample = "Here is some non-json text without curly braces."
         fallback = {
@@ -161,6 +169,30 @@ class TestPreflightEvaluation(unittest.TestCase):
         self.assertFalse(res["is_defect"])
         self.assertEqual(res["confidence"], 0.88)
         self.assertEqual(res["plain_english_explanation"], "Fallback explanation")
+
+    def test_fix_validation_rejects_truncation_and_unchanged_snippet(self):
+        from fastapi import HTTPException
+
+        original = "def handler():\n    return 'safe'\n" * 30
+        with self.assertRaises(HTTPException):
+            _validate_fixed_source(original, "def handler():\n    pass\n", ".py", None)
+
+        changed_elsewhere = original + "\n# unrelated change\n"
+        with self.assertRaises(HTTPException):
+            _validate_fixed_source(original, changed_elsewhere, ".py", "return 'safe'")
+
+    def test_llm_defect_requires_current_on_disk_evidence(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmpdir:
+            repo = Path(tmpdir)
+            source = repo / "app.py"
+            source.write_text("def current():\n    return True\n", encoding="utf-8")
+
+            stale = {"file": "app.py", "snippet": "return False", "rule": "Stale bug"}
+            current = {"file": "app.py", "snippet": "return True", "rule": "Current bug"}
+            self.assertIsNone(_validate_llm_defect_evidence(stale, [repo], repo.name))
+            verified = _validate_llm_defect_evidence(current, [repo], repo.name)
+            self.assertIsNotNone(verified)
+            self.assertEqual(verified["file"], "app.py")
 
     @patch("app.core.preflight.call_llm")
     def test_evaluate_red_family_mocked(self, mock_llm):
@@ -311,6 +343,9 @@ class TestPreflightEvaluation(unittest.TestCase):
             )
             self.assertEqual(result["status"], "success")
             self.assertIn("PaymentFlow.js", result["file_path"])
+            self.assertTrue(result["changed"])
+            self.assertNotEqual(result["original_sha256"], result["fixed_sha256"])
+            self.assertTrue(Path(result["backup_path"]).exists())
 
             # Verify file was updated on disk
             updated_content = test_file.read_text(encoding="utf-8")
@@ -335,10 +370,8 @@ class TestPreflightEvaluation(unittest.TestCase):
                 self.assertEqual(data["status"], "success")
                 self.assertIn("file_path", data)
         finally:
-            if test_file.exists():
-                test_file.unlink()
             if test_dir.exists():
-                test_dir.rmdir()
+                shutil.rmtree(test_dir)
 
 
 if __name__ == "__main__":
