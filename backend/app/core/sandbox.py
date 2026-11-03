@@ -32,6 +32,9 @@ def _runner_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
     """Calls the isolated runner without exposing its Docker socket to the API."""
     import requests
 
+    if os.getenv("TESTING") == "1" and not os.getenv("REAL_RUNNER"):
+        raise requests.exceptions.ConnectionError("Sandbox runner disabled in test mode.")
+
     headers = dict(kwargs.pop("headers", {}) or {})
     headers.update(_runner_headers())
     try:
@@ -39,7 +42,7 @@ def _runner_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
             method,
             f"{SANDBOX_RUNNER_URL}{path}",
             headers=headers,
-            timeout=kwargs.pop("timeout", 30),
+            timeout=kwargs.pop("timeout", 4.0 if "status" in path else 30),
             **kwargs,
         )
         response.raise_for_status()
@@ -1631,20 +1634,26 @@ Perform a thorough review adhering strictly to the Preflight Code Review P0-P3 s
         gate = "APPROVED"
         counts = {"P0": 0, "P1": 0, "P2": 1, "P3": 2}
     else:
-        call_timeout = int(os.getenv("LLM_CODE_REVIEW_TIMEOUT", "45"))
-        max_tokens = int(os.getenv("LLM_CODE_REVIEW_MAX_TOKENS", "2500"))
-        try:
-            raw_llm = call_llm(user_prompt, PREFLIGHT_REVIEW_SYSTEM_PROMPT, timeout=call_timeout, max_tokens=max_tokens)
-            report_md = raw_llm
-            p0_count = len(re.findall(r'\[P0\]', report_md, re.IGNORECASE))
-            p1_count = len(re.findall(r'\[P1\]', report_md, re.IGNORECASE))
-            p2_count = len(re.findall(r'\[P2\]', report_md, re.IGNORECASE))
-            p3_count = len(re.findall(r'\[P3\]', report_md, re.IGNORECASE))
-            gate = "BLOCKED" if (p0_count > 0 or p1_count > 0) else "APPROVED"
-            counts = {"P0": p0_count, "P1": p1_count, "P2": p2_count, "P3": p3_count}
-        except Exception as llm_err:
-            logger.warning(f"Preflight Code Review LLM call failed or timed out: {llm_err}. Using heuristic analyzer.")
-            report_md, counts, gate = _generate_heuristic_review_report(key, repo_dir, str(llm_err))
+        from app.core.llm import verify_llm_connection
+        is_connected, probe_msg = verify_llm_connection(timeout=3.0)
+        if not is_connected:
+            logger.info(f"AI endpoint is offline or misconfigured ({probe_msg}). Instantly activating heuristic Preflight review.")
+            report_md, counts, gate = _generate_heuristic_review_report(key, repo_dir, probe_msg)
+        else:
+            call_timeout = int(os.getenv("LLM_CODE_REVIEW_TIMEOUT", "45"))
+            max_tokens = int(os.getenv("LLM_CODE_REVIEW_MAX_TOKENS", "2500"))
+            try:
+                raw_llm = call_llm(user_prompt, PREFLIGHT_REVIEW_SYSTEM_PROMPT, timeout=call_timeout, max_tokens=max_tokens)
+                report_md = raw_llm
+                p0_count = len(re.findall(r'\[P0\]', report_md, re.IGNORECASE))
+                p1_count = len(re.findall(r'\[P1\]', report_md, re.IGNORECASE))
+                p2_count = len(re.findall(r'\[P2\]', report_md, re.IGNORECASE))
+                p3_count = len(re.findall(r'\[P3\]', report_md, re.IGNORECASE))
+                gate = "BLOCKED" if (p0_count > 0 or p1_count > 0) else "APPROVED"
+                counts = {"P0": p0_count, "P1": p1_count, "P2": p2_count, "P3": p3_count}
+            except Exception as llm_err:
+                logger.warning(f"Preflight Code Review LLM call failed or timed out: {llm_err}. Using heuristic analyzer.")
+                report_md, counts, gate = _generate_heuristic_review_report(key, repo_dir, str(llm_err))
 
     _LAST_PREFLIGHT_REPORTS[key] = report_md
 
@@ -1754,7 +1763,13 @@ def diagnose_sandbox_error(repo_name: Optional[str] = None, logs: Optional[List[
 3. Fix syntax or unhandled exceptions before rerunning sandbox.
 """
     else:
-        user_prompt = f"""Please analyze the following sandbox execution logs for repository '{key}' and diagnose any code-related errors:
+        from app.core.llm import verify_llm_connection
+        is_connected, probe_msg = verify_llm_connection(timeout=3.0)
+        if not is_connected:
+            logger.info(f"AI endpoint is offline or misconfigured ({probe_msg}). Instantly activating heuristic diagnosis fallback.")
+            report_md = _generate_heuristic_error_report(key, logs_text, has_error, probe_msg)
+        else:
+            user_prompt = f"""Please analyze the following sandbox execution logs for repository '{key}' and diagnose any code-related errors:
 
 Execution Logs:
 ```
@@ -1762,13 +1777,13 @@ Execution Logs:
 ```
 
 Identify the exact code error, offending file/line, root cause, and explain step-by-step how the developer must fix the code."""
-        call_timeout = int(os.getenv("LLM_DIAGNOSE_TIMEOUT", "45"))
-        max_tokens = int(os.getenv("LLM_DIAGNOSE_MAX_TOKENS", "2500"))
-        try:
-            report_md = call_llm(user_prompt, SANDBOX_DIAGNOSE_SYSTEM_PROMPT, timeout=call_timeout, max_tokens=max_tokens)
-        except Exception as llm_err:
-            logger.warning(f"Sandbox diagnose LLM call failed or timed out: {llm_err}. Using heuristic diagnosis fallback.")
-            report_md = _generate_heuristic_error_report(key, logs_text, has_error, str(llm_err))
+            call_timeout = int(os.getenv("LLM_DIAGNOSE_TIMEOUT", "45"))
+            max_tokens = int(os.getenv("LLM_DIAGNOSE_MAX_TOKENS", "2500"))
+            try:
+                report_md = call_llm(user_prompt, SANDBOX_DIAGNOSE_SYSTEM_PROMPT, timeout=call_timeout, max_tokens=max_tokens)
+            except Exception as llm_err:
+                logger.warning(f"Sandbox diagnose LLM call failed or timed out: {llm_err}. Using heuristic diagnosis fallback.")
+                report_md = _generate_heuristic_error_report(key, logs_text, has_error, str(llm_err))
 
     _LAST_ERROR_REPORTS[key] = report_md
 

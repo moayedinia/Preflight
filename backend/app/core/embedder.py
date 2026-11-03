@@ -299,7 +299,8 @@ def verify_vllm_status() -> dict:
 
 def reembed_graph_entities(repo_name: str = None, force: bool = False) -> dict:
     """On-demand embedding generation for all functions and classes in Neo4j."""
-    from app.core.graph import driver
+    import app.core.graph as graph_module
+    driver = graph_module.driver
     effective_model = EMBEDDING_MODEL
 
     with driver.session() as session:

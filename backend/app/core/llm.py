@@ -22,6 +22,8 @@ def _clean_slashes(url: str) -> str:
     s = str(url).strip().rstrip("/")
     return re.sub(r'(?<!:)/+', '/', s)
 
+KNOWN_PROXY_PORTS = {20128, 10808, 10809, 7890, 7891}
+
 _MEMORY_LLM_CONFIG = {}
 
 def get_llm_config() -> dict:
@@ -31,11 +33,20 @@ def get_llm_config() -> dict:
             if config:
                 cfg = json.loads(config)
                 if cfg.get("base_url"):
-                    cfg["base_url"] = _clean_slashes(cfg["base_url"])
+                    clean = _clean_slashes(cfg["base_url"])
+                    parsed = urlparse(clean)
+                    if parsed.port in KNOWN_PROXY_PORTS or any(f":{p}" in clean for p in KNOWN_PROXY_PORTS):
+                        if not cfg.get("http_proxy"):
+                            cfg["http_proxy"] = clean.replace("/v1", "").rstrip("/")
+                        cfg["base_url"] = "https://api.openai.com/v1"
+                    else:
+                        cfg["base_url"] = clean
                 if not cfg.get("model"):
                     cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or "gpt-4o-mini"
                 if not cfg.get("api_key"):
                     cfg["api_key"] = (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+                if not cfg.get("http_proxy"):
+                    cfg["http_proxy"] = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
                 return cfg
         except Exception:
             pass
@@ -43,19 +54,39 @@ def get_llm_config() -> dict:
         return dict(_MEMORY_LLM_CONFIG)
 
     raw_env_base = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+    clean_env_base = _clean_slashes(raw_env_base)
+    env_proxy = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
+    parsed_env = urlparse(clean_env_base)
+    if parsed_env.port in KNOWN_PROXY_PORTS or any(f":{p}" in clean_env_base for p in KNOWN_PROXY_PORTS):
+        if not env_proxy:
+            env_proxy = clean_env_base.replace("/v1", "").rstrip("/")
+        clean_env_base = "https://api.openai.com/v1"
+
     return {
-        "base_url": _clean_slashes(raw_env_base),
+        "base_url": clean_env_base,
         "model": (os.getenv("LLM_MODEL") or "").strip() or "gpt-4o-mini",
-        "api_key": (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+        "api_key": (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip(),
+        "http_proxy": env_proxy
     }
 
-def set_llm_config(base_url: str, model: str, api_key: str):
+def set_llm_config(base_url: str, model: str, api_key: str, http_proxy: Optional[str] = None):
     clean_base = _clean_slashes(base_url)
+    proxy_val = (http_proxy or "").strip()
+
+    # Intelligent auto-detection: If the user entered their proxy port as the Base URL
+    parsed = urlparse(clean_base)
+    if parsed.port in KNOWN_PROXY_PORTS or any(f":{p}" in clean_base for p in KNOWN_PROXY_PORTS):
+        detected_proxy = clean_base.replace("/v1", "").rstrip("/")
+        if not proxy_val:
+            proxy_val = detected_proxy
+        clean_base = "https://api.openai.com/v1"
+
     norm_base = normalize_llm_base_url(clean_base)
     cfg_data = {
         "base_url": norm_base,
         "model": model,
-        "api_key": api_key
+        "api_key": api_key,
+        "http_proxy": proxy_val
     }
     _MEMORY_LLM_CONFIG.update(cfg_data)
     if r_client:
@@ -110,8 +141,16 @@ def execute_llm_http(method: str, url: str, **kwargs):
     is_local_target = any(h in target_url.lower() for h in [
         "host.docker.internal", "localhost", "127.0.0.1", "::1"
     ])
-    if is_local_target and "proxies" not in kwargs:
-        kwargs["proxies"] = {"http": None, "https": None}
+    if is_local_target:
+        if "proxies" not in kwargs:
+            kwargs["proxies"] = {"http": None, "https": None}
+    else:
+        if "proxies" not in kwargs:
+            cfg = get_llm_config()
+            configured_proxy = (cfg.get("http_proxy") or os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
+            if configured_proxy:
+                resolved_proxy = resolve_docker_target_url(configured_proxy)
+                kwargs["proxies"] = {"http": resolved_proxy, "https": resolved_proxy}
     
     fn = requests.get if method.lower() == "get" else requests.post
     
@@ -176,6 +215,15 @@ def verify_llm_connection(timeout: float = 12.0, model: Optional[str] = None) ->
 
     if not base_url:
         return False, "LLM Base URL is not configured. Please set it in Settings."
+
+    # Immediate proxy port sanity check to avoid 45s hanging when user misconfigures Base URL
+    parsed_base = urlparse(base_url)
+    if parsed_base.port in KNOWN_PROXY_PORTS or any(f":{p}" in base_url for p in KNOWN_PROXY_PORTS):
+        return False, (
+            f"Port {parsed_base.port or 'proxy'} is an HTTP/SOCKS proxy port (e.g. v2rayN/Clash), NOT an OpenAI API endpoint. "
+            "Please set API Base URL to 'https://api.openai.com/v1' or 'https://api.vultrinference.com/v1' "
+            "and configure the HTTP Proxy field."
+        )
 
     is_local = any(h in base_url.lower() for h in ["localhost", "127.0.0.1", "host.docker.internal", "ollama"])
     if not is_local and not api_key:

@@ -116,6 +116,8 @@ def wait_for_neo4j(max_retries: int = 30, retry_delay: float = 2.0) -> bool:
     Waits for Neo4j to become responsive and ready to accept Cypher queries.
     Retries up to max_retries times with retry_delay seconds between attempts.
     """
+    if os.getenv('TESTING') == '1':
+        return True
     for attempt in range(1, max_retries + 1):
         try:
             with driver.session() as session:

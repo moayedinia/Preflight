@@ -102,6 +102,8 @@ if _vendor_dir.exists():
 
 @app.on_event("startup")
 def on_startup():
+    if os.getenv("TESTING") == "1":
+        return
     import threading
     def _run_init():
         try:
@@ -144,6 +146,7 @@ class LLMConfigRequest(BaseModel):
     base_url: Optional[str] = Field(None, max_length=500)
     model: Optional[str] = Field(None, max_length=100)
     api_key: Optional[str] = Field("", max_length=2000)
+    http_proxy: Optional[str] = Field(None, max_length=500)
     test_connection: Optional[bool] = Field(False)
 
 class AutoDocRequest(BaseModel):
@@ -1071,8 +1074,9 @@ def update_llm_settings(payload: LLMConfigRequest):
     base_url = (payload.base_url or "").strip() or current.get("base_url") or "https://api.openai.com/v1"
     model = (payload.model or "").strip() or current.get("model") or "gpt-4o-mini"
     api_key = payload.api_key if payload.api_key is not None else current.get("api_key", "")
+    proxy_val = payload.http_proxy if payload.http_proxy is not None else current.get("http_proxy", "")
     try:
-        set_llm_config(base_url, model, api_key)
+        set_llm_config(base_url, model, api_key, http_proxy=proxy_val)
         clear_llm_status_cache()
         if getattr(payload, "test_connection", False):
             from app.core.llm import verify_llm_connection

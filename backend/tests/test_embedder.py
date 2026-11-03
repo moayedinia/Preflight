@@ -8,6 +8,7 @@ if "neo4j" not in sys.modules:
     sys.modules["neo4j"] = MagicMock()
 
 from app.core import embedder
+from app.core import graph
 
 
 class EmbedderConfigurationTests(unittest.TestCase):

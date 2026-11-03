@@ -802,6 +802,16 @@
           <input type="text" id="settings-base-url" placeholder="https://api.openai.com/v1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
           <p class="text-[11px] text-slate-500 mt-1">Default: https://api.openai.com/v1 (or https://api.vultrinference.com/v1 for Vultr)</p>
         </div>
+        <!-- Outbound HTTP/HTTPS Proxy (Optional) -->
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1 flex items-center justify-between">
+            <span>Outbound HTTP Proxy <span class="text-slate-500 font-normal">(Optional for VPN / v2ray / Clash)</span></span>
+            <span class="text-[10px] text-cyan-400">e.g. http://host.docker.internal:20128</span>
+          </label>
+          <input type="text" id="settings-http-proxy" placeholder="http://host.docker.internal:20128" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+          <p class="text-[11px] text-slate-500 mt-1">If connecting via local proxy (v2ray/Clash on port 20128), specify it here. Keep API Base URL as https://api.openai.com/v1.</p>
+        </div>
+
 
         <!-- Model Name -->
         <div>
@@ -1374,6 +1384,9 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
 
     async function loadRepositories() {
       try {
+        const pElem = document.getElementById('settings-http-proxy');
+        const hp = pElem ? pElem.value.trim() : '';
+        const testBody = { base_url: baseUrl, model: model, api_key: apiKey, http_proxy: hp, test_connection: true };
         const res = await fetch(`${API_BASE}/api/v1/repos`);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const repos = await res.json();
@@ -3003,6 +3016,8 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           if (b) b.value = cfg.base_url || 'https://api.openai.com/v1';
           if (m) m.value = cfg.model || 'gpt-4o-mini';
           if (k) k.value = cfg.api_key || '';
+          const p = document.getElementById('settings-http-proxy');
+          if (p) p.value = cfg.http_proxy || '';
           updateApiKeyUiState(cfg.api_key || '');
         }
 
@@ -3147,13 +3162,15 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       const sk = document.getElementById('settings-supabase-key');
       const supUrl = su ? su.value.trim() : '';
       const supKey = sk ? sk.value.trim() : '';
+      const p = document.getElementById('settings-http-proxy');
+      const httpProxy = p ? p.value.trim() : '';
 
       try {
         // Save LLM settings
         await fetch(`${API_BASE}/api/v1/config/llm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base_url: baseUrl, model: model, api_key: apiKey })
+          body: JSON.stringify({ base_url: baseUrl, model: model, api_key: apiKey, http_proxy: httpProxy })
         });
 
         // Save Embedding settings to match API
@@ -3212,7 +3229,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         const res = await fetch(`${API_BASE}/api/v1/config/llm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base_url: baseUrl, model: model, api_key: apiKey, test_connection: true })
+          body: JSON.stringify(testBody)
         });
         const data = await res.json();
         

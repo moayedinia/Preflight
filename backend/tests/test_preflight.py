@@ -333,8 +333,9 @@ class TestPreflightEvaluation(unittest.TestCase):
             self.assertEqual(data_stop["status"], "stopped")
             self.assertEqual(data_stop["task_id"], "task-test-456")
 
+    @patch("app.core.llm.verify_llm_connection", return_value=(True, "Connected"))
     @patch("app.core.preflight.call_llm")
-    def test_apply_preflight_bug_fix_and_endpoint(self, mock_llm):
+    def test_apply_preflight_bug_fix_and_endpoint(self, mock_llm, mock_verify):
         """Verifies that apply_preflight_bug_fix edits the file on disk and the /api/v1/review/fix-bug endpoint works."""
         mock_llm.return_value = "```javascript\nfunction onPay() { /* Preflight Auto-Fix Applied */ }\n```"
         # Create a temp file inside a dummy repo folder under current working dir

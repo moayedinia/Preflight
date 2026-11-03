@@ -1866,11 +1866,13 @@ def apply_preflight_bug_fix(
     if not target_file or not target_file.exists():
         fname = Path(clean_path).name
         matched_candidates = []
+        ignored_dir_names = {".git", "node_modules", "venv", ".venv", "bin", "obj", ".preflight-backups", "__pycache__"}
         for base_dir in candidates:
             if base_dir.exists():
-                for found in base_dir.rglob(fname):
-                    if found.is_file() and not any(part in {".git", "node_modules", "venv", ".venv", "bin", "obj", ".preflight-backups"} for part in found.parts):
-                        matched_candidates.append(found)
+                for root, dirs, files in os.walk(base_dir):
+                    dirs[:] = [d for d in dirs if d not in ignored_dir_names]
+                    if fname in files:
+                        matched_candidates.append(Path(root) / fname)
         if len(matched_candidates) == 1:
             target_file = matched_candidates[0]
         elif len(matched_candidates) > 1:
