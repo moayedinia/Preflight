@@ -1298,31 +1298,279 @@ Markdown Report Structure:
 ORCA_REVIEW_SYSTEM_PROMPT = PREFLIGHT_REVIEW_SYSTEM_PROMPT
 
 
-def collect_repo_code_context(repo_dir: Path, max_files: int = 15, max_bytes_per_file: int = 12000) -> str:
-    """Collects key source code files from the repository for Orca Code Review."""
+def collect_repo_code_context(
+    repo_dir: Path,
+    max_files: int = 8,
+    max_bytes_per_file: int = 2500,
+    max_total_bytes: int = 16000
+) -> str:
+    """Collects key source code files from the repository for Preflight Code Review."""
     code_snippets = []
-    supported_exts = {".py", ".js", ".jsx", ".ts", ".tsx", ".cs", ".go", ".rs", ".java", ".php", ".html", ".css", ".json", ".yaml", ".yml"}
+    # Prioritize key backend and application source code extensions
+    supported_exts = {
+        ".cs", ".razor", ".py", ".js", ".jsx", ".ts", ".tsx",
+        ".go", ".rs", ".java", ".php", ".rb", ".cpp", ".c", ".sh"
+    }
     
+    total_bytes = 0
     count = 0
     for root, dirs, files in os.walk(repo_dir):
-        dirs[:] = [d for d in dirs if d not in _IGNORE_DIRS and not d.startswith(".")]
-        for f in files:
+        dirs[:] = [
+            d for d in dirs
+            if d not in _IGNORE_DIRS
+            and not d.startswith(".")
+            and d.lower() not in {"wwwroot", "static", "assets", "public", "vendor", "lib", "packages", "docs", "test", "tests"}
+        ]
+        # Prioritize files: entrypoints first
+        sorted_files = sorted(files, key=lambda x: (
+            0 if any(k in x.lower() for k in ["program", "startup", "main", "app", "index", "server", "controller", "route"]) else 1,
+            x
+        ))
+        for f in sorted_files:
             p = Path(root) / f
+            fname = p.name.lower()
+            if fname.endswith((".min.js", ".min.css", ".map", ".d.ts", ".test.js", ".spec.js")):
+                continue
+            if "lock" in fname:
+                continue
+
             if p.suffix.lower() in supported_exts:
                 rel = p.relative_to(repo_dir).as_posix()
                 try:
                     txt = _read_snippet_safe(p, max_bytes=max_bytes_per_file)
                     if txt.strip():
-                        code_snippets.append(f"### File: {rel}\n```{p.suffix.lstrip('.')}\n{txt}\n```")
+                        snippet = f"### File: {rel}\n```{p.suffix.lstrip('.')}\n{txt}\n```"
+                        snippet_bytes = len(snippet.encode("utf-8"))
+                        if total_bytes + snippet_bytes > max_total_bytes and code_snippets:
+                            break
+                        code_snippets.append(snippet)
+                        total_bytes += snippet_bytes
                         count += 1
-                        if count >= max_files:
+                        if count >= max_files or total_bytes >= max_total_bytes:
                             break
                 except Exception:
                     continue
-        if count >= max_files:
+        if count >= max_files or total_bytes >= max_total_bytes:
             break
             
     return "\n\n".join(code_snippets)
+
+
+def _generate_heuristic_review_report(
+    key: str,
+    repo_dir: Path,
+    error_reason: str = ""
+) -> Tuple[str, Dict[str, int], str]:
+    """
+    Performs deterministic static and heuristic inspection across repository files
+    when the remote/local LLM call is unavailable or times out.
+    Generates P0/P1/P2/P3 severity findings to ensure continuous merge-gate evaluation.
+    """
+    findings = []
+    target_exts = {".cs", ".razor", ".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".php"}
+
+    p0_rules = [
+        (
+            re.compile(r'(?:sk-[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|stripe.*sk_live[a-zA-Z0-9_]{20,}|(?:ghp|gho|ghu)_[a-zA-Z0-9]{36}|api_key\s*=\s*[\'"][a-zA-Z0-9_\-\.]{20,}[\'"])', re.IGNORECASE),
+            "Hardcoded API Key / Secret Token",
+            "Sensitive credential or API key is committed directly into the source code.",
+            "Move credentials to environment variables or secret manager immediately."
+        ),
+        (
+            re.compile(r'(?:SELECT\s+.+FROM\s+.+WHERE\s+.+=\s*[\'"]\s*\+|\bexec\s*\(\s*["\'].*\+|subprocess\.call\(.*shell\s*=\s*True)', re.IGNORECASE),
+            "Critical Injection Vulnerability (SQL / Command)",
+            "Dynamic SQL or shell concatenation detected without parameterization.",
+            "Use parameterized queries, ORM bindings, or disable shell=True."
+        ),
+    ]
+
+    p1_rules = [
+        (
+            re.compile(r'(?:except\s*:\s*pass|except\s+Exception\s*:\s*pass|\bcatch\s*\([^)]*\)\s*\{\s*\})', re.IGNORECASE),
+            "Silent Exception Swallowing",
+            "Empty catch/except block silently hides fatal runtime crashes and errors.",
+            "Log the caught exception and propagate or return a meaningful failure status."
+        ),
+        (
+            re.compile(r'(?:password|secret|token)\s*==\s*[\'"][^\'"]+[\'"]', re.IGNORECASE),
+            "Insecure Plaintext Secret Comparison",
+            "Direct comparison of authentication secrets without constant-time verification.",
+            "Use a constant-time comparison helper or HMAC hash verification."
+        ),
+    ]
+
+    p2_rules = [
+        (
+            re.compile(r'(?:https?://(?:localhost|127\.0\.0\.1):\d+)', re.IGNORECASE),
+            "Hardcoded Localhost Endpoint in Production Path",
+            "Localhost URL found in code, which fails when deployed in containerized or cloud environments.",
+            "Replace hardcoded localhost endpoints with configurable environment variables."
+        ),
+        (
+            re.compile(r'(?:requests\.(?:get|post|put|delete)\([^)]*\)|fetch\([^)]*\))(?!.*timeout)', re.IGNORECASE),
+            "Missing HTTP Request Timeout",
+            "Outbound HTTP call does not specify an explicit timeout parameter.",
+            "Always provide explicit timeout bounds (e.g., timeout=30) to prevent thread exhaustion."
+        ),
+    ]
+
+    p3_rules = [
+        (
+            re.compile(r'(?:console\.log\(|print\()', re.IGNORECASE),
+            "Development Debug Logging in Production",
+            "Standard print or console.log statement found in application code.",
+            "Replace debug console calls with a structured logger or remove them before shipping."
+        ),
+    ]
+
+    scanned_count = 0
+    if repo_dir.exists():
+        for root, dirs, files in os.walk(repo_dir):
+            dirs[:] = [d for d in dirs if d not in _IGNORE_DIRS and not d.startswith(".")]
+            for f in files:
+                p = Path(root) / f
+                if p.suffix.lower() in target_exts:
+                    try:
+                        rel = p.relative_to(repo_dir).as_posix()
+                        content = p.read_text(encoding="utf-8", errors="ignore")
+                        lines = content.splitlines()
+                        for line_idx, line in enumerate(lines[:300], 1):
+                            for rx, title, issue, rec in p0_rules:
+                                if rx.search(line):
+                                    findings.append(("P0", title, f"{rel}:{line_idx}", line.strip()[:100], issue, rec))
+                                    break
+                            for rx, title, issue, rec in p1_rules:
+                                if rx.search(line):
+                                    findings.append(("P1", title, f"{rel}:{line_idx}", line.strip()[:100], issue, rec))
+                                    break
+                            for rx, title, issue, rec in p2_rules:
+                                if rx.search(line):
+                                    findings.append(("P2", title, f"{rel}:{line_idx}", line.strip()[:100], issue, rec))
+                                    break
+                            if sum(1 for item in findings if item[0] == "P3") < 2:
+                                for rx, title, issue, rec in p3_rules:
+                                    if rx.search(line):
+                                        findings.append(("P3", title, f"{rel}:{line_idx}", line.strip()[:100], issue, rec))
+                                        break
+                        scanned_count += 1
+                        if scanned_count >= 15:
+                            break
+                    except Exception:
+                        continue
+            if scanned_count >= 15:
+                break
+
+    p0_count = sum(1 for item in findings if item[0] == "P0")
+    p1_count = sum(1 for item in findings if item[0] == "P1")
+    p2_count = sum(1 for item in findings if item[0] == "P2")
+    p3_count = sum(1 for item in findings if item[0] == "P3")
+
+    gate = "BLOCKED" if (p0_count > 0 or p1_count > 0) else "APPROVED"
+    counts = {"P0": p0_count, "P1": p1_count, "P2": p2_count, "P3": p3_count}
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    gate_badge = "🔴 BLOCKED" if gate == "BLOCKED" else "🟢 APPROVED"
+
+    findings_sections = []
+    for p_level, title, path, snippet, issue, rec in findings:
+        findings_sections.append(
+            f"### [{p_level}] {title}\n"
+            f"- **Path:** `{path}`\n"
+            f"- **Issue:** {issue}\n"
+            f"- **Recommendation:** {rec}\n"
+            f"```\n{snippet}\n```\n"
+        )
+
+    if not findings_sections:
+        detailed_findings_md = "No critical code review blockers or defects detected during static heuristic analysis."
+        remediation_md = "1. Maintain continuous test and lint verification.\n2. Ready for deployment."
+    else:
+        detailed_findings_md = "\n".join(findings_sections)
+        remediation_md = "\n".join([f"{i+1}. Fix [{item[0]}] {item[1]} in `{item[2]}`" for i, item in enumerate(findings[:5])])
+
+    fallback_note = ""
+    if error_reason:
+        clean_err = error_reason.split("\n")[0][:140]
+        fallback_note = f"\n> [!NOTE] Heuristic static analysis activated as fallback (LLM note: {clean_err}).\n"
+
+    report_md = f"""# Preflight Code Review Report: {key}
+**Date:** {now_str}
+**Merge Gate:** {gate_badge}
+{fallback_note}
+## Executive Summary & Metrics Table
+| Severity | Level | Count | Action |
+| :--- | :--- | :--- | :--- |
+| **[P0]** | Critical Blocker | {p0_count} | ❌ Blocks Deployment |
+| **[P1]** | High Blocker | {p1_count} | ❌ Blocks Deployment |
+| **[P2]** | Medium Warning | {p2_count} | 💬 Review Before Shipping |
+| **[P3]** | Low Nit | {p3_count} | 💡 Optional Hygiene |
+
+## Detailed Findings
+{detailed_findings_md}
+
+## Actionable Remediation Plan
+{remediation_md}
+"""
+
+    return report_md, counts, gate
+
+
+def _generate_heuristic_error_report(
+    key: str,
+    logs_text: str,
+    has_error: bool,
+    error_reason: str = ""
+) -> str:
+    """Generates a deterministic diagnostic crash report when the LLM service times out or is offline."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    status_str = "⚠️ Execution Failure Detected" if has_error else "✅ Clean Execution"
+    
+    if "No .NET SDK" in logs_text or "dotnet run" in logs_text:
+        err_type = "Missing .NET SDK Toolchain"
+        phase = "Build & Compilation"
+        offending = "dotnet CLI runtime"
+        root_cause = "The repository is a C# .NET solution requiring the .NET 8 SDK to build and run, but the host environment does not have the SDK installed."
+        steps = "1. Install official .NET 8 SDK from https://dotnet.microsoft.com/download/dotnet/8.0\n2. Run 'dotnet --list-sdks' to verify installation.\n3. Alternatively execute within the Docker container runtime."
+    elif "No logs recorded in sandbox" in logs_text:
+        err_type = "Silent Startup Termination (No Logs)"
+        phase = "Startup / Invocation"
+        offending = "Application entrypoint configuration"
+        root_cause = "Process exited immediately without emitting standard output or stderr streams."
+        steps = "1. Verify entrypoint script in package.json or main file.\n2. Ensure stdout buffers are flushed immediately.\n3. Verify file execution permissions (chmod +x)."
+    else:
+        err_type = "Runtime / Process Abort" if has_error else "Informational Execution"
+        phase = "Runtime"
+        offending = "Process execution thread"
+        root_cause = "Process terminated with error keywords in logs." if has_error else "Process executed standard commands."
+        steps = "1. Inspect the stack trace in the log snippet.\n2. Review missing dependencies or environment variables.\n3. Correct any unhandled exceptions before rerunning."
+
+    snip = logs_text[-1200:] if logs_text else "No logs recorded."
+    
+    note = ""
+    if error_reason:
+        clean_err = error_reason.split("\n")[0][:140]
+        note = f"\n> [!NOTE] Heuristic diagnostic analysis activated as fallback (LLM note: {clean_err}).\n"
+
+    return f"""# Sandbox Code Error & Crash Report: {key}
+**Date:** {now_str}
+**Status:** {status_str}
+{note}
+## 1. Crash Summary
+- **Error Type:** {err_type}
+- **Failure Phase:** {phase}
+- **Offending Component:** {offending}
+
+## 2. Offending Log Snippet
+```
+{snip}
+```
+
+## 3. Root Cause Analysis
+{root_cause}
+
+## 4. Required Code Corrections & Action Steps
+{steps}
+"""
 
 
 def run_preflight_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]:
@@ -1383,14 +1631,20 @@ Perform a thorough review adhering strictly to the Preflight Code Review P0-P3 s
         gate = "APPROVED"
         counts = {"P0": 0, "P1": 0, "P2": 1, "P3": 2}
     else:
-        raw_llm = call_llm(user_prompt, PREFLIGHT_REVIEW_SYSTEM_PROMPT, timeout=120, max_tokens=6000)
-        report_md = raw_llm
-        p0_count = len(re.findall(r'\[P0\]', report_md, re.IGNORECASE))
-        p1_count = len(re.findall(r'\[P1\]', report_md, re.IGNORECASE))
-        p2_count = len(re.findall(r'\[P2\]', report_md, re.IGNORECASE))
-        p3_count = len(re.findall(r'\[P3\]', report_md, re.IGNORECASE))
-        gate = "BLOCKED" if (p0_count > 0 or p1_count > 0) else "APPROVED"
-        counts = {"P0": p0_count, "P1": p1_count, "P2": p2_count, "P3": p3_count}
+        call_timeout = int(os.getenv("LLM_CODE_REVIEW_TIMEOUT", "45"))
+        max_tokens = int(os.getenv("LLM_CODE_REVIEW_MAX_TOKENS", "2500"))
+        try:
+            raw_llm = call_llm(user_prompt, PREFLIGHT_REVIEW_SYSTEM_PROMPT, timeout=call_timeout, max_tokens=max_tokens)
+            report_md = raw_llm
+            p0_count = len(re.findall(r'\[P0\]', report_md, re.IGNORECASE))
+            p1_count = len(re.findall(r'\[P1\]', report_md, re.IGNORECASE))
+            p2_count = len(re.findall(r'\[P2\]', report_md, re.IGNORECASE))
+            p3_count = len(re.findall(r'\[P3\]', report_md, re.IGNORECASE))
+            gate = "BLOCKED" if (p0_count > 0 or p1_count > 0) else "APPROVED"
+            counts = {"P0": p0_count, "P1": p1_count, "P2": p2_count, "P3": p3_count}
+        except Exception as llm_err:
+            logger.warning(f"Preflight Code Review LLM call failed or timed out: {llm_err}. Using heuristic analyzer.")
+            report_md, counts, gate = _generate_heuristic_review_report(key, repo_dir, str(llm_err))
 
     _LAST_PREFLIGHT_REPORTS[key] = report_md
 
@@ -1508,7 +1762,13 @@ Execution Logs:
 ```
 
 Identify the exact code error, offending file/line, root cause, and explain step-by-step how the developer must fix the code."""
-        report_md = call_llm(user_prompt, SANDBOX_DIAGNOSE_SYSTEM_PROMPT, timeout=90, max_tokens=4000)
+        call_timeout = int(os.getenv("LLM_DIAGNOSE_TIMEOUT", "45"))
+        max_tokens = int(os.getenv("LLM_DIAGNOSE_MAX_TOKENS", "2500"))
+        try:
+            report_md = call_llm(user_prompt, SANDBOX_DIAGNOSE_SYSTEM_PROMPT, timeout=call_timeout, max_tokens=max_tokens)
+        except Exception as llm_err:
+            logger.warning(f"Sandbox diagnose LLM call failed or timed out: {llm_err}. Using heuristic diagnosis fallback.")
+            report_md = _generate_heuristic_error_report(key, logs_text, has_error, str(llm_err))
 
     _LAST_ERROR_REPORTS[key] = report_md
 

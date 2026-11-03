@@ -161,6 +161,64 @@ class TestSandboxEngine(unittest.TestCase):
                 self.assertEqual(resp_dl.status_code, 200)
                 self.assertIn("Sandbox Code Error & Crash Report", resp_dl.text)
 
+    def test_collect_repo_code_context_bounds(self):
+        from app.core.sandbox import collect_repo_code_context
+        with TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            # Create large files of different types
+            (tmp_path / "Program.cs").write_text("Console.WriteLine(\"test\");\n" * 200, encoding="utf-8")
+            (tmp_path / "app.py").write_text("print(\"hello\")\n" * 200, encoding="utf-8")
+            (tmp_path / "styles.css").write_text("body { color: red; }\n" * 500, encoding="utf-8")
+            (tmp_path / "package-lock.json").write_text("{\n  \"lock\": true\n}\n" * 500, encoding="utf-8")
+            (tmp_path / "bundle.min.js").write_text("var a=1;\n" * 500, encoding="utf-8")
+
+            res = collect_repo_code_context(tmp_path, max_files=5, max_bytes_per_file=1500, max_total_bytes=4000)
+            self.assertIn("Program.cs", res)
+            self.assertIn("app.py", res)
+            self.assertNotIn("styles.css", res)
+            self.assertNotIn("package-lock.json", res)
+            self.assertNotIn("bundle.min.js", res)
+            self.assertLessEqual(len(res.encode("utf-8")), 6000)
+
+    @patch("app.core.sandbox.call_llm")
+    @patch.dict(os.environ, {"TESTING": "0", "REAL_LLM": "1"})
+    def test_preflight_code_review_llm_timeout_fallback(self, mock_llm):
+        from app.core.sandbox import run_preflight_code_review
+        mock_llm.side_effect = Exception("HTTPConnectionPool(host='host.docker.internal', port=20128): Read timed out. (read timeout=120)")
+        
+        with TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "server.py").write_text(
+                "import os\n"
+                "api_key = 'sk-12345678901234567890123456789012'\n"
+                "try:\n"
+                "    pass\n"
+                "except Exception:\n"
+                "    pass\n",
+                encoding="utf-8"
+            )
+            with patch("app.core.sandbox.ALLOWED_REPO_DIR", tmp_path.parent):
+                res = run_preflight_code_review(repo_name=tmp_path.name)
+                self.assertEqual(res["status"], "success")
+                self.assertEqual(res["merge_gate"], "BLOCKED")
+                self.assertGreater(res["counts"]["P0"] + res["counts"]["P1"], 0)
+                self.assertIn("Preflight Code Review Report", res["markdown_report"])
+                self.assertIn("Heuristic static analysis", res["markdown_report"])
+
+    @patch("app.core.sandbox.call_llm")
+    @patch.dict(os.environ, {"TESTING": "0", "REAL_LLM": "1"})
+    def test_diagnose_sandbox_error_llm_timeout_fallback(self, mock_llm):
+        from app.core.sandbox import diagnose_sandbox_error
+        mock_llm.side_effect = Exception("Read timed out")
+
+        with TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            with patch("app.core.sandbox.ALLOWED_REPO_DIR", tmp_path.parent):
+                res = diagnose_sandbox_error(repo_name=tmp_path.name, logs=["No logs recorded in sandbox."])
+                self.assertEqual(res["status"], "success")
+                self.assertIn("Sandbox Code Error & Crash Report", res["markdown_report"])
+                self.assertIn("Silent Startup Termination", res["markdown_report"])
+
 
 if __name__ == "__main__":
     unittest.main()
