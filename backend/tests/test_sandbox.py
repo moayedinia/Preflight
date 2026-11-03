@@ -99,6 +99,41 @@ class TestSandboxEngine(unittest.TestCase):
         resp_stop = self.client.post("/api/v1/sandbox/stop", json={"repo_name": "test_repo"})
         self.assertEqual(resp_stop.status_code, 200)
 
+    @patch("app.core.security.ALLOW_UNAUTHENTICATED", True)
+    def test_orca_code_review_and_download(self):
+        with TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "main.py").write_text("print('hello world')", encoding="utf-8")
+            with patch("app.core.sandbox.ALLOWED_REPO_DIR", tmp_path.parent):
+                resp_review = self.client.post("/api/v1/sandbox/orca-review", json={"repo_name": tmp_path.name})
+                self.assertEqual(resp_review.status_code, 200)
+                data = resp_review.json()
+                self.assertEqual(data["status"], "success")
+                self.assertIn("merge_gate", data)
+                self.assertIn("counts", data)
+                self.assertIn("markdown_report", data)
+                self.assertIn("Orca Code Review Report", data["markdown_report"])
+
+                resp_dl = self.client.get(f"/api/v1/sandbox/orca-review/download?repo_name={tmp_path.name}")
+                self.assertEqual(resp_dl.status_code, 200)
+                self.assertIn("Orca Code Review Report", resp_dl.text)
+
+    @patch("app.core.security.ALLOW_UNAUTHENTICATED", True)
+    def test_diagnose_sandbox_error_and_download(self):
+        with TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            with patch("app.core.sandbox.ALLOWED_REPO_DIR", tmp_path.parent):
+                resp_diag = self.client.post("/api/v1/sandbox/diagnose-error", json={"repo_name": tmp_path.name})
+                self.assertEqual(resp_diag.status_code, 200)
+                data = resp_diag.json()
+                self.assertEqual(data["status"], "success")
+                self.assertIn("markdown_report", data)
+                self.assertIn("Sandbox Code Error & Crash Report", data["markdown_report"])
+
+                resp_dl = self.client.get(f"/api/v1/sandbox/error-report/download?repo_name={tmp_path.name}")
+                self.assertEqual(resp_dl.status_code, 200)
+                self.assertIn("Sandbox Code Error & Crash Report", resp_dl.text)
+
 
 if __name__ == "__main__":
     unittest.main()

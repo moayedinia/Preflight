@@ -9,7 +9,7 @@ try:
 except ImportError:
     redis = None
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Depends, Security, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, Depends, Security, UploadFile, File, Form, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
@@ -889,6 +889,65 @@ def get_sandbox_status_endpoint(repo_name: Optional[str] = None):
     from app.core.sandbox import get_sandbox_session_status
     clean_repo = sanitize_name(repo_name) if repo_name else None
     return get_sandbox_session_status(repo_name=clean_repo)
+
+
+class SandboxOrcaReviewRequest(BaseModel):
+    repo_name: Optional[str] = Field(None, max_length=100)
+
+class SandboxDiagnoseErrorRequest(BaseModel):
+    repo_name: Optional[str] = Field(None, max_length=100)
+
+
+@app.post("/api/v1/sandbox/orca-review", dependencies=[Depends(verify_api_key)])
+def run_sandbox_orca_review_endpoint(payload: Optional[SandboxOrcaReviewRequest] = None):
+    """
+    Executes a comprehensive Orca Code Review on the repository according to the
+    P0-P3 severity rubric and merge gate arbitration standard.
+    """
+    from app.core.sandbox import run_orca_code_review
+    repo = payload.repo_name if payload else None
+    clean_repo = sanitize_name(repo) if repo else None
+    return run_orca_code_review(clean_repo)
+
+
+@app.get("/api/v1/sandbox/orca-review/download", dependencies=[Depends(verify_api_key)])
+def download_sandbox_orca_review_endpoint(repo_name: Optional[str] = None):
+    """Downloads the Orca Code Review Markdown report as an attachment."""
+    from app.core.sandbox import get_last_orca_report
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    report_md = get_last_orca_report(clean_repo)
+    filename = f"orca-code-review-{clean_repo or 'project'}.md"
+    return Response(
+        content=report_md,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@app.post("/api/v1/sandbox/diagnose-error", dependencies=[Depends(verify_api_key)])
+def diagnose_sandbox_error_endpoint(payload: Optional[SandboxDiagnoseErrorRequest] = None):
+    """
+    Analyzes sandbox terminal output, identifies code-related compilation/runtime errors,
+    and returns a structured Markdown diagnostic report detailing how to fix the code.
+    """
+    from app.core.sandbox import diagnose_sandbox_error
+    repo = payload.repo_name if payload else None
+    clean_repo = sanitize_name(repo) if repo else None
+    return diagnose_sandbox_error(clean_repo)
+
+
+@app.get("/api/v1/sandbox/error-report/download", dependencies=[Depends(verify_api_key)])
+def download_sandbox_error_report_endpoint(repo_name: Optional[str] = None):
+    """Downloads the Sandbox Error Diagnostic Markdown report as an attachment."""
+    from app.core.sandbox import get_last_error_report
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    report_md = get_last_error_report(clean_repo)
+    filename = f"sandbox-error-report-{clean_repo or 'project'}.md"
+    return Response(
+        content=report_md,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @app.api_route("/api/v1/sandbox/proxy/{repo_name}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])

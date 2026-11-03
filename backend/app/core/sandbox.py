@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from collections import deque
 from datetime import datetime
+from fastapi import HTTPException
 
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 from app.core.llm import call_llm, verify_llm_connection
@@ -52,6 +53,8 @@ def _runner_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
 # Global registry of active sandboxes: repo_name -> SandboxSession
 _ACTIVE_SANDBOXES: Dict[str, "SandboxSession"] = {}
 _SANDBOX_LOCK = threading.Lock()
+_LAST_ORCA_REPORTS: Dict[str, str] = {}
+_LAST_ERROR_REPORTS: Dict[str, str] = {}
 
 # Directories to skip when scanning file trees
 _IGNORE_DIRS = {
@@ -659,6 +662,9 @@ class SandboxSession:
         self.started_at: Optional[datetime] = None
         self.stopped_at: Optional[datetime] = None
         self.exit_code: Optional[int] = None
+        self.has_code_error: bool = False
+        self.code_error_summary: Optional[str] = None
+        self.code_error_snippets: List[str] = []
         self._reader_thread: Optional[threading.Thread] = None
         self._stop_requested = False
 
@@ -724,11 +730,31 @@ class SandboxSession:
             self.status = "running"
             self.log(f"✅ Sandbox process started (PID: {self.process.pid}). URL: http://localhost:{self.port}")
 
+            ERROR_PATTERNS = [
+                r"Traceback \(most recent call last\):",
+                r"(SyntaxError|ModuleNotFoundError|ImportError|TypeError|ReferenceError|NameError|AttributeError|ZeroDivisionError):",
+                r"Cannot find module ['\"]([^'\"]+)['\"]",
+                r"error CS\d{4}:",
+                r"Build FAILED",
+                r"Unhandled exception",
+                r"panic: [^\n]+",
+                r"fatal error: [^\n]+",
+                r"Exception in thread [^\n]+",
+            ]
+
             def _stream_logs():
                 try:
                     for line in iter(self.process.stdout.readline, ""):
                         if line:
-                            self.logs.append(line.rstrip())
+                            clean_l = line.rstrip()
+                            self.logs.append(clean_l)
+                            for pat in ERROR_PATTERNS:
+                                if re.search(pat, clean_l, re.IGNORECASE):
+                                    self.has_code_error = True
+                                    self.code_error_snippets.append(clean_l)
+                                    if not self.code_error_summary:
+                                        self.code_error_summary = clean_l
+                                    break
                     self.process.stdout.close()
                 except Exception as ex:
                     self.log(f"⚠️ Log stream closed: {ex}")
@@ -738,6 +764,10 @@ class SandboxSession:
                     if not self._stop_requested:
                         self.status = "stopped" if self.exit_code == 0 else "crashed"
                         self.log(f"🛑 Sandbox process exited with code {self.exit_code}")
+                        if self.exit_code != 0:
+                            self.has_code_error = True
+                            if not self.code_error_summary:
+                                self.code_error_summary = f"Process exited with error code {self.exit_code}"
                     else:
                         self.status = "stopped"
 
@@ -820,6 +850,8 @@ class SandboxSession:
             "pid": self.process.pid if self.process else None,
             "uptime_seconds": uptime,
             "exit_code": self.exit_code,
+            "has_code_error": self.has_code_error,
+            "code_error_summary": self.code_error_summary,
             "logs": list(self.logs)[-200:]
         }
 
@@ -907,6 +939,8 @@ def get_sandbox_session_status(repo_name: Optional[str] = None) -> Dict[str, Any
                 "pid": None,
                 "uptime_seconds": 0,
                 "exit_code": None,
+                "has_code_error": bool(_LAST_ERROR_REPORTS.get(key)),
+                "code_error_summary": None,
                 "logs": [f"Sandbox ready. Detected launch command: {plan['command']}"],
                 "plan": plan
             }
@@ -1060,3 +1094,284 @@ This page will refresh automatically in 2 seconds.</p>
         headers=out_headers,
         media_type=resp.headers.get("content-type")
     )
+
+
+# --- ORCA CODE REVIEW & RUNTIME ERROR DIAGNOSTICS ---
+
+ORCA_REVIEW_SYSTEM_PROMPT = """You are OrcaCode Review, an elite automated code reviewer operating under strict P0-P3 severity contracts and merge gate arbitration.
+
+Severity Contract:
+- [P0] Critical (❌ Blocker): Remote code execution, SQL/Command injection, authentication/authorization bypass, leaked API keys/secrets, memory/data corruption, severe security exploits.
+- [P1] High (❌ Blocker): Fatal crashes in core workflows, unhandled exceptions, race conditions, memory leaks, broken database transactions, missing critical dependencies.
+- [P2] Medium (💬 Warning): Edge case bugs, missing input boundary validation, inefficient N+1 queries, unhandled error scenarios, suboptimal resource usage.
+- [P3] Low / Nit (💬 Suggestion): Code hygiene, naming conventions, dead/outdated comments, minor refactoring opportunities, style consistency.
+
+Merge Gate Rule:
+- If ANY P0 or P1 finding is present -> Merge Gate: 🔴 BLOCKED
+- If only P2 and/or P3 findings are present (or 0 defects) -> Merge Gate: 🟢 APPROVED
+
+Instructions:
+1. Examine the provided repository files thoroughly.
+2. For each identified issue, provide:
+   - Severity: `[P0]`, `[P1]`, `[P2]`, or `[P3]`
+   - Title
+   - File Path & approximate Line Number
+   - Offending Code snippet
+   - Explanation & Business Consequence
+   - Actionable Code Fix / Recommendation
+3. Output a comprehensive, professionally styled Markdown report in 100% pure English with zero Persian text.
+
+Markdown Report Structure:
+# Orca Code Review Report
+**Target Repository:** {repo_name}
+**Merge Gate Verdict:** {BLOCKED or APPROVED}
+
+## Executive Summary & Metrics Table
+| Severity | Level | Count | Action |
+| :--- | :--- | :--- | :--- |
+| **[P0]** | Critical Blocker | {count} | ❌ Blocks Deployment |
+| **[P1]** | High Blocker | {count} | ❌ Blocks Deployment |
+| **[P2]** | Medium Warning | {count} | 💬 Review Before Shipping |
+| **[P3]** | Low Nit | {count} | 💡 Optional Hygiene |
+
+## Detailed Findings
+(List each finding with [Severity] Title, File:Line, Offending Code, Explanation, and Suggested Fix)
+
+## Actionable Remediation Plan
+(Summary of priority fixes in order: P0 -> P1 -> P2 -> P3)
+"""
+
+
+SANDBOX_DIAGNOSE_SYSTEM_PROMPT = """You are an expert software engineer and automated runtime debugging arbiter.
+Your task is to analyze application runtime and compilation logs from a sandbox run, determine if a code defect caused the failure, and provide exact, actionable remediation steps.
+
+Instructions:
+1. Identify the exact error type (syntax error, missing dependency/module, compilation failure, unhandled runtime exception, port conflict).
+2. Point out the exact offending file, line number, and symbol if present in the stack trace.
+3. Explain the root cause clearly in plain English.
+4. Give the exact code snippet or CLI command needed to fix the defect.
+5. Format the output in clean, professional Markdown in 100% pure English with zero Persian text.
+
+Markdown Report Structure:
+# Sandbox Code Error & Crash Report
+**Repository:** {repo_name}
+**Status:** ⚠️ Execution Failure Detected
+
+## 1. Crash Summary
+- **Error Type:** ...
+- **Failure Phase:** Compilation / Startup / Runtime
+- **Offending File / Line:** ...
+
+## 2. Offending Log & Traceback Snippet
+```
+...
+```
+
+## 3. Root Cause Analysis
+(Explain why this happened)
+
+## 4. Required Code Corrections & Action Steps
+(Provide step-by-step instructions and code snippets for the developer to fix the issue)
+"""
+
+
+def collect_repo_code_context(repo_dir: Path, max_files: int = 15, max_bytes_per_file: int = 12000) -> str:
+    """Collects key source code files from the repository for Orca Code Review."""
+    code_snippets = []
+    supported_exts = {".py", ".js", ".jsx", ".ts", ".tsx", ".cs", ".go", ".rs", ".java", ".php", ".html", ".css", ".json", ".yaml", ".yml"}
+    
+    count = 0
+    for root, dirs, files in os.walk(repo_dir):
+        dirs[:] = [d for d in dirs if d not in _IGNORE_DIRS and not d.startswith(".")]
+        for f in files:
+            p = Path(root) / f
+            if p.suffix.lower() in supported_exts:
+                rel = p.relative_to(repo_dir).as_posix()
+                try:
+                    txt = _read_snippet_safe(p, max_bytes=max_bytes_per_file)
+                    if txt.strip():
+                        code_snippets.append(f"### File: {rel}\n```{p.suffix.lstrip('.')}\n{txt}\n```")
+                        count += 1
+                        if count >= max_files:
+                            break
+                except Exception:
+                    continue
+        if count >= max_files:
+            break
+            
+    return "\n\n".join(code_snippets)
+
+
+def run_orca_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Executes a comprehensive Orca Code Review on the repository according to the
+    P0-P3 severity rubric and merge gate arbitration standard.
+    """
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    plan = discover_project_launch_plan(clean_repo)
+    repo_dir = Path(plan["working_dir"])
+
+    if not repo_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Repository directory '{repo_dir}' not found.")
+
+    key = clean_repo or repo_dir.name
+    code_context = collect_repo_code_context(repo_dir)
+    if not code_context.strip():
+        code_context = "# No source files found or empty repository."
+
+    user_prompt = f"""Please perform an Orca Code Review on repository '{key}':
+
+Project Type: {plan.get('project_type', 'Unknown')}
+Launch Command: {plan.get('command', 'N/A')}
+
+Repository Source Files:
+{code_context}
+
+Perform a thorough review adhering strictly to the Orca Code Review P0-P3 severity contract and return your findings."""
+
+    if os.getenv("TESTING") == "1" and not os.getenv("REAL_LLM"):
+        report_md = f"""# Orca Code Review Report: {key}
+**Date:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Merge Gate:** 🟢 APPROVED
+
+## Executive Summary & Metrics Table
+| Severity | Level | Count | Action |
+| :--- | :--- | :--- | :--- |
+| **[P0]** | Critical Blocker | 0 | ❌ Blocks Deployment |
+| **[P1]** | High Blocker | 0 | ❌ Blocks Deployment |
+| **[P2]** | Medium Warning | 1 | 💬 Review Before Shipping |
+| **[P3]** | Low Nit | 2 | 💡 Optional Hygiene |
+
+## Detailed Findings
+### [P2] Missing Input Validation
+- **Path:** `main.py:12`
+- **Issue:** Function inputs are not bounded.
+- **Recommendation:** Add type hints and schema boundary checks.
+
+### [P3] Minor Code Hygiene
+- **Path:** `app.py:45`
+- **Issue:** Redundant console logging in production path.
+- **Recommendation:** Remove debug logs.
+
+## Actionable Remediation Plan
+1. Address [P2] validation on user inputs.
+2. Clean up [P3] debug logs before final release.
+"""
+        gate = "APPROVED"
+        counts = {"P0": 0, "P1": 0, "P2": 1, "P3": 2}
+    else:
+        raw_llm = call_llm(user_prompt, ORCA_REVIEW_SYSTEM_PROMPT, timeout=120, max_tokens=6000)
+        report_md = raw_llm
+        p0_count = len(re.findall(r'\[P0\]', report_md, re.IGNORECASE))
+        p1_count = len(re.findall(r'\[P1\]', report_md, re.IGNORECASE))
+        p2_count = len(re.findall(r'\[P2\]', report_md, re.IGNORECASE))
+        p3_count = len(re.findall(r'\[P3\]', report_md, re.IGNORECASE))
+        gate = "BLOCKED" if (p0_count > 0 or p1_count > 0) else "APPROVED"
+        counts = {"P0": p0_count, "P1": p1_count, "P2": p2_count, "P3": p3_count}
+
+    _LAST_ORCA_REPORTS[key] = report_md
+
+    return {
+        "status": "success",
+        "repo_name": key,
+        "merge_gate": gate,
+        "counts": counts,
+        "markdown_report": report_md
+    }
+
+
+def get_last_orca_report(repo_name: Optional[str] = None) -> str:
+    """Returns the cached Orca Code Review Markdown report for download."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    key = clean_repo or "default"
+    report = _LAST_ORCA_REPORTS.get(key)
+    if not report:
+        res = run_orca_code_review(repo_name=clean_repo)
+        report = res["markdown_report"]
+    return report
+
+
+def diagnose_sandbox_error(repo_name: Optional[str] = None, logs: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Analyzes sandbox terminal output, identifies code-related compilation/runtime errors,
+    and returns a structured Markdown diagnostic report detailing how to fix the code.
+    """
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    key = clean_repo or "default"
+
+    session_logs = logs
+    if not session_logs:
+        with _SANDBOX_LOCK:
+            session = _ACTIVE_SANDBOXES.get(key)
+            if session:
+                session_logs = list(session.logs)[-150:]
+            else:
+                session_logs = []
+
+    logs_text = "\n".join(session_logs) if session_logs else "No logs recorded in sandbox."
+
+    # Check if there is a discernible error in logs
+    has_error = any(
+        re.search(pat, logs_text, re.IGNORECASE)
+        for pat in [
+            r"traceback", r"error:", r"syntaxerror", r"modulenotfound", r"importerror",
+            r"typeerror", r"referenceerror", r"build failed", r"unhandled exception",
+            r"panic:", r"fatal", r"exception in thread", r"cs\d{4}"
+        ]
+    )
+
+    if os.getenv("TESTING") == "1" and not os.getenv("REAL_LLM"):
+        report_md = f"""# Sandbox Code Error & Crash Report: {key}
+**Date:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Status:** {'⚠️ Error Detected' if has_error else '✅ Clean Execution'}
+
+## 1. Crash Summary
+- **Error Type:** {'Runtime / Build Failure' if has_error else 'No active fatal crash'}
+- **Failure Phase:** Execution
+- **Offending Component:** Sandbox Process
+
+## 2. Offending Log Snippet
+```
+{logs_text[-1200:]}
+```
+
+## 3. Root Cause Analysis
+{'A code-level exception or missing dependency occurred during execution.' if has_error else 'All logs indicate standard execution with no fatal crash.'}
+
+## 4. Required Code Corrections & Action Steps
+1. Review offending stack trace and file imports.
+2. Install any missing packages in `requirements.txt` or `package.json`.
+3. Fix syntax or unhandled exceptions before rerunning sandbox.
+"""
+    else:
+        user_prompt = f"""Please analyze the following sandbox execution logs for repository '{key}' and diagnose any code-related errors:
+
+Execution Logs:
+```
+{logs_text[-6000:]}
+```
+
+Identify the exact code error, offending file/line, root cause, and explain step-by-step how the developer must fix the code."""
+        report_md = call_llm(user_prompt, SANDBOX_DIAGNOSE_SYSTEM_PROMPT, timeout=90, max_tokens=4000)
+
+    _LAST_ERROR_REPORTS[key] = report_md
+
+    return {
+        "status": "success",
+        "repo_name": key,
+        "has_code_error": has_error,
+        "error_summary": "Code defect / runtime error detected in sandbox execution." if has_error else "Process logs analyzed.",
+        "markdown_report": report_md
+    }
+
+
+def get_last_error_report(repo_name: Optional[str] = None) -> str:
+    """Returns the cached Sandbox Error Diagnostic Markdown report for download."""
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    key = clean_repo or "default"
+    report = _LAST_ERROR_REPORTS.get(key)
+    if not report:
+        res = diagnose_sandbox_error(repo_name=clean_repo)
+        report = res["markdown_report"]
+    return report
+
