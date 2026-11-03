@@ -592,8 +592,9 @@ def get_candidate_directories(repo_name: Optional[str] = None) -> List[Path]:
             for child in ALLOWED_REPO_DIR.iterdir():
                 if child.is_dir() and not child.name.startswith("."):
                     candidates.append(child)
-        if not candidates:
-            candidates.append(Path(os.getcwd()))
+        ws = Path(os.getcwd()).resolve()
+        if ws not in [c.resolve() for c in candidates]:
+            candidates.append(ws)
 
     return candidates
 

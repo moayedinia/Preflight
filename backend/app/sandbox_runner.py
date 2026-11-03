@@ -23,7 +23,21 @@ from starlette.responses import Response, StreamingResponse
 
 app = FastAPI(title="Preflight Sandbox Runner", docs_url=None, redoc_url=None)
 client = docker.from_env()
-REPOS_DIR = Path(os.getenv("ALLOWED_REPO_DIR", "/app/repos")).resolve()
+def _resolve_repos_dir() -> Path:
+    env_dir = os.getenv("ALLOWED_REPO_DIR")
+    if env_dir:
+        return Path(env_dir).resolve()
+    container_dir = Path("/app/repos")
+    if container_dir.exists():
+        return container_dir.resolve()
+    file_path = Path(__file__).resolve()
+    for parent in [file_path.parent.parent.parent, file_path.parent.parent, Path.cwd()]:
+        candidate = parent / "repos"
+        if candidate.exists() and candidate.is_dir():
+            return candidate.resolve()
+    return container_dir.resolve()
+
+REPOS_DIR = _resolve_repos_dir()
 RUNNER_TOKEN = os.getenv("SANDBOX_RUNNER_TOKEN", "")
 DOCKER_NETWORK = os.getenv("SANDBOX_DOCKER_NETWORK", "codegraph_net")
 MEMORY_LIMIT = os.getenv("SANDBOX_MEMORY_LIMIT", "1g")

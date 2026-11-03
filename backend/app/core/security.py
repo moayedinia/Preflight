@@ -10,7 +10,23 @@ API_KEY = os.getenv("API_KEY")
 ALLOW_UNAUTHENTICATED = os.getenv("ALLOW_UNAUTHENTICATED", "false").lower() in ("true", "1", "yes")
 
 # Base directory for allowed repository scanning
-ALLOWED_REPO_DIR = Path(os.getenv("ALLOWED_REPO_DIR", "/app/repos")).resolve()
+def _resolve_allowed_repo_dir() -> Path:
+    """Intelligently locates the repositories directory across container and host environments."""
+    env_dir = os.getenv("ALLOWED_REPO_DIR")
+    if env_dir:
+        return Path(env_dir).resolve()
+    container_dir = Path("/app/repos")
+    if container_dir.exists():
+        return container_dir.resolve()
+    # Host / local development fallback
+    file_path = Path(__file__).resolve()
+    for parent in [file_path.parent.parent.parent.parent, file_path.parent.parent.parent, Path.cwd()]:
+        candidate = parent / "repos"
+        if candidate.exists() and candidate.is_dir():
+            return candidate.resolve()
+    return container_dir.resolve()
+
+ALLOWED_REPO_DIR = _resolve_allowed_repo_dir()
 
 # Security schemes
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)

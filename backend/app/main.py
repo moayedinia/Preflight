@@ -898,39 +898,43 @@ def sandbox_capabilities_endpoint():
     return get_sandbox_capabilities()
 
 
-class SandboxOrcaReviewRequest(BaseModel):
+class SandboxPreflightReviewRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
+
+SandboxOrcaReviewRequest = SandboxPreflightReviewRequest
 
 class SandboxDiagnoseErrorRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
 
 
+@app.post("/api/v1/sandbox/preflight-review", dependencies=[Depends(verify_api_key)])
 @app.post("/api/v1/sandbox/orca-review", dependencies=[Depends(verify_api_key)])
-def run_sandbox_orca_review_endpoint(payload: Optional[SandboxOrcaReviewRequest] = None):
+def run_sandbox_preflight_review_endpoint(payload: Optional[SandboxPreflightReviewRequest] = None):
     """
-    Executes a comprehensive Orca Code Review on the repository according to the
+    Executes a comprehensive Preflight Code Review on the repository according to the
     P0-P3 severity rubric and merge gate arbitration standard.
     """
-    from app.core.sandbox import run_orca_code_review
+    from app.core.sandbox import run_preflight_code_review
     repo = payload.repo_name if payload else None
     clean_repo = sanitize_name(repo) if repo else None
-    res = run_orca_code_review(clean_repo)
+    res = run_preflight_code_review(clean_repo)
     try:
         from app.core.supabase_client import sync_report_to_supabase
         if res.get("report_md"):
-            res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"orca-code-review-{clean_repo or 'project'}.md", res["report_md"])
+            res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"preflight-code-review-{clean_repo or 'project'}.md", res["report_md"])
     except Exception:
         pass
     return res
 
 
+@app.get("/api/v1/sandbox/preflight-review/download", dependencies=[Depends(verify_api_key)])
 @app.get("/api/v1/sandbox/orca-review/download", dependencies=[Depends(verify_api_key)])
-def download_sandbox_orca_review_endpoint(repo_name: Optional[str] = None):
-    """Downloads the Orca Code Review Markdown report as an attachment."""
-    from app.core.sandbox import get_last_orca_report
+def download_sandbox_preflight_review_endpoint(repo_name: Optional[str] = None):
+    """Downloads the Preflight Code Review Markdown report as an attachment."""
+    from app.core.sandbox import get_last_preflight_report
     clean_repo = sanitize_name(repo_name) if repo_name else None
-    report_md = get_last_orca_report(clean_repo)
-    filename = f"orca-code-review-{clean_repo or 'project'}.md"
+    report_md = get_last_preflight_report(clean_repo)
+    filename = f"preflight-code-review-{clean_repo or 'project'}.md"
     return Response(
         content=report_md,
         media_type="text/markdown",

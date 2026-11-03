@@ -841,7 +841,7 @@
               </div>
             </div>
             <div class="flex items-center justify-between pt-1">
-              <span id="supabase-status-text" class="text-[10px] text-slate-500">Optional: Syncs Orca & audit reports to Vultr Supabase storage.</span>
+              <span id="supabase-status-text" class="text-[10px] text-slate-500">Optional: Syncs Preflight & audit reports to Vultr Supabase storage.</span>
               <button type="button" onclick="testSupabaseConnection()" id="btn-test-supabase" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-medium transition-colors flex items-center gap-1 shrink-0">
                 <i data-lucide="activity" class="w-3 h-3"></i>
                 Test Supabase
@@ -970,7 +970,7 @@
         </div>
       </div>
 
-      <!-- Sandbox View Tabs (Console vs Live App Preview vs Orca Review) -->
+      <!-- Sandbox View Tabs (Console vs Live App Preview vs Preflight Code Review) -->
       <div class="flex items-center justify-between border-b border-slate-800 pb-2">
         <div class="flex items-center gap-2">
           <button id="tab-sandbox-logs" onclick="switchSandboxTab('logs')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all">
@@ -981,9 +981,9 @@
             <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
             Live App Preview
           </button>
-          <button id="tab-sandbox-orca" onclick="switchSandboxTab('orca')" class="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-slate-700 flex items-center gap-1.5 transition-all">
-            <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
-            Orca Code Review
+          <button id="tab-sandbox-preflight" onclick="switchSandboxTab('preflight')" class="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-slate-700 flex items-center gap-1.5 transition-all">
+            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-cyan-400"></i>
+            Preflight Code Review
           </button>
         </div>
         <div id="sandbox-preview-controls" class="hidden flex items-center gap-2">
@@ -1040,17 +1040,17 @@
         <iframe id="sandbox-preview-frame" src="about:blank" class="w-full flex-1 border-0 bg-white min-h-[340px]"></iframe>
       </div>
 
-      <!-- Orca Code Review Tab Container -->
-      <div id="sandbox-orca-container" class="hidden flex-1 bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col min-h-[380px] overflow-hidden">
+      <!-- Preflight Code Review Tab Container -->
+      <div id="sandbox-preflight-container" class="hidden flex-1 bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col min-h-[380px] overflow-hidden">
         <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
           <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm">
-              🐋
+            <div class="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-sm">
+              🛡️
             </div>
             <div>
               <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                Orca Code Review Engine
-                <span id="orca-gate-badge" class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700">
+                Preflight Code Review Engine
+                <span id="preflight-gate-badge" class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700">
                   Ready to Review
                 </span>
               </h4>
@@ -1058,45 +1058,45 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button id="btn-run-orca" onclick="triggerRunOrcaReview()" class="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 active:scale-95">
+            <button id="btn-run-preflight" onclick="triggerRunPreflightReview()" class="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 active:scale-95">
               <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-              <span id="orca-run-text">Run Orca Review</span>
+              <span id="preflight-run-text">Run Preflight Review</span>
             </button>
-            <button id="btn-download-orca" onclick="downloadOrcaReviewReport()" class="hidden px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm">
+            <button id="btn-download-preflight" onclick="downloadPreflightReviewReport()" class="hidden px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm">
               <i data-lucide="download" class="w-3.5 h-3.5"></i>
               <span>Download Report (.md)</span>
             </button>
           </div>
         </div>
 
-        <!-- Orca Severity Metrics -->
-        <div id="orca-summary-cards" class="hidden grid grid-cols-4 gap-2.5 mb-3">
+        <!-- Preflight Severity Metrics -->
+        <div id="preflight-summary-cards" class="hidden grid grid-cols-4 gap-2.5 mb-3">
           <div class="p-2.5 rounded-xl bg-red-950/40 border border-red-500/30 text-center">
             <div class="text-[9px] text-red-300 font-semibold uppercase tracking-wider">[P0] Critical</div>
-            <div id="orca-p0-count" class="text-base font-black text-red-400 mt-0.5">0</div>
+            <div id="preflight-p0-count" class="text-base font-black text-red-400 mt-0.5">0</div>
             <div class="text-[9px] text-red-400/70">Blocks Deployment</div>
           </div>
           <div class="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-center">
             <div class="text-[9px] text-amber-300 font-semibold uppercase tracking-wider">[P1] High</div>
-            <div id="orca-p1-count" class="text-base font-black text-amber-400 mt-0.5">0</div>
+            <div id="preflight-p1-count" class="text-base font-black text-amber-400 mt-0.5">0</div>
             <div class="text-[9px] text-amber-400/70">Blocks Deployment</div>
           </div>
           <div class="p-2.5 rounded-xl bg-yellow-950/40 border border-yellow-500/30 text-center">
             <div class="text-[9px] text-yellow-300 font-semibold uppercase tracking-wider">[P2] Medium</div>
-            <div id="orca-p2-count" class="text-base font-black text-yellow-400 mt-0.5">0</div>
+            <div id="preflight-p2-count" class="text-base font-black text-yellow-400 mt-0.5">0</div>
             <div class="text-[9px] text-yellow-400/70">Conditional Bug</div>
           </div>
           <div class="p-2.5 rounded-xl bg-sky-950/40 border border-sky-500/30 text-center">
             <div class="text-[9px] text-sky-300 font-semibold uppercase tracking-wider">[P3] Low / Nit</div>
-            <div id="orca-p3-count" class="text-base font-black text-sky-400 mt-0.5">0</div>
+            <div id="preflight-p3-count" class="text-base font-black text-sky-400 mt-0.5">0</div>
             <div class="text-[9px] text-sky-400/70">Hygiene Suggestion</div>
           </div>
         </div>
 
-        <!-- Orca Report Body -->
+        <!-- Preflight Report Body -->
         <div class="flex-1 overflow-y-auto bg-black/60 rounded-xl p-3.5 border border-slate-800/80">
-          <div id="orca-report-content" class="text-xs leading-relaxed text-slate-300 font-mono whitespace-pre-wrap select-text">
-Click "Run Orca Review" to read the entire codebase and generate comprehensive P0-P3 severity findings with actionable fix suggestions.
+          <div id="preflight-report-content" class="text-xs leading-relaxed text-slate-300 font-mono whitespace-pre-wrap select-text">
+Click "Run Preflight Review" to read the entire codebase and generate comprehensive P0-P3 severity findings with actionable fix suggestions.
           </div>
         </div>
       </div>
@@ -2986,23 +2986,23 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       sandboxActiveTab = tab;
       const tabLogs = document.getElementById('tab-sandbox-logs');
       const tabPreview = document.getElementById('tab-sandbox-preview');
-      const tabOrca = document.getElementById('tab-sandbox-orca');
+      const tabPreflight = document.getElementById('tab-sandbox-preflight') || document.getElementById('tab-sandbox-orca');
       const logsCont = document.getElementById('sandbox-logs-container');
       const prevCont = document.getElementById('sandbox-preview-container');
       const prevControls = document.getElementById('sandbox-preview-controls');
-      const orcaCont = document.getElementById('sandbox-orca-container');
+      const preflightCont = document.getElementById('sandbox-preflight-container') || document.getElementById('sandbox-orca-container');
       const previewFrame = document.getElementById('sandbox-preview-frame');
       const proxyUrl = `${API_BASE}/api/v1/sandbox/proxy/${encodeURIComponent(currentRepo)}/`;
 
       // Reset all tab styling
-      [tabLogs, tabPreview, tabOrca].forEach(t => {
+      [tabLogs, tabPreview, tabPreflight].forEach(t => {
         if (t) t.className = 'px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-slate-700 flex items-center gap-1.5 transition-all';
       });
 
       if (logsCont) logsCont.classList.add('hidden');
       if (prevCont) prevCont.classList.add('hidden');
       if (prevControls) prevControls.classList.add('hidden');
-      if (orcaCont) orcaCont.classList.add('hidden');
+      if (preflightCont) preflightCont.classList.add('hidden');
 
       if (tab === 'preview') {
         if (tabPreview) tabPreview.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all';
@@ -3011,9 +3011,9 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         if (previewFrame && (previewFrame.src === 'about:blank' || !previewFrame.src.includes('/sandbox/proxy/'))) {
           previewFrame.src = proxyUrl;
         }
-      } else if (tab === 'orca') {
-        if (tabOrca) tabOrca.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all';
-        if (orcaCont) orcaCont.classList.remove('hidden');
+      } else if (tab === 'preflight' || tab === 'orca') {
+        if (tabPreflight) tabPreflight.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all';
+        if (preflightCont) preflightCont.classList.remove('hidden');
       } else {
         if (tabLogs) tabLogs.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all';
         if (logsCont) logsCont.classList.remove('hidden');
@@ -3244,28 +3244,28 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       if (term) term.innerText = '';
     }
 
-    // --- Orca Code Review & Sandbox Error Diagnostics ---
-    let lastOrcaReportMarkdown = '';
+    // --- Preflight Code Review & Sandbox Error Diagnostics ---
+    let lastPreflightReportMarkdown = '';
     let lastErrorReportMarkdown = '';
 
-    async function triggerRunOrcaReview() {
-      const btn = document.getElementById('btn-run-orca');
-      const runText = document.getElementById('orca-run-text');
-      const downloadBtn = document.getElementById('btn-download-orca');
-      const summaryCards = document.getElementById('orca-summary-cards');
-      const reportContent = document.getElementById('orca-report-content');
-      const gateBadge = document.getElementById('orca-gate-badge');
-      const p0Count = document.getElementById('orca-p0-count');
-      const p1Count = document.getElementById('orca-p1-count');
-      const p2Count = document.getElementById('orca-p2-count');
-      const p3Count = document.getElementById('orca-p3-count');
+    async function triggerRunPreflightReview() {
+      const btn = document.getElementById('btn-run-preflight') || document.getElementById('btn-run-orca');
+      const runText = document.getElementById('preflight-run-text') || document.getElementById('orca-run-text');
+      const downloadBtn = document.getElementById('btn-download-preflight') || document.getElementById('btn-download-orca');
+      const summaryCards = document.getElementById('preflight-summary-cards') || document.getElementById('orca-summary-cards');
+      const reportContent = document.getElementById('preflight-report-content') || document.getElementById('orca-report-content');
+      const gateBadge = document.getElementById('preflight-gate-badge') || document.getElementById('orca-gate-badge');
+      const p0Count = document.getElementById('preflight-p0-count') || document.getElementById('orca-p0-count');
+      const p1Count = document.getElementById('preflight-p1-count') || document.getElementById('orca-p1-count');
+      const p2Count = document.getElementById('preflight-p2-count') || document.getElementById('orca-p2-count');
+      const p3Count = document.getElementById('preflight-p3-count') || document.getElementById('orca-p3-count');
 
       if (btn) btn.disabled = true;
       if (runText) runText.innerText = 'Reviewing Code...';
-      if (reportContent) reportContent.innerText = 'Scanning repository files and evaluating P0-P3 severity rules with Orca Code Review engine...';
+      if (reportContent) reportContent.innerText = 'Scanning repository files and evaluating P0-P3 severity rules with Preflight Code Review engine...';
 
       try {
-        const res = await fetch(`${API_BASE}/api/v1/sandbox/orca-review`, {
+        const res = await fetch(`${API_BASE}/api/v1/sandbox/preflight-review`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ repo_name: currentRepo })
@@ -3273,7 +3273,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        lastOrcaReportMarkdown = data.markdown_report || '';
+        lastPreflightReportMarkdown = data.markdown_report || '';
 
         if (summaryCards) summaryCards.classList.remove('hidden');
         if (downloadBtn) downloadBtn.classList.remove('hidden');
@@ -3294,25 +3294,29 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         }
 
         if (reportContent) {
-          reportContent.innerText = lastOrcaReportMarkdown;
+          reportContent.innerText = lastPreflightReportMarkdown;
         }
 
-        showToast(data.merge_gate === 'BLOCKED' ? 'Orca Review: ❌ Merge Blocked by P0/P1 Defects' : 'Orca Review: ✅ Code Approved to Merge');
+        showToast(data.merge_gate === 'BLOCKED' ? 'Preflight Review: ❌ Merge Blocked by P0/P1 Defects' : 'Preflight Review: ✅ Code Approved to Merge');
       } catch (e) {
-        console.error('Orca review failed:', e);
-        if (reportContent) reportContent.innerText = `Orca review failed: ${e.message}`;
-        showToast(`Orca Review error: ${e.message}`);
+        console.error('Preflight review failed:', e);
+        if (reportContent) reportContent.innerText = `Preflight review failed: ${e.message}`;
+        showToast(`Preflight Review error: ${e.message}`);
       } finally {
         if (btn) btn.disabled = false;
-        if (runText) runText.innerText = 'Run Orca Review';
+        if (runText) runText.innerText = 'Run Preflight Review';
         if (window.lucide) lucide.createIcons();
       }
     }
 
-    function downloadOrcaReviewReport() {
+    const triggerRunOrcaReview = triggerRunPreflightReview;
+
+    function downloadPreflightReviewReport() {
       const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
-      window.open(`${API_BASE}/api/v1/sandbox/orca-review/download${repoParam}`, '_blank');
+      window.open(`${API_BASE}/api/v1/sandbox/preflight-review/download${repoParam}`, '_blank');
     }
+
+    const downloadOrcaReviewReport = downloadPreflightReviewReport;
 
     async function triggerDiagnoseSandboxError() {
       const modal = document.getElementById('modal-sandbox-error');

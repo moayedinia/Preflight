@@ -99,27 +99,54 @@ class TestSandboxEngine(unittest.TestCase):
         resp_stop = self.client.post("/api/v1/sandbox/stop", json={"repo_name": "test_repo"})
         self.assertEqual(resp_stop.status_code, 200)
 
+    @patch("app.core.sandbox.call_llm")
     @patch("app.core.security.ALLOW_UNAUTHENTICATED", True)
-    def test_orca_code_review_and_download(self):
+    def test_preflight_code_review_and_download(self, mock_llm):
+        mock_llm.return_value = (
+            "# Preflight Code Review Report\n"
+            "**Repository:** test\n"
+            "**Merge Gate:** APPROVED\n"
+            "**P0 Issues (Blocker):** 0\n"
+            "**P1 Issues (Critical):** 0\n"
+            "**P2 Issues (Major):** 0\n"
+            "**P3 Issues (Minor / Nit):** 0\n\n"
+            "## 1. Executive Summary\nClean codebase."
+        )
         with TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             (tmp_path / "main.py").write_text("print('hello world')", encoding="utf-8")
             with patch("app.core.sandbox.ALLOWED_REPO_DIR", tmp_path.parent):
-                resp_review = self.client.post("/api/v1/sandbox/orca-review", json={"repo_name": tmp_path.name})
+                # Test primary preflight review endpoint
+                resp_review = self.client.post("/api/v1/sandbox/preflight-review", json={"repo_name": tmp_path.name})
                 self.assertEqual(resp_review.status_code, 200)
                 data = resp_review.json()
                 self.assertEqual(data["status"], "success")
                 self.assertIn("merge_gate", data)
                 self.assertIn("counts", data)
                 self.assertIn("markdown_report", data)
-                self.assertIn("Orca Code Review Report", data["markdown_report"])
+                self.assertIn("Preflight Code Review Report", data["markdown_report"])
 
-                resp_dl = self.client.get(f"/api/v1/sandbox/orca-review/download?repo_name={tmp_path.name}")
+                resp_dl = self.client.get(f"/api/v1/sandbox/preflight-review/download?repo_name={tmp_path.name}")
                 self.assertEqual(resp_dl.status_code, 200)
-                self.assertIn("Orca Code Review Report", resp_dl.text)
+                self.assertIn("Preflight Code Review Report", resp_dl.text)
 
+                # Test backward-compatible orca alias endpoint
+                resp_orca = self.client.post("/api/v1/sandbox/orca-review", json={"repo_name": tmp_path.name})
+                self.assertEqual(resp_orca.status_code, 200)
+                self.assertEqual(resp_orca.json()["status"], "success")
+
+                resp_orca_dl = self.client.get(f"/api/v1/sandbox/orca-review/download?repo_name={tmp_path.name}")
+                self.assertEqual(resp_orca_dl.status_code, 200)
+
+    @patch("app.core.sandbox.call_llm")
     @patch("app.core.security.ALLOW_UNAUTHENTICATED", True)
-    def test_diagnose_sandbox_error_and_download(self):
+    def test_diagnose_sandbox_error_and_download(self, mock_llm):
+        mock_llm.return_value = (
+            "# Sandbox Code Error & Crash Report\n"
+            "**Repository:** test\n"
+            "**Status:** Execution Failure Detected\n\n"
+            "## 1. Crash Summary\nStartup failure."
+        )
         with TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             with patch("app.core.sandbox.ALLOWED_REPO_DIR", tmp_path.parent):

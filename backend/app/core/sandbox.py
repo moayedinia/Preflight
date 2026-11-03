@@ -53,7 +53,8 @@ def _runner_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
 # Global registry of active sandboxes: repo_name -> SandboxSession
 _ACTIVE_SANDBOXES: Dict[str, "SandboxSession"] = {}
 _SANDBOX_LOCK = threading.Lock()
-_LAST_ORCA_REPORTS: Dict[str, str] = {}
+_LAST_PREFLIGHT_REPORTS: Dict[str, str] = {}
+_LAST_ORCA_REPORTS = _LAST_PREFLIGHT_REPORTS
 _LAST_ERROR_REPORTS: Dict[str, str] = {}
 
 # ==================== E2B & OPENSANDBOX CLOUD PROVIDER INTEGRATION ====================
@@ -654,7 +655,34 @@ def ensure_runtime_prerequisites(cmd_str: str, session: "SandboxSession", env: D
             if dotnet_dir not in current_path.split(os.pathsep):
                 env["PATH"] = f"{dotnet_dir}{os.pathsep}{current_path}"
             env["DOTNET_ROOT"] = dotnet_dir
-            return True
+
+            # Verify that actual SDK is available, not just the runtime
+            has_sdk = False
+            try:
+                chk = subprocess.run([str(found_dotnet), "--list-sdks"], capture_output=True, text=True, timeout=5)
+                if chk.returncode == 0 and chk.stdout.strip():
+                    has_sdk = True
+            except Exception:
+                pass
+
+            if has_sdk:
+                return True
+
+            session.log(f"⚠️ Found .NET runtime binary ('{found_dotnet}'), but NO .NET SDK is installed.")
+            session.log("💡 'dotnet run' and 'dotnet build' require the .NET SDK (e.g. .NET 8.0 SDK) to compile C# source code.")
+            session.log("🔗 Download official .NET 8 SDK: https://dotnet.microsoft.com/download/dotnet/8.0")
+            session.log("🚀 Or deploy Preflight with Docker: 'docker compose up -d' (runs inside mcr.microsoft.com/dotnet/sdk:8.0 container runner).")
+            
+            # Check for static web UI fallback
+            if session.working_dir:
+                wwwroot_cand = session.working_dir / "BookStore.UI" / "wwwroot" / "index.html"
+                if not wwwroot_cand.exists():
+                    wwwroot_cand = session.working_dir / "wwwroot" / "index.html"
+                if wwwroot_cand.exists():
+                    rel_dir = wwwroot_cand.parent.relative_to(session.working_dir).as_posix()
+                    session.log(f"🌐 Alternative UI Preview: You can serve the static frontend by changing Execution Command to:")
+                    session.log(f"   python -m http.server {{PORT}} --directory {rel_dir}")
+            return False
 
         session.log("⚠️ .NET SDK ('dotnet') is not found in the sandbox environment.")
         session.log("⏳ Attempting automatic on-demand installation of .NET 8 SDK... please wait.")
@@ -763,6 +791,15 @@ class SandboxSession:
         self.log(f"🚀 Initializing isolated sandbox for '{self.repo_name}' on port {self.port}...")
         self.log(f"📁 Working directory: {self.working_dir}")
 
+        if not self.working_dir.exists():
+            self.status = "crashed"
+            self.exit_code = 127
+            self.has_code_error = True
+            self.code_error_summary = f"Working directory does not exist: {self.working_dir}"
+            self.log(f"❌ Error: Repository directory '{self.working_dir}' does not exist on disk.")
+            self.log("💡 Tip: Verify the project files exist in the repos directory.")
+            return
+
         # Substitute {PORT} placeholder in command
         cmd_str = self.command.replace("{PORT}", str(self.port)).replace("{port}", str(self.port))
         self.log(f"💻 Execution command: {cmd_str}")
@@ -860,8 +897,9 @@ class SandboxSession:
         except Exception as e:
             self.status = "crashed"
             self.exit_code = -1
+            self.has_code_error = True
+            self.code_error_summary = str(e)
             self.log(f"❌ Failed to launch sandbox process: {str(e)}")
-            raise
 
     def stop(self):
         """Gracefully terminates the sandbox process and its children."""
@@ -976,8 +1014,8 @@ def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optio
             port=port,
             working_dir=working_dir
         )
-        session.start()
         _ACTIVE_SANDBOXES[key] = session
+        session.start()
         return session.to_dict()
 
 
@@ -1179,9 +1217,9 @@ This page will refresh automatically in 2 seconds.</p>
     )
 
 
-# --- ORCA CODE REVIEW & RUNTIME ERROR DIAGNOSTICS ---
+# --- PREFLIGHT CODE REVIEW & RUNTIME ERROR DIAGNOSTICS ---
 
-ORCA_REVIEW_SYSTEM_PROMPT = """You are OrcaCode Review, an elite automated code reviewer operating under strict P0-P3 severity contracts and merge gate arbitration.
+PREFLIGHT_REVIEW_SYSTEM_PROMPT = """You are Preflight Code Review, an elite automated code reviewer operating under strict P0-P3 severity contracts and merge gate arbitration.
 
 Severity Contract:
 - [P0] Critical (❌ Blocker): Remote code execution, SQL/Command injection, authentication/authorization bypass, leaked API keys/secrets, memory/data corruption, severe security exploits.
@@ -1205,7 +1243,7 @@ Instructions:
 3. Output a comprehensive, professionally styled Markdown report in 100% pure English with zero Persian text.
 
 Markdown Report Structure:
-# Orca Code Review Report
+# Preflight Code Review Report
 **Target Repository:** {repo_name}
 **Merge Gate Verdict:** {BLOCKED or APPROVED}
 
@@ -1257,6 +1295,8 @@ Markdown Report Structure:
 (Provide step-by-step instructions and code snippets for the developer to fix the issue)
 """
 
+ORCA_REVIEW_SYSTEM_PROMPT = PREFLIGHT_REVIEW_SYSTEM_PROMPT
+
 
 def collect_repo_code_context(repo_dir: Path, max_files: int = 15, max_bytes_per_file: int = 12000) -> str:
     """Collects key source code files from the repository for Orca Code Review."""
@@ -1285,9 +1325,9 @@ def collect_repo_code_context(repo_dir: Path, max_files: int = 15, max_bytes_per
     return "\n\n".join(code_snippets)
 
 
-def run_orca_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]:
+def run_preflight_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]:
     """
-    Executes a comprehensive Orca Code Review on the repository according to the
+    Executes a comprehensive Preflight Code Review on the repository according to the
     P0-P3 severity rubric and merge gate arbitration standard.
     """
     clean_repo = sanitize_name(repo_name) if repo_name else None
@@ -1302,7 +1342,7 @@ def run_orca_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]:
     if not code_context.strip():
         code_context = "# No source files found or empty repository."
 
-    user_prompt = f"""Please perform an Orca Code Review on repository '{key}':
+    user_prompt = f"""Please perform a Preflight Code Review on repository '{key}':
 
 Project Type: {plan.get('project_type', 'Unknown')}
 Launch Command: {plan.get('command', 'N/A')}
@@ -1310,10 +1350,10 @@ Launch Command: {plan.get('command', 'N/A')}
 Repository Source Files:
 {code_context}
 
-Perform a thorough review adhering strictly to the Orca Code Review P0-P3 severity contract and return your findings."""
+Perform a thorough review adhering strictly to the Preflight Code Review P0-P3 severity contract and return your findings."""
 
     if os.getenv("TESTING") == "1" and not os.getenv("REAL_LLM"):
-        report_md = f"""# Orca Code Review Report: {key}
+        report_md = f"""# Preflight Code Review Report: {key}
 **Date:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 **Merge Gate:** 🟢 APPROVED
 
@@ -1343,7 +1383,7 @@ Perform a thorough review adhering strictly to the Orca Code Review P0-P3 severi
         gate = "APPROVED"
         counts = {"P0": 0, "P1": 0, "P2": 1, "P3": 2}
     else:
-        raw_llm = call_llm(user_prompt, ORCA_REVIEW_SYSTEM_PROMPT, timeout=120, max_tokens=6000)
+        raw_llm = call_llm(user_prompt, PREFLIGHT_REVIEW_SYSTEM_PROMPT, timeout=120, max_tokens=6000)
         report_md = raw_llm
         p0_count = len(re.findall(r'\[P0\]', report_md, re.IGNORECASE))
         p1_count = len(re.findall(r'\[P1\]', report_md, re.IGNORECASE))
@@ -1352,7 +1392,7 @@ Perform a thorough review adhering strictly to the Orca Code Review P0-P3 severi
         gate = "BLOCKED" if (p0_count > 0 or p1_count > 0) else "APPROVED"
         counts = {"P0": p0_count, "P1": p1_count, "P2": p2_count, "P3": p3_count}
 
-    _LAST_ORCA_REPORTS[key] = report_md
+    _LAST_PREFLIGHT_REPORTS[key] = report_md
 
     return {
         "status": "success",
@@ -1362,16 +1402,22 @@ Perform a thorough review adhering strictly to the Orca Code Review P0-P3 severi
         "markdown_report": report_md
     }
 
+# Backward compatible alias
+run_orca_code_review = run_preflight_code_review
 
-def get_last_orca_report(repo_name: Optional[str] = None) -> str:
-    """Returns the cached Orca Code Review Markdown report for download."""
+
+def get_last_preflight_report(repo_name: Optional[str] = None) -> str:
+    """Returns the cached Preflight Code Review Markdown report for download."""
     clean_repo = sanitize_name(repo_name) if repo_name else None
     key = clean_repo or "default"
-    report = _LAST_ORCA_REPORTS.get(key)
+    report = _LAST_PREFLIGHT_REPORTS.get(key)
     if not report:
-        res = run_orca_code_review(repo_name=clean_repo)
+        res = run_preflight_code_review(repo_name=clean_repo)
         report = res["markdown_report"]
     return report
+
+# Backward compatible alias
+get_last_orca_report = get_last_preflight_report
 
 
 def diagnose_sandbox_error(repo_name: Optional[str] = None, logs: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -1382,14 +1428,40 @@ def diagnose_sandbox_error(repo_name: Optional[str] = None, logs: Optional[List[
     clean_repo = sanitize_name(repo_name) if repo_name else None
     key = clean_repo or "default"
 
-    session_logs = logs
+    session_logs = list(logs) if logs else []
     if not session_logs:
         with _SANDBOX_LOCK:
             session = _ACTIVE_SANDBOXES.get(key)
             if session:
                 session_logs = list(session.logs)[-150:]
-            else:
-                session_logs = []
+            elif SANDBOX_RUNNER_URL:
+                try:
+                    runner_status = _runner_request("GET", f"/sessions/{key}/status")
+                    if runner_status and "logs" in runner_status:
+                        session_logs = runner_status["logs"]
+                except Exception:
+                    pass
+
+    # If session_logs is empty, perform proactive file-based root cause inspection
+    repo_dir = ALLOWED_REPO_DIR / key
+    if not session_logs or not any(l.strip() for l in session_logs):
+        session_logs = []
+        if not repo_dir.exists():
+            session_logs.append(f"❌ Sandbox Launch Blocker: Repository directory '{repo_dir}' was not found on disk.")
+            session_logs.append("Root Cause: ALLOWED_REPO_DIR resolution mismatch or repository was not cloned.")
+            session_logs.append("Action: Ensure repository is cloned into the repos directory.")
+        else:
+            has_csharp = any(repo_dir.rglob("*.csproj")) or any(repo_dir.rglob("*.sln"))
+            if has_csharp and shutil.which("dotnet"):
+                try:
+                    chk = subprocess.run(["dotnet", "--list-sdks"], capture_output=True, text=True, timeout=5)
+                    if not (chk.returncode == 0 and chk.stdout.strip()):
+                        session_logs.append("⚠️ Environment Error: .NET runtime binary is present, but NO .NET SDK is installed on this host.")
+                        session_logs.append("Root Cause: 'dotnet run' and 'dotnet build' require .NET 8 SDK to compile and run C# solutions.")
+                        session_logs.append("Action 1: Install official .NET 8 SDK from https://dotnet.microsoft.com/download/dotnet/8.0")
+                        session_logs.append("Action 2: Alternatively run via Docker: 'docker compose up -d' which includes full .NET SDK runner.")
+                except Exception:
+                    pass
 
     logs_text = "\n".join(session_logs) if session_logs else "No logs recorded in sandbox."
 
@@ -1399,7 +1471,8 @@ def diagnose_sandbox_error(repo_name: Optional[str] = None, logs: Optional[List[
         for pat in [
             r"traceback", r"error:", r"syntaxerror", r"modulenotfound", r"importerror",
             r"typeerror", r"referenceerror", r"build failed", r"unhandled exception",
-            r"panic:", r"fatal", r"exception in thread", r"cs\d{4}"
+            r"panic:", r"fatal", r"exception in thread", r"cs\d{4}", r"blocker",
+            r"environment error", r"no \.net sdk"
         ]
     )
 
