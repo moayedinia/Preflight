@@ -381,6 +381,27 @@ class TestPreflightEvaluation(unittest.TestCase):
                 data = res.json()
                 self.assertEqual(data["status"], "success")
                 self.assertIn("file_path", data)
+
+                # 3. Test path with colon line number and empty repair prompt synthesis
+                res_colon = client.post("/api/v1/review/fix-bug", json={
+                    "repo_name": "temp_test_repo",
+                    "file_path": "PaymentFlow.js:14",
+                    "rule": "Dead buttons on the main flow",
+                    "detail": "Button does nothing"
+                })
+                self.assertEqual(res_colon.status_code, 200)
+
+                # 4. Test non-existent file structured error detail
+                res_not_found = client.post("/api/v1/review/fix-bug", json={
+                    "repo_name": "temp_test_repo",
+                    "file_path": "NonExistentFile.js",
+                    "rule": "Missing file"
+                })
+                self.assertEqual(res_not_found.status_code, 404)
+                err_detail = res_not_found.json()["detail"]
+                self.assertIsInstance(err_detail, dict)
+                self.assertEqual(err_detail["error_code"], "FILE_NOT_FOUND")
+                self.assertIn("suggested_action", err_detail)
         finally:
             if test_dir.exists():
                 shutil.rmtree(test_dir)

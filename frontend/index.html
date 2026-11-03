@@ -197,7 +197,12 @@
             <div class="text-center">
               <div class="text-xs uppercase tracking-wider font-semibold text-slate-400">Ship Readiness</div>
               <div id="readiness-score" class="text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5">--%</div>
-              <div id="readiness-status" class="text-[11px] text-slate-500 font-medium">Ready to scan</div>              <button onclick="fixAllIssues()" id="btn-fix-all" class="hidden mt-3 w-full px-3 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-[11px] rounded-lg shadow-lg shadow-orange-500/20 transition-all items-center justify-center gap-1.5" title="Apply every generated repair prompt sequentially">                <i data-lucide="wand-sparkles" class="w-3.5 h-3.5"></i>                <span id="fix-all-label">Fix all issues</span>              </button>              <div id="fix-all-progress" class="hidden mt-1.5 text-[10px] text-amber-300 font-medium"></div>
+              <div id="readiness-status" class="text-[11px] text-slate-500 font-medium">Ready to scan</div>
+              <button onclick="fixAllIssues()" id="btn-fix-all" class="hidden mt-3 w-full px-3 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-black text-[11px] rounded-lg shadow-lg shadow-orange-500/20 transition-all items-center justify-center gap-1.5" title="Apply every generated repair prompt sequentially">
+                <i data-lucide="wand-sparkles" class="w-3.5 h-3.5"></i>
+                <span id="fix-all-label">Fix all issues</span>
+              </button>
+              <div id="fix-all-progress" class="hidden mt-1.5 text-[10px] text-amber-300 font-medium"></div>
             </div>
             
             <div class="h-10 w-px bg-slate-800"></div>
@@ -1146,7 +1151,8 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
     // --- State Management ---
     let currentRepo = null;
     let allDefects = [];
-    let currentApiKey = '';    let isFixingAll = false;
+    let currentApiKey = '';
+    let isFixingAll = false;
 
     // --- Global API Key UI Management ---
     function updateApiKeyUiState(key) {
@@ -1933,7 +1939,18 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
         statusClass = statusClass;
       }
 
-      const fixAllBtn = document.getElementById('btn-fix-all');      const fixAllLabel = document.getElementById('fix-all-label');      if (fixAllBtn) {        fixAllBtn.classList.toggle('hidden', activeDefects.length === 0 && !isFixingAll);        fixAllBtn.classList.toggle('flex', activeDefects.length > 0 || isFixingAll);        fixAllBtn.disabled = isFixingAll || activeDefects.length === 0;      }      if (fixAllLabel && !isFixingAll) {        fixAllLabel.innerText = activeDefects.length > 0 ? `Fix all issues (${activeDefects.length})` : 'All issues fixed';      }      renderDefectCards();
+      const fixAllBtn = document.getElementById('btn-fix-all');
+      const fixAllLabel = document.getElementById('fix-all-label');
+      if (fixAllBtn) {
+        fixAllBtn.classList.toggle('hidden', activeDefects.length === 0 && !isFixingAll);
+        fixAllBtn.classList.toggle('flex', activeDefects.length > 0 || isFixingAll);
+        fixAllBtn.disabled = isFixingAll || activeDefects.length === 0;
+      }
+      if (fixAllLabel && !isFixingAll) {
+        fixAllLabel.innerText = activeDefects.length > 0 ? `Fix all issues (${activeDefects.length})` : 'All issues fixed';
+      }
+
+      renderDefectCards();
       if (window.lucide) lucide.createIcons();
     }
 
@@ -2112,7 +2129,18 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
                   </button>
                 </div>
               </div>
-            ` : ''}
+            ` : `
+              <div class="flex items-center justify-between gap-2 pt-1 text-[11px] text-slate-400 border-t border-slate-800/80">
+                <div class="flex items-center gap-1.5" id="fix-status-${idx}">
+                  ${d.fixed ? '<span class="text-emerald-400 font-semibold flex items-center gap-1"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Fix applied and saved to file</span>' : '<span class="text-slate-400">Click Fix Bug to let AI inspect the code and generate a verified patch</span>'}
+                </div>
+              </div>
+            `}
+
+            <!-- Fix Process & Diagnostic Report Box (Present for every defect) -->
+            <div id="fix-report-${idx}" class="${d.fixReport ? 'block' : 'hidden'} transition-all">
+              ${generateFixReportHtml(idx, d.fixReport)}
+            </div>
 
             <!-- 3. Proof & Technical Details (Collapsed behind summary link) -->
             <details class="text-[11px] text-slate-400 pt-1 group">
@@ -2170,13 +2198,116 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       copyToClipboard(prompt, '📋 Copied prompt! Paste it into Lovable / Cursor');
     }
 
+    function generateFixReportHtml(idx, report) {
+      if (!report) return '';
+      if (report.status === 'in_progress') {
+        return `
+          <div class="p-3.5 bg-slate-900/90 border border-amber-500/35 rounded-xl space-y-2.5 text-xs shadow-inner">
+            <div class="flex items-center justify-between border-b border-amber-500/20 pb-2">
+              <span class="font-bold flex items-center gap-2 text-amber-300">
+                <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-amber-400"></i>
+                Applying Automated Fix & Updating File...
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                In Progress
+              </span>
+            </div>
+            <div class="space-y-1.5 text-[11px] font-mono bg-slate-950/80 p-2.5 rounded-lg border border-slate-800">
+              <div class="flex items-center gap-2 text-emerald-400">
+                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                <span>1. Verified target file: <code class="text-slate-200">${escapeHtml(report.filePath || 'file')}</code></span>
+              </div>
+              <div class="flex items-center gap-2 text-amber-300 animate-pulse">
+                <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>
+                <span>2. AI model generating verified patch...</span>
+              </div>
+              <div class="flex items-center gap-2 text-slate-500">
+                <i data-lucide="circle" class="w-3.5 h-3.5"></i>
+                <span>3. Syntax validation & disk write</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      if (report.status === 'success') {
+        const data = report.data || {};
+        const sizeDelta = (data.fixed_size && data.original_size) ? (data.fixed_size - data.original_size) : 0;
+        const sizeStr = data.original_size
+          ? `${data.original_size} B → ${data.fixed_size} B (${sizeDelta >= 0 ? '+' : ''}${sizeDelta} B)`
+          : 'Patched & Saved';
+        return `
+          <div class="p-3.5 bg-emerald-950/25 border border-emerald-500/40 rounded-xl space-y-2.5 text-xs text-emerald-200 shadow-md">
+            <div class="flex items-center justify-between border-b border-emerald-500/20 pb-2">
+              <span class="font-bold text-emerald-300 flex items-center gap-1.5">
+                <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+                Fix Successfully Applied & Verified
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Resolved
+              </span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+              <div class="bg-slate-950/70 p-2.5 rounded-lg border border-slate-800">
+                <span class="text-slate-400 block text-[10px]">Updated File Path</span>
+                <span class="font-mono text-slate-200 truncate block font-semibold">${escapeHtml(data.file_path || report.filePath || 'file')}</span>
+              </div>
+              <div class="bg-slate-950/70 p-2.5 rounded-lg border border-slate-800">
+                <span class="text-slate-400 block text-[10px]">File Size Delta</span>
+                <span class="font-mono text-emerald-400 block font-semibold">${escapeHtml(sizeStr)}</span>
+              </div>
+            </div>
+            <div class="text-[11px] text-slate-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 pt-1 border-t border-emerald-500/10">
+              <span class="text-emerald-300/90">${escapeHtml(data.message || 'Defect resolved and verified on disk.')}</span>
+              ${data.backup_path ? `<span class="text-slate-500 text-[10px] font-mono">Backup created</span>` : ''}
+            </div>
+          </div>
+        `;
+      }
+      if (report.status === 'error') {
+        return `
+          <div class="p-3.5 bg-red-950/30 border border-red-500/40 rounded-xl space-y-2.5 text-xs text-red-200 shadow-md">
+            <div class="flex items-center justify-between border-b border-red-500/20 pb-2">
+              <span class="font-bold text-red-300 flex items-center gap-1.5">
+                <i data-lucide="alert-triangle" class="w-4 h-4 text-red-400"></i>
+                Fix Failed: Unable to Apply Automated Patch
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">
+                Action Required
+              </span>
+            </div>
+            <div class="p-2.5 bg-slate-950/90 rounded-lg border border-red-500/30 space-y-1.5">
+              <div class="text-[10px] uppercase tracking-wider text-red-400 font-bold flex items-center gap-1">
+                <i data-lucide="x-circle" class="w-3 h-3"></i>
+                Failure Reason:
+              </div>
+              <div class="font-mono text-[11px] text-red-200 whitespace-pre-wrap leading-relaxed">${escapeHtml(report.error || 'The bug fix could not be applied.')}</div>
+              ${report.detail ? `<div class="text-[10px] text-slate-400 font-mono pt-1.5 border-t border-slate-800 leading-normal">${escapeHtml(report.detail)}</div>` : ''}
+            </div>
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 pt-1">
+              <div class="text-slate-300 flex items-start gap-1.5 leading-tight text-[11px]">
+                <i data-lucide="info" class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5"></i>
+                <span>${escapeHtml(report.action || 'You can click "Copy Prompt" above to paste instructions into Cursor or Lovable.')}</span>
+              </div>
+              <button onclick="fixBug(${idx})" class="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/40 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all active:scale-95 shadow-sm" title="Retry fixing this bug">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                <span>Retry Fix</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }
+      return '';
+    }
+
     async function fixBug(idx, options = {}) {
       const d = allDefects[idx];
-      if (!d || d.fixed || d.unconfirmed) return false;      const quiet = Boolean(options.quiet);
+      if (!d || d.fixed || d.unconfirmed) return false;
+      const quiet = Boolean(options.quiet);
 
       const btnPrompt = document.getElementById(`btn-fix-prompt-${idx}`);
       const btnHeader = document.getElementById(`btn-fix-bug-${idx}`);
       const statusEl = document.getElementById(`fix-status-${idx}`);
+      const reportEl = document.getElementById(`fix-report-${idx}`);
 
       const setBtnLoading = (btn) => {
         if (!btn) return;
@@ -2186,20 +2317,28 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       };
       setBtnLoading(btnPrompt);
       setBtnLoading(btnHeader);
+
       if (statusEl) {
         statusEl.innerHTML = '<span class="text-amber-400 animate-pulse flex items-center gap-1"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> AI is applying fix and saving to file...</span>';
+      }
+
+      const fPath = d.file_path || d.file || 'codebase';
+      d.fixReport = { status: 'in_progress', filePath: fPath };
+      if (reportEl) {
+        reportEl.classList.remove('hidden');
+        reportEl.innerHTML = generateFixReportHtml(idx, d.fixReport);
       }
       if (window.lucide) lucide.createIcons();
 
       try {
         const payload = {
           repo_name: currentRepo || null,
-          file_path: d.file_path || d.file,
+          file_path: fPath,
           line_number: d.line_number || d.line || 1,
           rule: d.rule,
           detail: d.detail || d.plain_english_explanation,
           business_consequence: d.business_consequence,
-          repair_prompt: d.repair_prompt,
+          repair_prompt: d.repair_prompt || '',
           snippet: d.snippet || d.code_snippet
         };
 
@@ -2211,33 +2350,50 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
         if (res.status === 503 || res.status === 400 || res.status === 401) {
           let msg = 'AI Language Model is not connected! Please configure your API key in Settings.';
+          let action = 'Check Settings > AI API Key and ensure the model connection is valid.';
+          let tech = '';
           try {
             const errData = await res.json();
             if (errData && errData.detail) {
-              msg = typeof errData.detail === 'string' ? errData.detail : (errData.detail.message || JSON.stringify(errData.detail));
+              if (typeof errData.detail === 'object') {
+                msg = errData.detail.message || JSON.stringify(errData.detail);
+                action = errData.detail.suggested_action || action;
+                tech = errData.detail.technical_detail || '';
+              } else {
+                msg = errData.detail;
+              }
             }
           } catch (err) {}
           showLlmDisconnectedError(msg);
-          resetButtons();
-          return;
+          handleFailure(msg, tech, action);
+          return false;
         }
 
         if (!res.ok) {
           let errText = 'Failed to apply bug fix.';
+          let tech = '';
+          let action = 'Use the "Copy Prompt" button above to paste into Cursor or Lovable, or check file path.';
           try {
             const errData = await res.json();
             if (errData && errData.detail) {
-              errText = typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail);
+              if (typeof errData.detail === 'object') {
+                errText = errData.detail.message || JSON.stringify(errData.detail);
+                action = errData.detail.suggested_action || action;
+                tech = errData.detail.technical_detail || '';
+              } else {
+                errText = errData.detail;
+              }
             }
           } catch (e) {}
           if (!quiet) showToast(`❌ Error fixing bug: ${errText}`, true);
-          resetButtons();
-          return;
+          handleFailure(errText, tech, action);
+          return false;
         }
 
         const data = await res.json();
         d.fixed = true;
         d.unconfirmed = true; // Exclude from active penalty scoring
+        d.fixReport = { status: 'success', data, filePath: fPath };
 
         if (!quiet) showToast(`✅ ${data.message || 'Bug fixed and saved successfully!'}`, false);
 
@@ -2254,15 +2410,32 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           statusEl.innerHTML = '<span class="text-emerald-400 font-semibold flex items-center gap-1"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Fix applied and saved to file</span>';
         }
 
+        if (reportEl) {
+          reportEl.classList.remove('hidden');
+          reportEl.innerHTML = generateFixReportHtml(idx, d.fixReport);
+        }
+
         // Live update score meters and readiness
         renderAuditResults();
+        if (window.lucide) lucide.createIcons();
+        return true;
 
       } catch (err) {
-        if (!quiet) showToast('❌ Network error while fixing bug: ' + err.message, true);
-        resetButtons();
+        const msg = 'Network error while contacting backend: ' + err.message;
+        if (!quiet) showToast('❌ ' + msg, true);
+        handleFailure(msg, err.stack || '', 'Verify backend server is running and reachable.');
+        return false;
       }
 
-      function resetButtons() {
+      function handleFailure(errorMsg, techDetail, suggestedAction) {
+        d.fixed = false;
+        d.fixReport = {
+          status: 'error',
+          error: errorMsg,
+          detail: techDetail,
+          action: suggestedAction,
+          filePath: fPath
+        };
         if (btnPrompt && btnPrompt.dataset.originalHtml) {
           btnPrompt.disabled = false;
           btnPrompt.innerHTML = btnPrompt.dataset.originalHtml;
@@ -2272,13 +2445,88 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           btnHeader.innerHTML = btnHeader.dataset.originalHtml;
         }
         if (statusEl) {
-          statusEl.innerHTML = '<span class="text-red-400">Fix failed. Check logs or retry.</span>';
+          statusEl.innerHTML = '<span class="text-red-400 font-semibold flex items-center gap-1"><i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> Fix failed — see diagnostic report below</span>';
+        }
+        if (reportEl) {
+          reportEl.classList.remove('hidden');
+          reportEl.innerHTML = generateFixReportHtml(idx, d.fixReport);
         }
         if (window.lucide) lucide.createIcons();
       }
     }
 
-    async function fixAllIssues() {      if (isFixingAll) return;      if (!currentRepo) {        showToast('Please select a repository first.', true);        return;      }      const tierPriority = { red: 0, orange: 1, yellow: 2 };      const queue = allDefects        .map((defect, index) => ({ defect, index }))        .filter(item => !item.defect.fixed && !item.defect.unconfirmed)        .filter(item => item.defect.repair_prompt && (item.defect.file_path || item.defect.file))        .sort((a, b) => (tierPriority[a.defect.tier] ?? 99) - (tierPriority[b.defect.tier] ?? 99));      if (queue.length === 0) {        showToast('There are no actionable issues to fix.', true);        return;      }      const missingPromptCount = allDefects.filter(d =>        !d.fixed && !d.unconfirmed && (!d.repair_prompt || !(d.file_path || d.file))      ).length;      const warning = missingPromptCount > 0        ? ` ${missingPromptCount} issue(s) without a repair prompt or file will be skipped.`        : '';      if (!window.confirm(`Apply ${queue.length} AI-generated fixes to ${currentRepo}, one at a time?${warning}\n\nFixes will modify project files directly.`)) {        return;      }      isFixingAll = true;      const btn = document.getElementById('btn-fix-all');      const label = document.getElementById('fix-all-label');      const progress = document.getElementById('fix-all-progress');      if (btn) btn.disabled = true;      if (progress) progress.classList.remove('hidden');      renderAuditResults();      let completed = 0;      let failedItem = null;      for (const item of queue) {        const ruleName = item.defect.rule || 'Issue';        if (label) label.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Fixing ${completed + 1} of ${queue.length}`;        if (progress) progress.innerText = `${(item.defect.tier || 'issue').toUpperCase()}: ${ruleName}`;        if (window.lucide) lucide.createIcons();        await fixBug(item.index, { quiet: true });        if (!item.defect.fixed) {          failedItem = item;          break;        }        completed += 1;      }      isFixingAll = false;      renderAuditResults();      if (failedItem) {        if (progress) {          progress.className = 'mt-1.5 text-[10px] text-red-400 font-semibold';          progress.innerText = `Stopped after ${completed} fix(es). Retry: ${failedItem.defect.rule || 'failed issue'}`;        }        showToast(`Fix all stopped after ${completed} of ${queue.length}. Resolve the failed issue and retry.`, true);      } else {        if (progress) {          progress.className = 'mt-1.5 text-[10px] text-emerald-400 font-semibold';          progress.innerText = `${completed} issue(s) fixed. Run Full Audit again to verify the changes.`;        }        showToast(`✅ Fixed ${completed} issue(s) sequentially. Re-run the audit to verify.`, false);      }      if (window.lucide) lucide.createIcons();    }    function exportMarkdownReport() {
+    async function fixAllIssues() {
+      if (isFixingAll) return;
+      if (!currentRepo) {
+        showToast('Please select a repository first.', true);
+        return;
+      }
+
+      const tierPriority = { red: 0, orange: 1, yellow: 2 };
+      const queue = allDefects
+        .map((defect, index) => ({ defect, index }))
+        .filter(item => !item.defect.fixed && !item.defect.unconfirmed)
+        .filter(item => item.defect.repair_prompt && (item.defect.file_path || item.defect.file))
+        .sort((a, b) => (tierPriority[a.defect.tier] ?? 99) - (tierPriority[b.defect.tier] ?? 99));
+
+      if (queue.length === 0) {
+        showToast('There are no actionable issues to fix.', true);
+        return;
+      }
+
+      const missingPromptCount = allDefects.filter(d =>
+        !d.fixed && !d.unconfirmed && (!d.repair_prompt || !(d.file_path || d.file))
+      ).length;
+      const warning = missingPromptCount > 0
+        ? ` ${missingPromptCount} issue(s) without a repair prompt or file will be skipped.`
+        : '';
+      if (!window.confirm(`Apply ${queue.length} AI-generated fixes to ${currentRepo}, one at a time?${warning}\n\nFixes will modify project files directly.`)) {
+        return;
+      }
+
+      isFixingAll = true;
+      const btn = document.getElementById('btn-fix-all');
+      const label = document.getElementById('fix-all-label');
+      const progress = document.getElementById('fix-all-progress');
+      if (btn) btn.disabled = true;
+      if (progress) progress.classList.remove('hidden');
+      renderAuditResults();
+
+      let completed = 0;
+      let failedItem = null;
+      for (const item of queue) {
+        const ruleName = item.defect.rule || 'Issue';
+        if (label) label.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Fixing ${completed + 1} of ${queue.length}`;
+        if (progress) progress.innerText = `${(item.defect.tier || 'issue').toUpperCase()}: ${ruleName}`;
+        if (window.lucide) lucide.createIcons();
+
+        await fixBug(item.index, { quiet: true });
+        if (!item.defect.fixed) {
+          failedItem = item;
+          break;
+        }
+        completed += 1;
+      }
+
+      isFixingAll = false;
+      renderAuditResults();
+      if (failedItem) {
+        if (progress) {
+          progress.className = 'mt-1.5 text-[10px] text-red-400 font-semibold';
+          progress.innerText = `Stopped after ${completed} fix(es). Retry: ${failedItem.defect.rule || 'failed issue'}`;
+        }
+        showToast(`Fix all stopped after ${completed} of ${queue.length}. Resolve the failed issue and retry.`, true);
+      } else {
+        if (progress) {
+          progress.className = 'mt-1.5 text-[10px] text-emerald-400 font-semibold';
+          progress.innerText = `${completed} issue(s) fixed. Run Full Audit again to verify the changes.`;
+        }
+        showToast(`✅ Fixed ${completed} issue(s) sequentially. Re-run the audit to verify.`, false);
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function exportMarkdownReport() {
       if (allDefects.length === 0) {
         showToast('Run an audit first to generate report', true);
         return;
@@ -3372,4 +3620,4 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
   </script>
 </body>
-</html>
+</html>

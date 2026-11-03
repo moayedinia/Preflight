@@ -1749,22 +1749,44 @@ def extract_code_block(llm_output: str, fallback_code: str) -> str:
 def _validate_fixed_source(original: str, fixed: str, suffix: str, snippet: Optional[str]) -> None:
     """Rejects unchanged, truncated, fenced, or syntactically broken LLM output."""
     if not fixed or fixed == original:
-        raise HTTPException(status_code=422, detail="The AI returned no effective code change; the original file was preserved.")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "NO_EFFECTIVE_CHANGE",
+                "message": "The AI model returned no effective code changes for this defect.",
+                "suggested_action": "The original file was kept intact. You can use 'Copy Prompt' to customize the fix or retry."
+            }
+        )
     if re.search(r'^\s*```|```\s*$', fixed):
-        raise HTTPException(status_code=422, detail="The AI response still contained Markdown fences; the original file was preserved.")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "MARKDOWN_FENCES_DETECTED",
+                "message": "The AI response contained residual markdown fences instead of raw source code.",
+                "suggested_action": "The original file was preserved. Click 'Retry Fix' to regenerate clean code."
+            }
+        )
 
     original_len = max(len(original), 1)
     if len(original) >= 400 and len(fixed) < original_len * 0.80:
         raise HTTPException(
             status_code=422,
-            detail=f"The AI response appears truncated ({len(fixed)} of {len(original)} characters); the original file was preserved.",
+            detail={
+                "error_code": "TRUNCATED_OUTPUT",
+                "message": f"The proposed fix appeared truncated ({len(fixed)} of {len(original)} characters).",
+                "suggested_action": "The original file was preserved to prevent code loss. Click 'Retry Fix' or use 'Copy Prompt'."
+            }
         )
 
     clean_snippet = (snippet or "").strip()
     if 8 <= len(clean_snippet) <= 5000 and clean_snippet in original and clean_snippet in fixed:
         raise HTTPException(
             status_code=422,
-            detail="The reported offending snippet was unchanged by the AI; the original file was preserved.",
+            detail={
+                "error_code": "SNIPPET_UNCHANGED",
+                "message": "The reported offending code snippet remained unmodified by the AI.",
+                "suggested_action": "The original file was preserved. Click 'Retry Fix' or use 'Copy Prompt' to fix manually."
+            }
         )
 
     if suffix.lower() == ".py":
@@ -1773,7 +1795,11 @@ def _validate_fixed_source(original: str, fixed: str, suffix: str, snippet: Opti
         except SyntaxError as exc:
             raise HTTPException(
                 status_code=422,
-                detail=f"The proposed Python fix is not syntactically valid (line {exc.lineno}); the original file was preserved.",
+                detail={
+                    "error_code": "SYNTAX_ERROR",
+                    "message": f"The proposed Python fix is not syntactically valid (line {exc.lineno}).",
+                    "suggested_action": "The original file was preserved. Click 'Retry Fix' to let AI regenerate correct syntax."
+                }
             ) from exc
     elif suffix.lower() == ".json":
         try:
@@ -1781,14 +1807,18 @@ def _validate_fixed_source(original: str, fixed: str, suffix: str, snippet: Opti
         except json.JSONDecodeError as exc:
             raise HTTPException(
                 status_code=422,
-                detail=f"The proposed JSON fix is invalid (line {exc.lineno}); the original file was preserved.",
+                detail={
+                    "error_code": "JSON_SYNTAX_ERROR",
+                    "message": f"The proposed JSON fix is invalid (line {exc.lineno}).",
+                    "suggested_action": "The original file was preserved. Click 'Retry Fix' to regenerate valid JSON."
+                }
             ) from exc
 
 
 def apply_preflight_bug_fix(
     repo_name: Optional[str],
     file_path: str,
-    repair_prompt: str,
+    repair_prompt: Optional[str] = None,
     rule: Optional[str] = None,
     detail: Optional[str] = None,
     business_consequence: Optional[str] = None,
@@ -1802,7 +1832,18 @@ def apply_preflight_bug_fix(
     clean_repo = sanitize_name(repo_name) if repo_name else None
     clean_path = (file_path or "").strip().replace("\\", "/")
     if not clean_path:
-        raise HTTPException(status_code=400, detail="file_path is required.")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "FILE_PATH_REQUIRED",
+                "message": "Target file path is required to apply automated bug fix.",
+                "suggested_action": "Ensure the defect specifies a file path or use 'Copy Prompt' to apply manually."
+            }
+        )
+
+    # Strip any trailing line numbers like :12, :L45, :12:34
+    clean_path = re.sub(r':L?\d+(?::\d+)?$', '', clean_path).strip()
+    clean_path = clean_path.lstrip("./")
 
     # Strip repo name prefix if present in the file path
     if clean_repo and clean_path.startswith(clean_repo + "/"):
@@ -1821,10 +1862,36 @@ def apply_preflight_bug_fix(
         except (ValueError, Exception):
             continue
 
+    # Disambiguate if relative path wasn't matched directly
+    if not target_file or not target_file.exists():
+        fname = Path(clean_path).name
+        matched_candidates = []
+        for base_dir in candidates:
+            if base_dir.exists():
+                for found in base_dir.rglob(fname):
+                    if found.is_file() and not any(part in {".git", "node_modules", "venv", ".venv", "bin", "obj", ".preflight-backups"} for part in found.parts):
+                        matched_candidates.append(found)
+        if len(matched_candidates) == 1:
+            target_file = matched_candidates[0]
+        elif len(matched_candidates) > 1:
+            matching_paths = [m.as_posix() for m in matched_candidates[:4]]
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "AMBIGUOUS_FILE_MATCH",
+                    "message": f"Multiple matching files found for '{fname}': {', '.join(matching_paths)}",
+                    "suggested_action": "Specify the full relative path in the file parameter or use 'Copy Prompt' to fix manually."
+                }
+            )
+
     if not target_file or not target_file.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"Exact target file '{file_path}' was not found. Preflight will not guess by filename because that could modify the wrong file."
+            detail={
+                "error_code": "FILE_NOT_FOUND",
+                "message": f"Exact target file '{file_path}' was not found in repository '{clean_repo or 'workspace'}'.",
+                "suggested_action": "Verify that the file exists in the repository or use the 'Copy Prompt' button to apply the fix manually."
+            }
         )
 
     try:
@@ -1832,16 +1899,22 @@ def apply_preflight_bug_fix(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to read file '{file_path}': {str(e)}"
+            detail={
+                "error_code": "FILE_READ_ERROR",
+                "message": f"Failed to read file '{file_path}': {str(e)}",
+                "suggested_action": "Check file read permissions on the host filesystem."
+            }
         )
 
     file_ext = target_file.suffix.lstrip(".").lower() or "txt"
     display_rel = clean_path
 
-    # Clean repair prompt if it contains the spec copy header
-    clean_repair = repair_prompt or ""
+    # Clean repair prompt or synthesize fallback prompt
+    clean_repair = (repair_prompt or "").strip()
     if clean_repair.startswith("Copy this and paste it into Lovable / Cursor:"):
         clean_repair = clean_repair.replace("Copy this and paste it into Lovable / Cursor:", "").strip()
+    if not clean_repair:
+        clean_repair = f"Fix the defect '{rule or 'reported issue'}' at line {line_number or 'N/A'}. Details: {detail or 'Repair the issue and ensure production safety.'}"
 
     # System prompt strictly instructing autonomous code repair
     fix_system_prompt = """You are an autonomous senior software engineer and production code repair arbiter.
@@ -1885,12 +1958,25 @@ Apply the fix directly and return the full updated file in a code block."""
         fixed_code = original_code + "\n// [Preflight Auto-Fix Applied: Defect Resolved]\n"
     else:
         try:
-            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=180, max_tokens=8192)
+            call_timeout = int(os.getenv("LLM_BUG_FIX_TIMEOUT", "90"))
+            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=call_timeout, max_tokens=8192)
             fixed_code = extract_code_block(raw_llm, original_code)
         except Exception as e:
+            err_msg = str(e)
+            if "Read timed out" in err_msg or "timeout" in err_msg.lower():
+                user_friendly = "The AI endpoint timed out while generating the code fix (network or proxy delay)."
+                action = "Check your local AI proxy connection or click 'Retry Fix'."
+            else:
+                user_friendly = f"AI model failed while generating fix: {err_msg[:140]}"
+                action = "Ensure your AI model endpoint is online and responsive."
             raise HTTPException(
                 status_code=500,
-                detail=f"AI model failed while generating fix: {str(e)}"
+                detail={
+                    "error_code": "LLM_GENERATION_FAILED",
+                    "message": user_friendly,
+                    "technical_detail": err_msg,
+                    "suggested_action": action
+                }
             )
 
     _validate_fixed_source(original_code, fixed_code, target_file.suffix, snippet)
@@ -1912,7 +1998,11 @@ Apply the fix directly and return the full updated file in a code block."""
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to write fixed code to '{display_rel}': {str(e)}"
+            detail={
+                "error_code": "FILE_WRITE_ERROR",
+                "message": f"Failed to write fixed code to '{display_rel}': {str(e)}",
+                "suggested_action": "Check write permissions for target file on disk."
+            }
         )
 
     return {

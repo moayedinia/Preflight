@@ -808,7 +808,7 @@ def audit_single_tier_post(tier_name: str, payload: Optional[AutoDocRequest] = N
 class PreflightFixBugRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
     file_path: str = Field(..., max_length=500)
-    repair_prompt: str = Field(..., max_length=10_000)
+    repair_prompt: Optional[str] = Field(None, max_length=10_000)
     rule: Optional[str] = Field(None, max_length=200)
     detail: Optional[str] = Field(None, max_length=1000)
     business_consequence: Optional[str] = Field(None, max_length=1000)
