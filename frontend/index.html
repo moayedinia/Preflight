@@ -236,7 +236,7 @@
             <span id="badge-red-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/30">0 Blockers</span>
           </div>
           <h3 class="text-sm font-bold text-white group-hover:text-red-300 transition-colors">Fix Before Anyone Uses This</h3>
-          <p class="text-xs text-slate-400 mt-1">Leaked API keys, unprotected admin routes, database injection, crashes, infinite loops, and dead buttons.</p>
+          <p class="text-xs text-slate-400 mt-1">Includes [P0] Critical Code Review blockers, leaked API keys, unprotected admin routes, database injection, and crashes.</p>
         </div>
 
         <!-- Orange Tier -->
@@ -248,7 +248,7 @@
             <span id="badge-orange-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30">0 Warnings</span>
           </div>
           <h3 class="text-sm font-bold text-white group-hover:text-orange-300 transition-colors">Your Users Will Hit These</h3>
-          <p class="text-xs text-slate-400 mt-1">Missing loading states / double click, unbounded inputs, wrong search & sort, slow pages and heavy images.</p>
+          <p class="text-xs text-slate-400 mt-1">Includes [P1] High Risk Code Review findings, missing loading states / double click, unbounded inputs, and slow queries.</p>
         </div>
 
         <!-- Yellow Tier -->
@@ -260,7 +260,7 @@
             <span id="badge-yellow-count" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">0 Polish</span>
           </div>
           <h3 class="text-sm font-bold text-white group-hover:text-yellow-300 transition-colors">Tidy Up Before You Hire A Dev</h3>
-          <p class="text-xs text-slate-400 mt-1">Over-complex files (>500 lines), debug code and empty README, outdated deprecated browser methods.</p>
+          <p class="text-xs text-slate-400 mt-1">Includes [P2/P3] Medium & Low Code Review polish, complex files (>500 lines), debug logs, and deprecated methods.</p>
         </div>
 
       </div>
@@ -2023,6 +2023,23 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
           ? '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30">🟠 UX RISK</span>'
           : '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">🟡 POLISH</span>';
 
+        const pLevelBadge = d.p_level ? `
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+            d.p_level === 'P0' ? 'bg-red-500/20 text-red-400 border border-red-500/40' :
+            d.p_level === 'P1' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+            d.p_level === 'P2' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40' :
+            'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+          }">
+            [${d.p_level}]
+          </span>
+        ` : '';
+
+        const crSourceBadge = (d.source === 'code_review' || d.p_level) ? `
+          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+            <i data-lucide="shield-check" class="w-3 h-3 text-cyan-400"></i> Code Review Skill
+          </span>
+        ` : '';
+
         const fPath = d.file_path || d.file || 'codebase';
         const lNum = d.line_number || d.line || 1;
         const rName = d.rule || (d.tier === 'red' ? 'Critical Blocker Defect' : d.tier === 'orange' ? 'UX / Operational Hazard' : 'Code Polish');
@@ -2042,6 +2059,8 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div class="flex flex-wrap items-center gap-2">
                 ${tierBadge}
+                ${pLevelBadge}
+                ${crSourceBadge}
                 <span class="text-xs font-bold text-white tracking-tight">${escapeHtml(rName)}</span>
               </div>
               <div class="flex items-center gap-2 self-start sm:self-auto shrink-0">

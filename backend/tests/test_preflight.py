@@ -34,6 +34,8 @@ from app.core.preflight import (
     compile_pure_english_markdown_report,
     audit_single_tier,
     compute_preflight_scoring,
+    extract_code_review_defects,
+    get_code_review_findings_for_audit,
     RED_SYSTEM_PROMPT,
     ORANGE_SYSTEM_PROMPT,
     YELLOW_SYSTEM_PROMPT,
@@ -382,6 +384,112 @@ class TestPreflightEvaluation(unittest.TestCase):
         finally:
             if test_dir.exists():
                 shutil.rmtree(test_dir)
+
+    def test_extract_code_review_defects(self):
+        sample_report = r"""# Preflight Code Review Report
+## Detailed Findings
+
+### [P0] Hardcoded JWT Secret Key
+- **Path:** `backend/app/core/auth.py:25`
+- **Issue:** Secret key is hardcoded directly in repository.
+- **Recommendation:** Load secret from environment variables.
+
+### [P1] Missing Loading Lock on Pay Button
+- **Path:** `src/checkout.js:88`
+- **Issue:** Button allows double submit without locking.
+- **Recommendation:** Disable submit button during in-flight requests.
+
+### [P2] Inefficient Full Table Query
+- **Path:** `src/models/user.py:120`
+- **Issue:** Missing index causes full table scan.
+- **Recommendation:** Add index on email column.
+
+### [P3] Redundant Debug Logging
+- **Path:** `src/utils.py:15`
+- **Issue:** Development debug statements remain in production.
+- **Recommendation:** Strip console logs.
+"""
+        defects = extract_code_review_defects(sample_report)
+        self.assertEqual(len(defects), 4)
+
+        p0 = next(d for d in defects if d["p_level"] == "P0")
+        self.assertEqual(p0["tier"], "red")
+        self.assertEqual(p0["file"], "backend/app/core/auth.py")
+        self.assertEqual(p0["line"], 25)
+        self.assertIn("Critical security", p0["business_consequence"])
+
+        p1 = next(d for d in defects if d["p_level"] == "P1")
+        self.assertEqual(p1["tier"], "orange")
+        self.assertEqual(p1["file"], "src/checkout.js")
+        self.assertEqual(p1["line"], 88)
+        self.assertIn("High operational risk", p1["business_consequence"])
+
+        p2 = next(d for d in defects if d["p_level"] == "P2")
+        self.assertEqual(p2["tier"], "yellow")
+        self.assertEqual(p2["file"], "src/models/user.py")
+        self.assertEqual(p2["line"], 120)
+
+        p3 = next(d for d in defects if d["p_level"] == "P3")
+        self.assertEqual(p3["tier"], "yellow")
+        self.assertEqual(p3["file"], "src/utils.py")
+
+    @patch("app.core.preflight.call_llm")
+    @patch("app.core.preflight.get_code_review_findings_for_audit")
+    def test_audit_single_tier_merges_code_review_findings(self, mock_cr, mock_llm):
+        mock_llm.return_value = '{"is_defect": false, "confidence": 0.9, "plain_english_explanation": "Clean", "business_consequence": "None", "repair_prompt": "None"}'
+        mock_cr.return_value = [
+            {
+                "file": "auth.py",
+                "file_path": "auth.py",
+                "line": 10,
+                "line_number": 10,
+                "rule": "[P0 Code Review] Hardcoded Key",
+                "snippet": "KEY = '123'",
+                "detail": "Hardcoded secret",
+                "tier": "red",
+                "p_level": "P0"
+            },
+            {
+                "file": "pay.js",
+                "file_path": "pay.js",
+                "line": 40,
+                "line_number": 40,
+                "rule": "[P1 Code Review] Double Charge Risk",
+                "snippet": "button.click()",
+                "detail": "Missing debounce",
+                "tier": "orange",
+                "p_level": "P1"
+            },
+            {
+                "file": "style.css",
+                "file_path": "style.css",
+                "line": 5,
+                "line_number": 5,
+                "rule": "[P2 Code Review] Unused Class",
+                "snippet": ".unused {}",
+                "detail": "Dead CSS",
+                "tier": "yellow",
+                "p_level": "P2"
+            }
+        ]
+
+        # Audit Red tier
+        res_red = audit_single_tier("red")
+        self.assertTrue(res_red["is_defect"])
+        rules_red = [d["rule"] for d in res_red["defects"]]
+        self.assertTrue(any("[P0 Code Review]" in r for r in rules_red))
+
+        # Audit Orange tier
+        res_orange = audit_single_tier("orange")
+        self.assertTrue(res_orange["is_defect"])
+        rules_orange = [d["rule"] for d in res_orange["defects"]]
+        self.assertTrue(any("[P1 Code Review]" in r for r in rules_orange))
+
+        # Audit Yellow tier
+        res_yellow = audit_single_tier("yellow")
+        self.assertTrue(res_yellow["is_defect"])
+        rules_yellow = [d["rule"] for d in res_yellow["defects"]]
+        self.assertTrue(any("[P2 Code Review]" in r for r in rules_yellow))
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ import ast
 import hashlib
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 from fastapi import HTTPException
 
@@ -212,7 +212,7 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
 
         if tier == "red" or any(k in rule for k in ["leaked", "secret", "admin", "injection", "crash", "loop", "dead button"]):
             red_count += 1
-            if any(k in rule for k in ["leaked", "secret", "admin", "injection", "proxy"]):
+            if any(k in rule for k in ["leaked", "secret", "admin", "injection", "proxy", "security", "auth", "p0"]):
                 sec_deductions += 40
             else:
                 rel_deductions += 40
@@ -626,6 +626,124 @@ def _validate_llm_defect_evidence(
         verified["snippet"] = snippet
         return verified
     return None
+
+
+_AUDIT_CODE_REVIEW_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+
+
+def extract_code_review_defects(report_md: str) -> List[Dict[str, Any]]:
+    """
+    Parses findings from a Preflight Code Review report markdown and converts them into
+    structured defects mapped into Red (P0), Orange (P1), and Yellow (P2/P3) tiers.
+    """
+    if not report_md or not report_md.strip():
+        return []
+
+    defects: List[Dict[str, Any]] = []
+    section_pattern = re.compile(
+        r'(?:###?|\d+\.|\*\*)\s*\[?(P[0-3])\]?\*{0,2}[:\s-]+([^\n\r*]+)',
+        re.IGNORECASE
+    )
+    matches = list(section_pattern.finditer(report_md))
+
+    for i, m in enumerate(matches):
+        p_level = m.group(1).upper()
+        title = m.group(2).strip()
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(report_md)
+        body = report_md[start:end]
+
+        if "## " in body:
+            body = body.split("## ")[0]
+
+        tier = "red" if p_level == "P0" else ("orange" if p_level == "P1" else "yellow")
+
+        # Extract file path & line
+        path_match = re.search(r'(?:Path|File|Offending File|Location):\*{0,2}\s*`?([^\n\r`*]+)`?', body, re.IGNORECASE)
+        file_path = "codebase"
+        line_num = 1
+        if path_match:
+            raw_path = path_match.group(1).strip("`* ")
+            if ":" in raw_path:
+                parts = raw_path.rsplit(":", 1)
+                file_path = parts[0].strip("`* ")
+                try:
+                    line_num = int(parts[1].strip("`* "))
+                except ValueError:
+                    line_num = 1
+            else:
+                file_path = raw_path
+
+        # Extract offending code snippet
+        snip_match = re.search(r'```(?:\w+)?\s*\n([\s\S]*?)\n```', body)
+        if snip_match:
+            snippet = snip_match.group(1).strip()
+        else:
+            code_line = re.search(r'(?:Offending Code|Code Snippet|Snippet):\*{0,2}\s*`?([^\n\r`]+)`?', body, re.IGNORECASE)
+            snippet = code_line.group(1).strip("`* ") if code_line else title
+
+        # Extract issue / explanation
+        issue_match = re.search(r'(?:Issue|Explanation|Description|What\'s wrong):\*{0,2}\s*([^\n\r]+)', body, re.IGNORECASE)
+        detail = issue_match.group(1).strip("`* ") if issue_match else title
+
+        # Extract recommendation
+        rec_match = re.search(r'(?:Recommendation|Fix|Suggested Fix|Actionable Fix|Action):\*{0,2}\s*([^\n\r]+)', body, re.IGNORECASE)
+        recommendation = rec_match.group(1).strip("`* ") if rec_match else f"Address [{p_level}] finding in {file_path}."
+
+        repair_prompt = f"Copy this and paste it into Lovable / Cursor:\nFix the [{p_level}] issue in `{file_path}:{line_num}`:\n{recommendation}"
+
+        if p_level == "P0":
+            consequence = "Critical security or crash blocker: May lead to remote exploitation, credential leakage, or crash."
+        elif p_level == "P1":
+            consequence = "High operational risk: Core workflow failure, broken user action, or unhandled exception."
+        else:
+            consequence = "Code hygiene or maintenance risk: Performance degradation, edge case bug, or technical debt."
+
+        defects.append({
+            "file": file_path,
+            "file_path": file_path,
+            "line": line_num,
+            "line_number": line_num,
+            "rule": f"[{p_level} Code Review] {title}",
+            "snippet": snippet[:160],
+            "code_snippet": snippet[:160],
+            "detail": detail,
+            "plain_english_explanation": detail,
+            "business_consequence": consequence,
+            "repair_prompt": repair_prompt,
+            "tier": tier,
+            "source": "code_review",
+            "p_level": p_level
+        })
+
+    return defects
+
+
+def get_code_review_findings_for_audit(repo_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieves Preflight Code Review findings for a repository and returns
+    structured defects mapped into Red (P0), Orange (P1), and Yellow (P2/P3) tiers.
+    Cached per repo for 60 seconds to avoid duplicate LLM invocations across tier queries.
+    """
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    cache_key = clean_repo or "default"
+    now = time.time()
+
+    if cache_key in _AUDIT_CODE_REVIEW_CACHE:
+        cached_time, cached_defects = _AUDIT_CODE_REVIEW_CACHE[cache_key]
+        if now - cached_time < 60:
+            return cached_defects
+
+    try:
+        from app.core.sandbox import run_preflight_code_review
+        res = run_preflight_code_review(repo_name=clean_repo)
+        report_md = res.get("markdown_report", "")
+        defects = extract_code_review_defects(report_md)
+        _AUDIT_CODE_REVIEW_CACHE[cache_key] = (now, defects)
+        return defects
+    except Exception as e:
+        print(f"[Preflight Audit] Code Review Skill Note ({cache_key}): {e}")
+        return []
 
 
 def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, Any]:
@@ -1069,6 +1187,26 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                 "tier": "yellow"
             })
 
+    # Integrate Preflight Code Review Skill findings (P0 -> Red, P1 -> Orange, P2/P3 -> Yellow)
+    try:
+        cr_defects = get_code_review_findings_for_audit(clean_repo)
+        tier_cr_defects = [d for d in cr_defects if d.get("tier") == tier_lower]
+        unmatched_cr = [
+            crd for crd in tier_cr_defects
+            if not any(
+                existing.get("file") == crd.get("file")
+                and (
+                    existing.get("line") == crd.get("line")
+                    or existing.get("rule") == crd.get("rule")
+                    or (crd.get("snippet") and crd.get("snippet") in existing.get("snippet", ""))
+                )
+                for existing in all_defects
+            )
+        ]
+        all_defects = unmatched_cr + all_defects
+    except Exception as cr_err:
+        print(f"[audit_single_tier] Code review merge error ({tier_lower}): {cr_err}")
+
     rules_map = {
         "red": RED_RULES,
         "orange": ORANGE_RULES,
@@ -1273,7 +1411,7 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
         cons_val = d.get("business_consequence") or consequence
         rep_val = d.get("repair_prompt") or repair_prompt
 
-        enriched_defects.append({
+        ed_item = {
             "file": f_val,
             "file_path": f_val,
             "line": l_val,
@@ -1286,7 +1424,12 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
             "business_consequence": cons_val,
             "repair_prompt": rep_val,
             "tier": tier_lower
-        })
+        }
+        if d.get("p_level"):
+            ed_item["p_level"] = d["p_level"]
+        if d.get("source"):
+            ed_item["source"] = d["source"]
+        enriched_defects.append(ed_item)
 
     return {
         "tier": tier_lower,
@@ -1354,11 +1497,19 @@ def run_3tier_preflight_evaluation(
 
     scoring = compute_preflight_scoring(all_defects)
 
+    cr_summary = {
+        "P0": sum(1 for d in all_defects if d.get("p_level") == "P0"),
+        "P1": sum(1 for d in all_defects if d.get("p_level") == "P1"),
+        "P2": sum(1 for d in all_defects if d.get("p_level") == "P2"),
+        "P3": sum(1 for d in all_defects if d.get("p_level") == "P3"),
+    }
+
     return {
         "repository": repo_name or "All Repositories",
         "red_defects": red_result,
         "orange_defects": orange_result,
         "yellow_defects": yellow_result,
+        "code_review_summary": cr_summary,
         "scoring": scoring,
         "readiness_score": scoring["readiness_score"],
         "verdict_title": scoring["verdict_title"],
