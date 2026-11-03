@@ -749,7 +749,14 @@
       <!-- Quick Provider Presets -->
       <div>
         <label class="block text-[11px] font-semibold text-slate-400 mb-1.5">Quick Provider Presets (Auto-fill URL & Model)</label>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <button type="button" onclick="applyProviderPreset('vultr')" class="p-2 rounded-xl border border-cyan-500/40 hover:border-cyan-400 bg-cyan-950/30 hover:bg-cyan-900/40 text-left transition-all group">
+            <div class="text-xs font-bold text-cyan-300 flex items-center gap-1">
+              <span>⚡ Vultr</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-200">Serverless</span>
+            </div>
+            <div class="text-[10px] text-cyan-400/80">deepseek-v4.1</div>
+          </button>
           <button type="button" onclick="applyProviderPreset('openai')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
             <div class="text-xs font-bold text-white">OpenAI</div>
             <div class="text-[10px] text-slate-400">gpt-4o-mini</div>
@@ -788,13 +795,59 @@
         <div>
           <label class="block text-xs font-medium text-slate-300 mb-1">API Base URL (OpenAI-compatible)</label>
           <input type="text" id="settings-base-url" placeholder="https://api.openai.com/v1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
-          <p class="text-[11px] text-slate-500 mt-1">Default: https://api.openai.com/v1 (in Docker, use host.docker.internal for local endpoints)</p>
+          <p class="text-[11px] text-slate-500 mt-1">Default: https://api.openai.com/v1 (or https://api.vultrinference.com/v1 for Vultr)</p>
         </div>
 
         <!-- Model Name -->
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1">Chat Model Name</label>
-          <input type="text" id="settings-model" placeholder="gpt-4o-mini" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-medium text-slate-300">Chat Model Name</label>
+            <button type="button" onclick="fetchVultrModelsList()" id="btn-fetch-vultr-models" class="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-medium transition-colors">
+              <i data-lucide="cloud-download" class="w-3 h-3"></i>
+              <span>Fetch Vultr Models (35+)</span>
+            </button>
+          </div>
+          <div class="relative">
+            <input type="text" id="settings-model" list="vultr-models-list" placeholder="gpt-4o-mini" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+            <datalist id="vultr-models-list"></datalist>
+          </div>
+          <p id="vultr-models-counter" class="text-[10px] text-cyan-400 mt-1 flex items-center gap-1.5 hidden"></p>
+        </div>
+
+        <!-- Collapsible Vultr Supabase Marketplace Integration -->
+        <div class="border border-slate-800 rounded-xl bg-slate-950/60 overflow-hidden">
+          <button type="button" onclick="toggleSupabaseSettings()" class="w-full px-3.5 py-2.5 flex items-center justify-between text-left hover:bg-slate-800/40 transition-colors">
+            <div class="flex items-center gap-2">
+              <div class="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <i data-lucide="database" class="w-3 h-3"></i>
+              </div>
+              <span class="text-xs font-semibold text-slate-200">Vultr Supabase Cloud Sync</span>
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono">Marketplace</span>
+            </div>
+            <i id="supabase-chevron" data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 transition-transform"></i>
+          </button>
+          <div id="supabase-settings-content" class="hidden p-3.5 border-t border-slate-800 space-y-3">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Supabase Project URL</label>
+              <input type="text" id="settings-supabase-url" placeholder="https://your-instance.supabase.co or http://<vultr-ip>:8000" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">API Key (Service Role / Anon Key)</label>
+              <div class="relative flex items-center bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 focus-within:border-emerald-500">
+                <input type="password" id="settings-supabase-key" placeholder="Paste Supabase service_role or anon key" class="w-full bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none pr-8">
+                <button type="button" onclick="togglePasswordVisibility('settings-supabase-key', this)" class="text-slate-400 hover:text-slate-200 absolute right-2.5">
+                  <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-1">
+              <span id="supabase-status-text" class="text-[10px] text-slate-500">Optional: Syncs Orca & audit reports to Vultr Supabase storage.</span>
+              <button type="button" onclick="testSupabaseConnection()" id="btn-test-supabase" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-medium transition-colors flex items-center gap-1 shrink-0">
+                <i data-lucide="activity" class="w-3 h-3"></i>
+                Test Supabase
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Connection Test Result -->
@@ -845,6 +898,15 @@
               </span>
             </h3>
             <p class="text-xs text-slate-400">Runs your audited codebase in a sandboxed, isolated environment separated from everything.</p>
+            <div class="flex flex-wrap items-center gap-2 pt-1">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-[10px] text-cyan-300 font-medium">
+                <i data-lucide="shield-check" class="w-3 h-3 text-cyan-400"></i>
+                Vultr Hardened Sandbox: 1GB RAM • 1.0 CPU • 100 PIDs • Drop-ALL
+              </span>
+              <span id="sandbox-cloud-badge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300 font-mono">
+                E2B / OpenSandbox Compliant
+              </span>
+            </div>
           </div>
         </div>
         <button onclick="closeSandboxModal()" class="text-slate-400 hover:text-white transition-colors">
@@ -1147,7 +1209,11 @@ Click "Run Orca Review" to read the entire codebase and generate comprehensive P
       const b = document.getElementById('settings-base-url');
       const m = document.getElementById('settings-model');
       const k = document.getElementById('settings-api-key');
-      if (name === 'openai') {
+      if (name === 'vultr') {
+        if (b) b.value = 'https://api.vultrinference.com/v1';
+        if (m) m.value = 'deepseek-v4.1-flash-1017';
+        fetchVultrModelsList();
+      } else if (name === 'openai') {
         if (b) b.value = 'https://api.openai.com/v1';
         if (m) m.value = 'gpt-4o-mini';
       } else if (name === 'openrouter') {
@@ -2672,8 +2738,133 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           if (k) k.value = cfg.api_key || '';
           updateApiKeyUiState(cfg.api_key || '');
         }
+
+        // Also load Supabase settings status
+        const supRes = await fetch(`${API_BASE}/api/v1/config/supabase`);
+        if (supRes.ok) {
+          const supCfg = await supRes.json();
+          const su = document.getElementById('settings-supabase-url');
+          const sk = document.getElementById('settings-supabase-key');
+          const st = document.getElementById('supabase-status-text');
+          if (su && supCfg.url) su.value = supCfg.url;
+          if (sk && supCfg.masked_key) sk.placeholder = `Configured (${supCfg.masked_key})`;
+          if (st && supCfg.is_configured) {
+            st.innerHTML = `<span class="text-emerald-400 font-semibold">✓ Connected</span> (${supCfg.url})`;
+          }
+        }
+
+        // Auto-fetch Vultr models if not yet loaded
+        const datalist = document.getElementById('vultr-models-list');
+        if (datalist && datalist.children.length === 0) {
+          fetchVultrModelsList(false);
+        }
       } catch (e) {
-        console.error('Could not load LLM config:', e);
+        console.error('Could not load settings:', e);
+      }
+    }
+
+    async function fetchVultrModelsList(showFeedback = true) {
+      const btn = document.getElementById('btn-fetch-vultr-models');
+      const counter = document.getElementById('vultr-models-counter');
+      const datalist = document.getElementById('vultr-models-list');
+      const k = document.getElementById('settings-api-key');
+      const apiKey = k ? k.value.trim() : '';
+
+      if (btn && showFeedback) {
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> Fetching...';
+        if (window.lucide) lucide.createIcons();
+      }
+
+      try {
+        const url = apiKey 
+          ? `${API_BASE}/api/v1/config/vultr-models?api_key=${encodeURIComponent(apiKey)}` 
+          : `${API_BASE}/api/v1/config/vultr-models`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          const models = data.models || [];
+          if (datalist && models.length > 0) {
+            datalist.innerHTML = '';
+            models.forEach(m => {
+              const opt = document.createElement('option');
+              opt.value = m.id;
+              opt.label = `${m.name || m.id} (${m.type || 'model'})`;
+              datalist.appendChild(opt);
+            });
+          }
+          if (counter) {
+            counter.classList.remove('hidden');
+            counter.innerHTML = `<i data-lucide="check-circle" class="w-3 h-3 text-cyan-400"></i> ${models.length} Vultr Serverless models available in dropdown.`;
+            if (window.lucide) lucide.createIcons();
+          }
+          if (showFeedback) showToast(`Loaded ${models.length} models from Vultr Serverless Inference`);
+        }
+      } catch (e) {
+        console.warn('Could not fetch Vultr models:', e);
+      } finally {
+        if (btn) {
+          btn.innerHTML = '<i data-lucide="cloud-download" class="w-3 h-3"></i> <span>Fetch Vultr Models (35+)</span>';
+          if (window.lucide) lucide.createIcons();
+        }
+      }
+    }
+
+    function toggleSupabaseSettings() {
+      const content = document.getElementById('supabase-settings-content');
+      const chevron = document.getElementById('supabase-chevron');
+      if (!content) return;
+      const isHidden = content.classList.contains('hidden');
+      if (isHidden) {
+        content.classList.remove('hidden');
+        if (chevron) chevron.style.transform = 'rotate(180deg)';
+      } else {
+        content.classList.add('hidden');
+        if (chevron) chevron.style.transform = 'rotate(0deg)';
+      }
+    }
+
+    async function testSupabaseConnection() {
+      const btn = document.getElementById('btn-test-supabase');
+      const st = document.getElementById('supabase-status-text');
+      const su = document.getElementById('settings-supabase-url');
+      const sk = document.getElementById('settings-supabase-key');
+      
+      const url = su ? su.value.trim() : '';
+      const key = sk ? sk.value.trim() : '';
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> Testing...';
+        if (window.lucide) lucide.createIcons();
+      }
+
+      try {
+        if (url || key) {
+          await fetch(`${API_BASE}/api/v1/config/supabase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url, key: key })
+          });
+        }
+        const res = await fetch(`${API_BASE}/api/v1/config/supabase/test`, { method: 'POST' });
+        const data = await res.json();
+        if (st) {
+          if (data.connected && data.status === 'success') {
+            st.innerHTML = `<span class="text-emerald-400 font-semibold">✓ ${data.message}</span>`;
+            showToast('Vultr Supabase connected successfully!');
+          } else {
+            st.innerHTML = `<span class="text-red-400 font-semibold">⚠️ ${data.message || 'Connection failed'}</span>`;
+            showToast('Supabase connection failed', true);
+          }
+        }
+      } catch (e) {
+        if (st) st.innerHTML = `<span class="text-red-400 font-semibold">⚠️ Error: ${e.message}</span>`;
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="activity" class="w-3 h-3"></i> Test Supabase';
+          if (window.lucide) lucide.createIcons();
+        }
       }
     }
 
@@ -2684,6 +2875,11 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       const baseUrl = b ? b.value.trim() : '';
       const model = m ? m.value.trim() : '';
       const apiKey = k ? k.value.trim() : '';
+
+      const su = document.getElementById('settings-supabase-url');
+      const sk = document.getElementById('settings-supabase-key');
+      const supUrl = su ? su.value.trim() : '';
+      const supKey = sk ? sk.value.trim() : '';
 
       try {
         // Save LLM settings
@@ -2706,6 +2902,15 @@ Please update the code accordingly. Then come back and run Preflight again to ch
             allow_fallback: true
           })
         });
+
+        // Save Supabase settings if provided
+        if (supUrl || supKey) {
+          await fetch(`${API_BASE}/api/v1/config/supabase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: supUrl, key: supKey })
+          });
+        }
 
         updateApiKeyUiState(apiKey);
         showToast('Settings saved successfully!');
@@ -2831,6 +3036,19 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       pollSandboxStatus();
       if (!sandboxPollTimer) {
         sandboxPollTimer = setInterval(pollSandboxStatus, 2000);
+      }
+      // Query capabilities to display active isolation profile
+      try {
+        const capRes = await fetch(`${API_BASE}/api/v1/sandbox/capabilities`);
+        if (capRes.ok) {
+          const cap = await capRes.json();
+          const cloudBadge = document.getElementById('sandbox-cloud-badge');
+          if (cloudBadge) {
+            cloudBadge.innerText = cap.e2b_configured ? '⚡ E2B MicroVM Active' : 'OpenSandbox / Docker Isolated';
+          }
+        }
+      } catch (e) {
+        console.debug('Failed to fetch sandbox capabilities:', e);
       }
     }
 

@@ -1,10 +1,13 @@
 import os
 import re
 import json
+import logging
 import requests
 from urllib.parse import urlparse
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict, Any
 from app.core.celery import CELERY_BROKER_URL
+
+logger = logging.getLogger("codegraph.llm")
 
 try:
     import redis
@@ -359,3 +362,62 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
                 except Exception:
                     pass
         raise
+
+
+# ==================== VULTR SERVERLESS INFERENCE INTEGRATION ====================
+VULTR_INFERENCE_BASE_URL = "https://api.vultrinference.com/v1"
+
+VULTR_DEFAULT_MODELS: List[Dict[str, Any]] = [
+    {"id": "deepseek-v4.1-flash-1017", "name": "DeepSeek V4.1 Flash 1017", "type": "chat", "description": "High-speed reasoning and code analysis"},
+    {"id": "glm-5.3", "name": "GLM 5.3", "type": "chat", "description": "Advanced multi-lingual general reasoning"},
+    {"id": "glm-5.3-flash", "name": "GLM 5.3 Flash", "type": "chat", "description": "Low-latency lightweight inference"},
+    {"id": "mimo-v2.6-pro", "name": "Mimo V2.6 Pro", "type": "chat", "description": "Enterprise-grade complex problem solving"},
+    {"id": "mimo-v2.6-flash", "name": "Mimo V2.6 Flash", "type": "chat", "description": "Fast interactive generation"},
+    {"id": "qwen3.8-27b", "name": "Qwen 3.8 27B", "type": "chat", "description": "Dense coding and instruction following"},
+    {"id": "qwen3.8-flash-next", "name": "Qwen 3.8 Flash Next", "type": "chat", "description": "Next-gen real-time reasoning"},
+    {"id": "minimax-m3.1-flash", "name": "MiniMax M3.1 Flash", "type": "chat", "description": "Ultra fast long-context completion"},
+    {"id": "qwen3-embedding-4b", "name": "Qwen3 Embedding 4B", "type": "embedding", "description": "Dense vector retrieval and indexing"},
+    {"id": "bge-reranker-v2-m3", "name": "BGE M3 Reranker", "type": "reranker", "description": "Cross-encoder semantic ranking"}
+]
+
+
+def fetch_vultr_inference_models(api_key: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Fetches the live catalog of models available on Vultr Serverless Inference (https://api.vultrinference.com/v1/models).
+    Falls back gracefully to the curated Vultr Serverless models catalog if offline or unreachable.
+    """
+    if os.getenv("TESTING") == "1":
+        return list(VULTR_DEFAULT_MODELS)
+
+    target_url = f"{VULTR_INFERENCE_BASE_URL}/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        clean_key = re.sub(r'^(?:Bearer\s+|["\'])', '', api_key.strip(), flags=re.IGNORECASE)
+        headers["Authorization"] = f"Bearer {clean_key}"
+
+    try:
+        session = requests.Session()
+        session.trust_env = False
+        resp = session.get(target_url, headers=headers, timeout=5.0)
+        if resp.ok:
+            payload = resp.json()
+            raw_models = payload.get("data", [])
+            results = []
+            for m in raw_models:
+                m_id = m.get("id")
+                if not m_id:
+                    continue
+                is_aux = any(x in m_id.lower() for x in ["embed", "rerank", "speech", "asr", "tts", "image", "audio", "music", "step"])
+                results.append({
+                    "id": m_id,
+                    "name": m.get("name") or m_id,
+                    "description": m.get("description", ""),
+                    "type": "auxiliary" if is_aux else "chat"
+                })
+            if results:
+                return results
+    except Exception as exc:
+        logger.debug("Failed to fetch live Vultr Serverless Inference models: %s", exc)
+
+    return list(VULTR_DEFAULT_MODELS)
+

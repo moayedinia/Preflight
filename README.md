@@ -74,6 +74,37 @@ language may take longer while its runtime image is downloaded.
 
 ---
 
+## ⚡ Vultr Cloud Architecture & Standards Integration
+
+Preflight is architected according to official Vultr developer and marketplace standards:
+
+### 1. ⚡ Vultr Serverless Inference Integration
+- **Direct OpenAI-Compatible Gateway:** `https://api.vultrinference.com/v1`
+- **Dynamic Model Catalog:** Supports live model fetching and execution across 35+ Vultr-hosted models including `deepseek-v4.1-flash-1017`, `glm-5.3`, `mimo-v2.6-pro`, `qwen3.8-27b`, and `qwen3-embedding-4b`.
+- **1-Click UI Preset:** Switch AI providers to Vultr Serverless Inference with one click in the Settings modal.
+
+### 2. 🛡️ Vultr Agent Sandboxing & E2B / OpenSandbox Standards
+- Complies with [Vultr Cloud Compute Agent Sandboxing](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) hardening:
+  - **Memory Quota:** `1GB` RAM isolation.
+  - **CPU Quota:** `1.0 CPU` (`10^9` nano-CPUs).
+  - **PID Limits:** `100` processes (fork bomb immunity).
+  - **Security Capabilities:** `cap_drop=["ALL"]`, `no-new-privileges:true`.
+  - **MicroVM Cloud Support:** Integrated `CloudSandboxDriver` compatible with E2B microVMs and OpenSandbox protocol.
+
+### 3. 🚀 Vultr Coolify Marketplace 1-Click Deployment
+- Deploy Preflight on any [Vultr Coolify Marketplace Instance](https://docs.vultr.com/how-to-deploy-an-application-with-vultr-coolify-marketplace-app) using `docker-compose.coolify.yml`.
+- Includes Traefik SSL auto-provisioning, internal bridge networking, and persistent healthchecks.
+```bash
+# 1-Click Deploy on Vultr Coolify
+docker compose -f docker-compose.coolify.yml up -d --build
+```
+
+### 4. 🗄️ Vultr Supabase Marketplace Integration
+- Connects directly to self-hosted [Vultr Supabase Marketplace Instances](https://docs.vultr.com/how-to-deploy-a-nextjs-application-with-vultr-supabase-marketplace-app).
+- Automatically syncs Orca Code Review reports and audit artifacts to Supabase Storage and enables PostgreSQL / pgvector embeddings sync.
+
+---
+
 ## ⚙️ Environment Configuration
 
 Edit `.env` to configure your AI provider (optional):

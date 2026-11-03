@@ -26,9 +26,10 @@ client = docker.from_env()
 REPOS_DIR = Path(os.getenv("ALLOWED_REPO_DIR", "/app/repos")).resolve()
 RUNNER_TOKEN = os.getenv("SANDBOX_RUNNER_TOKEN", "")
 DOCKER_NETWORK = os.getenv("SANDBOX_DOCKER_NETWORK", "codegraph_net")
-MEMORY_LIMIT = os.getenv("SANDBOX_MEMORY_LIMIT", "768m")
+MEMORY_LIMIT = os.getenv("SANDBOX_MEMORY_LIMIT", "1g")
 CPU_LIMIT = int(os.getenv("SANDBOX_NANO_CPUS", "1000000000"))
-PIDS_LIMIT = int(os.getenv("SANDBOX_PIDS_LIMIT", "256"))
+# Vultr Cloud Compute Agent Sandboxing security standard (prevents fork bombs)
+PIDS_LIMIT = int(os.getenv("SANDBOX_PIDS_LIMIT", "100"))
 MAX_LOG_LINES = int(os.getenv("SANDBOX_MAX_LOG_LINES", "500"))
 
 RUNTIME_IMAGES = {

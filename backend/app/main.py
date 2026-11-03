@@ -891,6 +891,13 @@ def get_sandbox_status_endpoint(repo_name: Optional[str] = None):
     return get_sandbox_session_status(repo_name=clean_repo)
 
 
+@app.get("/api/v1/sandbox/capabilities", dependencies=[Depends(verify_api_key)])
+def sandbox_capabilities_endpoint():
+    """Returns sandbox security profile, quota boundaries, and Vultr isolation compliance."""
+    from app.core.sandbox import get_sandbox_capabilities
+    return get_sandbox_capabilities()
+
+
 class SandboxOrcaReviewRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
 
@@ -907,7 +914,14 @@ def run_sandbox_orca_review_endpoint(payload: Optional[SandboxOrcaReviewRequest]
     from app.core.sandbox import run_orca_code_review
     repo = payload.repo_name if payload else None
     clean_repo = sanitize_name(repo) if repo else None
-    return run_orca_code_review(clean_repo)
+    res = run_orca_code_review(clean_repo)
+    try:
+        from app.core.supabase_client import sync_report_to_supabase
+        if res.get("report_md"):
+            res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"orca-code-review-{clean_repo or 'project'}.md", res["report_md"])
+    except Exception:
+        pass
+    return res
 
 
 @app.get("/api/v1/sandbox/orca-review/download", dependencies=[Depends(verify_api_key)])
@@ -933,7 +947,14 @@ def diagnose_sandbox_error_endpoint(payload: Optional[SandboxDiagnoseErrorReques
     from app.core.sandbox import diagnose_sandbox_error
     repo = payload.repo_name if payload else None
     clean_repo = sanitize_name(repo) if repo else None
-    return diagnose_sandbox_error(clean_repo)
+    res = diagnose_sandbox_error(clean_repo)
+    try:
+        from app.core.supabase_client import sync_report_to_supabase
+        if res.get("report_md"):
+            res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"sandbox-error-report-{clean_repo or 'project'}.md", res["report_md"])
+    except Exception:
+        pass
+    return res
 
 
 @app.get("/api/v1/sandbox/error-report/download", dependencies=[Depends(verify_api_key)])
@@ -1070,6 +1091,50 @@ def test_llm_connection_get():
         "connected": is_connected,
         "message": reason
     }
+
+# ==================== VULTR SERVERLESS INFERENCE & MARKETPLACE ====================
+@app.get("/api/v1/config/vultr-models", dependencies=[Depends(verify_api_key)])
+def get_vultr_models_endpoint(api_key: Optional[str] = None):
+    """Retrieves live model catalog from Vultr Serverless Inference (https://api.vultrinference.com/v1/models)."""
+    from app.core.llm import fetch_vultr_inference_models, get_llm_config
+    key_to_use = api_key
+    if not key_to_use:
+        cfg = get_llm_config()
+        key_to_use = cfg.get("api_key")
+    models = fetch_vultr_inference_models(api_key=key_to_use)
+    return {
+        "status": "success",
+        "provider": "Vultr Serverless Inference",
+        "base_url": "https://api.vultrinference.com/v1",
+        "count": len(models),
+        "models": models
+    }
+
+# ==================== VULTR SUPABASE MARKETPLACE APP INTEGRATION ====================
+class SupabaseConfigRequest(BaseModel):
+    url: Optional[str] = Field(None, max_length=500)
+    key: Optional[str] = Field(None, max_length=500)
+    bucket: Optional[str] = Field("preflight-reports", max_length=100)
+
+@app.get("/api/v1/config/supabase", dependencies=[Depends(verify_api_key)])
+def get_supabase_settings_endpoint():
+    """Retrieves Vultr Supabase Marketplace configuration status."""
+    from app.core.supabase_client import get_supabase_config
+    return get_supabase_config()
+
+@app.post("/api/v1/config/supabase", dependencies=[Depends(verify_api_key)])
+def update_supabase_settings_endpoint(payload: SupabaseConfigRequest):
+    """Updates Vultr Supabase Marketplace configuration."""
+    from app.core.supabase_client import set_supabase_config
+    cfg = set_supabase_config(payload.url or "", payload.key or "", payload.bucket or "preflight-reports")
+    return {"status": "success", "config": cfg}
+
+@app.post("/api/v1/config/supabase/test", dependencies=[Depends(verify_api_key)])
+def test_supabase_connection_endpoint():
+    """Verifies reachability and authentication to Vultr Supabase."""
+    from app.core.supabase_client import test_supabase_connection
+    connected, msg, meta = test_supabase_connection()
+    return {"status": "success" if connected else "failed", "connected": connected, "message": msg, "meta": meta}
 
 # --- DEDICATED EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
 class EmbeddingConfigRequest(BaseModel):
