@@ -2633,12 +2633,12 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         const data = await res.json();
         
         if (resBox) {
-          if (data.connected || (data.status === 'success' && !data.error)) {
+          if (data.connected && data.status === 'success') {
             resBox.className = 'p-3 rounded-xl text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-300';
-            resBox.innerText = '✓ ' + (data.message || 'Connected successfully to ' + baseUrl + ' with model "' + model + '"!');
+            resBox.innerText = '✓ ' + (data.message || 'Connected and verified with model "' + model + '"!');
           } else {
             resBox.className = 'p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300';
-            resBox.innerText = '⚠️ ' + (data.message || data.error || 'Connection failed. Please check endpoint and API key.');
+            resBox.innerText = '⚠️ ' + (data.message || data.error || 'Connection failed. Please check endpoint, API key, and model name.');
           }
         }
       } catch (e) {

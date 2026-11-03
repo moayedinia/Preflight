@@ -1,13 +1,14 @@
 import unittest
 import sys
+import os
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
-with patch.dict(
-    sys.modules,
-    {"app.core.celery": SimpleNamespace(CELERY_BROKER_URL="redis://localhost:6379/0")},
-):
-    from app.core.llm import normalize_llm_base_url, _clean_slashes
+sys.modules.setdefault(
+    "app.core.celery",
+    SimpleNamespace(CELERY_BROKER_URL="redis://localhost:6379/0"),
+)
+from app.core.llm import normalize_llm_base_url, _clean_slashes, verify_llm_connection, set_llm_config
 
 
 class LlmConfigurationTests(unittest.TestCase):
@@ -36,6 +37,36 @@ class LlmConfigurationTests(unittest.TestCase):
     def test_rejects_relative_url(self):
         with self.assertRaises(ValueError):
             normalize_llm_base_url("localhost:8007")
+
+    @patch.dict(os.environ, {"TESTING": "", "MOCK_LLM": ""})
+    @patch("app.core.llm.execute_llm_http")
+    def test_verify_llm_connection_success_with_valid_model(self, mock_http):
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.status_code = 200
+        mock_http.return_value = mock_resp
+
+        set_llm_config("https://api.openai.com/v1", "gpt-4o-mini", "sk-test-valid-key")
+        is_conn, msg = verify_llm_connection(model="gpt-4o-mini")
+        self.assertTrue(is_conn)
+        self.assertIn("gpt-4o-mini", msg)
+
+    @patch.dict(os.environ, {"TESTING": "", "MOCK_LLM": ""})
+    @patch("app.core.llm.execute_llm_http")
+    def test_verify_llm_connection_fails_on_bogus_model(self, mock_http):
+        mock_resp = MagicMock()
+        mock_resp.ok = False
+        mock_resp.status_code = 404
+        mock_resp.json.return_value = {
+            "error": {"message": "The model `fake-model-123` does not exist"}
+        }
+        mock_http.return_value = mock_resp
+
+        set_llm_config("https://api.openai.com/v1", "fake-model-123", "sk-test-key")
+        is_conn, msg = verify_llm_connection(model="fake-model-123")
+        self.assertFalse(is_conn)
+        self.assertIn("fake-model-123", msg)
+        self.assertIn("does not exist", msg)
 
 
 if __name__ == "__main__":

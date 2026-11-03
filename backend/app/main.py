@@ -992,7 +992,7 @@ def update_llm_settings(payload: LLMConfigRequest):
         clear_llm_status_cache()
         if getattr(payload, "test_connection", False):
             from app.core.llm import verify_llm_connection
-            is_connected, reason = verify_llm_connection()
+            is_connected, reason = verify_llm_connection(model=model)
             return {
                 "status": "success" if is_connected else "failed",
                 "connected": is_connected,

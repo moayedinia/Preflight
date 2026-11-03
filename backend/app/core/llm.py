@@ -157,10 +157,11 @@ def normalize_llm_base_url(base_url: str) -> str:
         normalized += "/v1"
     return _clean_slashes(normalized)
 
-def verify_llm_connection(timeout: float = 10.0) -> Tuple[bool, str]:
+def verify_llm_connection(timeout: float = 12.0, model: Optional[str] = None) -> Tuple[bool, str]:
     """
-    Checks if the LLM provider has an API key and is reachable.
-    Returns (True, 'Connected') or (False, 'Reason message').
+    Deeply checks if the LLM provider is reachable, API key is authenticated,
+    and the specified model actually exists and accepts chat completions.
+    Returns (True, 'Connected message') or (False, 'Reason message').
     """
     if os.getenv("TESTING") == "1" or os.getenv("MOCK_LLM") == "1":
         return True, "Connected (Test Mode)"
@@ -168,6 +169,7 @@ def verify_llm_connection(timeout: float = 10.0) -> Tuple[bool, str]:
     config = get_llm_config()
     base_url = (config.get("base_url") or "").strip()
     api_key = (config.get("api_key") or "").strip()
+    target_model = (model or config.get("model") or "gpt-4o-mini").strip()
 
     if not base_url:
         return False, "LLM Base URL is not configured. Please set it in Settings."
@@ -183,25 +185,63 @@ def verify_llm_connection(timeout: float = 10.0) -> Tuple[bool, str]:
             headers["Authorization"] = f"Bearer {api_key}"
             headers["x-api-key"] = api_key
 
-        resp = execute_llm_http("get", f"{norm_base}/models", headers=headers, timeout=timeout)
-        if resp.status_code in (200, 201):
-            return True, "Connected"
-        if resp.status_code == 401:
-            return False, "Invalid API Key (HTTP 401 Unauthorized). Please check your key in Settings."
-        if resp.status_code == 404:
-            probe_payload = {
-                "model": config.get("model", "gpt-4o-mini"),
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-                "stream": False
-            }
-            chat_resp = execute_llm_http("post", f"{norm_base}/chat/completions", headers=headers, json=probe_payload, timeout=timeout)
-            if chat_resp.ok:
-                return True, "Connected"
-            if chat_resp.status_code == 401:
-                return False, "Invalid API Key (HTTP 401 Unauthorized)."
-            return False, f"LLM API error (HTTP {chat_resp.status_code})."
-        return False, f"LLM server responded with HTTP {resp.status_code}."
+        # 1. Deep Probe: Test actual chat completion with the specific model requested
+        probe_payload = {
+            "model": target_model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "stream": False
+        }
+        
+        chat_resp = execute_llm_http("post", f"{norm_base}/chat/completions", headers=headers, json=probe_payload, timeout=timeout)
+        
+        if chat_resp.ok:
+            return True, f"Verified: Successfully connected and authenticated with model '{target_model}'."
+
+        # Parse provider error message
+        err_msg = ""
+        try:
+            err_json = chat_resp.json()
+            if isinstance(err_json, dict):
+                if "error" in err_json:
+                    err_obj = err_json["error"]
+                    if isinstance(err_obj, dict):
+                        err_msg = err_obj.get("message") or str(err_obj)
+                    else:
+                        err_msg = str(err_obj)
+                elif "detail" in err_json:
+                    err_msg = str(err_json["detail"])
+                elif "message" in err_json:
+                    err_msg = str(err_json["message"])
+        except Exception:
+            err_msg = chat_resp.text[:200] if chat_resp.text else ""
+
+        if chat_resp.status_code == 401:
+            return False, f"Invalid API Key (HTTP 401 Unauthorized). {err_msg}".strip()
+
+        if chat_resp.status_code == 404:
+            if "model" in err_msg.lower() or target_model.lower() in err_msg.lower():
+                return False, f"Model '{target_model}' does not exist on provider (HTTP 404): {err_msg}".strip()
+            # If the /chat/completions endpoint itself returned 404, probe /models to see if the base URL is wrong
+            try:
+                models_resp = execute_llm_http("get", f"{norm_base}/models", headers=headers, timeout=5.0)
+                if not models_resp.ok:
+                    return False, f"Endpoint not found at '{norm_base}' (HTTP 404). Please check API Base URL."
+            except Exception:
+                pass
+            return False, f"Model '{target_model}' not found on provider (HTTP 404): {err_msg or 'Resource not found'}".strip()
+
+        if chat_resp.status_code in (400, 422):
+            return False, f"Model '{target_model}' rejected (HTTP {chat_resp.status_code}): {err_msg or 'Unsupported model or invalid parameters.'}".strip()
+
+        if chat_resp.status_code == 403:
+            return False, f"Access denied to model '{target_model}' (HTTP 403): {err_msg or 'Check account permissions or model access.'}".strip()
+
+        if chat_resp.status_code == 429:
+            return False, f"Rate limited or quota exceeded (HTTP 429): {err_msg or 'Check your provider credits.'}".strip()
+
+        return False, f"Provider error (HTTP {chat_resp.status_code}): {err_msg or chat_resp.text[:150]}".strip()
+
     except Exception as e:
         return False, f"Cannot connect to AI endpoint: {str(e)}"
 

@@ -7,6 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
+os.environ["TESTING"] = "1"
+os.environ["MOCK_LLM"] = "1"
+
 mock_modules = {
     "app.core.celery": SimpleNamespace(CELERY_BROKER_URL="redis://localhost:6379/0", celery_app=MagicMock()),
     "app.core.graph": MagicMock(),
@@ -297,11 +300,16 @@ class TestPreflightEvaluation(unittest.TestCase):
             self.assertIn("markdown_report", data)
             self.assertIn("# Preflight Code Quality & Shipping Report", data["markdown_report"])
 
-    @patch("app.core.preflight.call_llm")
+    @patch("app.main.audit_single_tier")
     @patch("app.core.llm.verify_llm_connection")
-    def test_audit_tier_and_stop_autodoc_endpoints(self, mock_verify, mock_llm):
+    def test_audit_tier_and_stop_autodoc_endpoints(self, mock_verify, mock_audit):
         mock_verify.return_value = (True, "Connected")
-        mock_llm.return_value = '{"is_defect": false, "confidence": 0.95, "plain_english_explanation": "Clean code.", "business_consequence": "No impact.", "repair_prompt": "None."}'
+        mock_audit.return_value = {
+            "tier": "red",
+            "rules": ["Leaked API keys"],
+            "defects": [],
+            "scoring": {"readiness_score": 100, "verdict_state": "ready"}
+        }
         with patch.dict(sys.modules, mock_modules), patch("app.core.security.ALLOW_UNAUTHENTICATED", True):
             from app.main import app
             from fastapi.testclient import TestClient
@@ -323,8 +331,10 @@ class TestPreflightEvaluation(unittest.TestCase):
             self.assertEqual(data_stop["status"], "stopped")
             self.assertEqual(data_stop["task_id"], "task-test-456")
 
-    def test_apply_preflight_bug_fix_and_endpoint(self):
+    @patch("app.core.preflight.call_llm")
+    def test_apply_preflight_bug_fix_and_endpoint(self, mock_llm):
         """Verifies that apply_preflight_bug_fix edits the file on disk and the /api/v1/review/fix-bug endpoint works."""
+        mock_llm.return_value = "```javascript\nfunction onPay() { /* Preflight Auto-Fix Applied */ }\n```"
         # Create a temp file inside a dummy repo folder under current working dir
         test_dir = Path("temp_test_repo")
         test_dir.mkdir(exist_ok=True)
