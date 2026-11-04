@@ -4,10 +4,14 @@ import json
 import ast
 import hashlib
 import time
+import logging
+import requests
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 from app.core.llm import call_llm, get_llm_config
