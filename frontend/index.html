@@ -1085,6 +1085,7 @@
         </div>
 
         <!-- Preflight Severity Metrics -->
+        <div id="preflight-engine-badge" class="hidden mb-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-between"></div>
         <div id="preflight-summary-cards" class="hidden grid grid-cols-4 gap-2.5 mb-3">
           <div class="p-2.5 rounded-xl bg-red-950/40 border border-red-500/30 text-center">
             <div class="text-[9px] text-red-300 font-semibold uppercase tracking-wider">[P0] Critical</div>
@@ -1143,6 +1144,7 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
         </div>
       </div>
       <div class="p-5 flex-1 overflow-y-auto">
+        <div id="sandbox-error-engine-badge" class="hidden mb-3 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-between"></div>
         <div id="sandbox-error-report-body" class="bg-black/60 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-text">
           Analyzing sandbox logs...
         </div>
@@ -3559,6 +3561,18 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
         lastPreflightReportMarkdown = data.markdown_report || '';
 
+        const engineBadge = document.getElementById('preflight-engine-badge');
+        if (engineBadge) {
+          engineBadge.classList.remove('hidden');
+          if (data.engine === 'heuristic-fallback') {
+            engineBadge.className = 'mb-2.5 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between bg-amber-950/70 border border-amber-500/40 text-amber-200';
+            engineBadge.innerHTML = '<span>⚠️ <strong>Heuristic Fallback:</strong> Local static defect rules applied (No AI model invoked).</span><span class="text-[10px] text-amber-400/80 bg-amber-900/50 px-2 py-0.5 rounded border border-amber-500/30">Local Fallback</span>';
+          } else {
+            engineBadge.className = 'mb-2.5 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between bg-cyan-950/70 border border-cyan-500/40 text-cyan-200';
+            engineBadge.innerHTML = '<span>⚡ <strong>Engine:</strong> Vultr Serverless Inference (Active Model Arbiter)</span><span class="text-[10px] text-cyan-400/80 bg-cyan-900/50 px-2 py-0.5 rounded border border-cyan-500/30">Vultr Serverless</span>';
+          }
+        }
+
         if (summaryCards) summaryCards.classList.remove('hidden');
         if (downloadBtn) downloadBtn.classList.remove('hidden');
 
@@ -3618,6 +3632,18 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         lastErrorReportMarkdown = data.markdown_report || '';
+
+        const errEngineBadge = document.getElementById('sandbox-error-engine-badge');
+        if (errEngineBadge) {
+          errEngineBadge.classList.remove('hidden');
+          if (data.engine === 'heuristic-fallback') {
+            errEngineBadge.className = 'mb-3 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between bg-amber-950/70 border border-amber-500/40 text-amber-200';
+            errEngineBadge.innerHTML = '<span>⚠️ <strong>Heuristic Diagnostic:</strong> Local static pattern recognition (No AI model invoked).</span><span class="text-[10px] text-amber-400/80 bg-amber-900/50 px-2 py-0.5 rounded border border-amber-500/30">Local Fallback</span>';
+          } else {
+            errEngineBadge.className = 'mb-3 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between bg-cyan-950/70 border border-cyan-500/40 text-cyan-200';
+            errEngineBadge.innerHTML = '<span>⚡ <strong>Diagnosis Engine:</strong> Vultr Serverless Inference</span><span class="text-[10px] text-cyan-400/80 bg-cyan-900/50 px-2 py-0.5 rounded border border-cyan-500/30">Vultr Serverless</span>';
+          }
+        }
         if (body) body.innerText = lastErrorReportMarkdown;
       } catch (e) {
         console.error('Failed to diagnose error:', e);

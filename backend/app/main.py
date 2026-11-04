@@ -4,6 +4,8 @@ import shutil
 import tempfile
 import hashlib
 import hmac
+import threading
+import time
 try:
     import redis
 except ImportError:
@@ -216,46 +218,82 @@ def read_root():
         "docs": "/docs"
     }
 
+# IP-based rate limiting and single concurrent scan enforcement for demo security
+_IP_SCAN_LOCKS = set()
+_IP_SCAN_HISTORY = {}
+_IP_GUARD_LOCK = threading.Lock()
+
+def enforce_ip_scan_guards(request: Request) -> str:
+    if os.getenv("TESTING") == "1":
+        return "test-client"
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    with _IP_GUARD_LOCK:
+        if client_ip in _IP_SCAN_LOCKS:
+            raise HTTPException(
+                status_code=429,
+                detail="A scan or analysis is already in progress from your IP address. Please wait for it to complete."
+            )
+        history = [t for t in _IP_SCAN_HISTORY.get(client_ip, []) if now - t < 300]
+        if len(history) >= 10:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded: Maximum 10 scans per 5 minutes per IP address."
+            )
+        _IP_SCAN_LOCKS.add(client_ip)
+        _IP_SCAN_HISTORY[client_ip] = history + [now]
+    return client_ip
+
+def release_ip_scan_lock(client_ip: str):
+    if client_ip and client_ip != "test-client":
+        with _IP_GUARD_LOCK:
+            _IP_SCAN_LOCKS.discard(client_ip)
+
 # 1. Automated Git Clone & Ingest
 @app.post("/api/v1/ingest/git", dependencies=[Depends(verify_api_key)])
-def ingest_from_git(payload: GitIngestRequest):
+def ingest_from_git(payload: GitIngestRequest, request: Request):
     """
     Automated Git Pipeline: Clones repository from URL (public or private with token),
     extracts AST, computes vector embeddings, and links knowledge graph in Neo4j.
     """
-    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    client_ip = enforce_ip_scan_guards(request)
+    try:
+        clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
 
-    if payload.is_async:
-        task = async_clone_and_index.delay(
-            git_url=payload.git_url,
-            repo_name=clean_repo,
-            branch=payload.branch,
-            token=payload.auth_token,
-            full_history=payload.full_history
-        )
-        return {
-            "status": "queued",
-            "task_id": task.id,
-            "message": "Automated Git cloning and indexing started in background worker."
-        }
-    else:
-        try:
-            cloned_dir = clone_git_repo(
+        if payload.is_async:
+            task = async_clone_and_index.delay(
                 git_url=payload.git_url,
                 repo_name=clean_repo,
                 branch=payload.branch,
                 token=payload.auth_token,
                 full_history=payload.full_history
             )
-            actual_name = clean_repo or cloned_dir.name
-            result = scan_and_ingest_directory(str(cloned_dir), actual_name)
-            return {"status": "success", "result": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            return {
+                "status": "queued",
+                "task_id": task.id,
+                "message": "Automated Git cloning and indexing started in background worker."
+            }
+        else:
+            try:
+                cloned_dir = clone_git_repo(
+                    git_url=payload.git_url,
+                    repo_name=clean_repo,
+                    branch=payload.branch,
+                    token=payload.auth_token,
+                    full_history=payload.full_history
+                )
+                actual_name = clean_repo or cloned_dir.name
+                result = scan_and_ingest_directory(str(cloned_dir), actual_name)
+                return {"status": "success", "result": result}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        release_ip_scan_lock(client_ip)
 
 # 2. Automated ZIP Upload & Ingest
 @app.post("/api/v1/ingest/upload", dependencies=[Depends(verify_api_key)])
 async def ingest_from_zip(
+    request: Request,
     file: UploadFile = File(...),
     repo_name: Optional[str] = Form(None),
     is_async: Optional[bool] = Form(True)
@@ -264,37 +302,41 @@ async def ingest_from_zip(
     Automated ZIP Upload Pipeline: Upload a project zip file, extracts safely
     with Zip Slip protection, and indexes into the knowledge graph.
     """
-    if not file.filename.endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Only .zip archive files are supported.")
+    client_ip = enforce_ip_scan_guards(request)
+    try:
+        if not file.filename.endswith(".zip"):
+            raise HTTPException(status_code=400, detail="Only .zip archive files are supported.")
 
-    derived_name = repo_name or file.filename.replace(".zip", "")
-    clean_repo = sanitize_name(derived_name)
+        derived_name = repo_name or file.filename.replace(".zip", "")
+        clean_repo = sanitize_name(derived_name)
 
-    # Save uploaded file to shared repository directory so worker container can access it
-    uploads_dir = ALLOWED_REPO_DIR / ".uploads"
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-    clean_filename = Path(file.filename).name
-    temp_zip_path = uploads_dir / f"upload_{clean_repo}_{clean_filename}"
+        # Save uploaded file to shared repository directory so worker container can access it
+        uploads_dir = ALLOWED_REPO_DIR / ".uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        clean_filename = Path(file.filename).name
+        temp_zip_path = uploads_dir / f"upload_{clean_repo}_{clean_filename}"
 
-    with open(temp_zip_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        with open(temp_zip_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
-    if is_async:
-        task = async_extract_and_index.delay(str(temp_zip_path), clean_repo)
-        return {
-            "status": "queued",
-            "task_id": task.id,
-            "message": "ZIP archive uploaded. Extraction and indexing running in background."
-        }
-    else:
-        try:
-            extracted_dir = extract_safe_zip(temp_zip_path, clean_repo)
-            result = scan_and_ingest_directory(str(extracted_dir), clean_repo)
-            temp_zip_path.unlink(missing_ok=True)
-            return {"status": "success", "result": result}
-        except Exception as e:
-            temp_zip_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=500, detail=str(e))
+        if is_async:
+            task = async_extract_and_index.delay(str(temp_zip_path), clean_repo)
+            return {
+                "status": "queued",
+                "task_id": task.id,
+                "message": "ZIP archive uploaded. Extraction and indexing running in background."
+            }
+        else:
+            try:
+                extracted_dir = extract_safe_zip(temp_zip_path, clean_repo)
+                result = scan_and_ingest_directory(str(extracted_dir), clean_repo)
+                temp_zip_path.unlink(missing_ok=True)
+                return {"status": "success", "result": result}
+            except Exception as e:
+                temp_zip_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        release_ip_scan_lock(client_ip)
 
 # 3. Single Snippet Analysis
 @app.post("/api/v1/analyze/code", dependencies=[Depends(verify_api_key)])
@@ -325,23 +367,27 @@ def analyze_code_snippet(payload: CodeUpload):
 
 # 4. Existing Directory Scan
 @app.post("/api/v1/analyze/repo", dependencies=[Depends(verify_api_key)])
-def analyze_repository(payload: RepoScanRequest):
-    safe_path = validate_safe_path(payload.repo_path)
-    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else sanitize_name(safe_path.name)
+def analyze_repository(payload: RepoScanRequest, request: Request):
+    client_ip = enforce_ip_scan_guards(request)
+    try:
+        safe_path = validate_safe_path(payload.repo_path)
+        clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else sanitize_name(safe_path.name)
 
-    if payload.is_async:
-        task = async_index_repository.delay(str(safe_path), clean_repo)
-        return {
-            "status": "queued",
-            "task_id": task.id,
-            "message": "Repository indexing queued in background worker."
-        }
-    else:
-        try:
-            result = scan_and_ingest_directory(str(safe_path), clean_repo)
-            return {"status": "success", "result": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Scanning failed: {str(e)}")
+        if payload.is_async:
+            task = async_index_repository.delay(str(safe_path), clean_repo)
+            return {
+                "status": "queued",
+                "task_id": task.id,
+                "message": "Repository indexing queued in background worker."
+            }
+        else:
+            try:
+                result = scan_and_ingest_directory(str(safe_path), clean_repo)
+                return {"status": "success", "result": result}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Scanning failed: {str(e)}")
+    finally:
+        release_ip_scan_lock(client_ip)
 
 # 5. Task Progress & Status
 @app.get("/api/v1/tasks/{task_id}", dependencies=[Depends(verify_api_key)])
@@ -1071,8 +1117,8 @@ def clear_llm_status_cache():
 @app.post("/api/v1/config/llm", dependencies=[Depends(verify_api_key)])
 def update_llm_settings(payload: LLMConfigRequest):
     current = get_llm_config()
-    base_url = (payload.base_url or "").strip() or current.get("base_url") or "https://api.openai.com/v1"
-    model = (payload.model or "").strip() or current.get("model") or "gpt-4o-mini"
+    base_url = (payload.base_url or "").strip() or current.get("base_url") or "https://api.vultrinference.com/v1"
+    model = (payload.model or "").strip() or current.get("model") or "deepseek-v4.1-flash-1017"
     api_key = payload.api_key if payload.api_key is not None else current.get("api_key", "")
     proxy_val = payload.http_proxy if payload.http_proxy is not None else current.get("http_proxy", "")
     try:

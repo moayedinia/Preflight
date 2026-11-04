@@ -33,16 +33,9 @@ def get_llm_config() -> dict:
             if config:
                 cfg = json.loads(config)
                 if cfg.get("base_url"):
-                    clean = _clean_slashes(cfg["base_url"])
-                    parsed = urlparse(clean)
-                    if parsed.port in KNOWN_PROXY_PORTS or any(f":{p}" in clean for p in KNOWN_PROXY_PORTS):
-                        if not cfg.get("http_proxy"):
-                            cfg["http_proxy"] = clean.replace("/v1", "").rstrip("/")
-                        cfg["base_url"] = "https://api.openai.com/v1"
-                    else:
-                        cfg["base_url"] = clean
+                    cfg["base_url"] = _clean_slashes(cfg["base_url"])
                 if not cfg.get("model"):
-                    cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or "gpt-4o-mini"
+                    cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or "deepseek-v4.1-flash-1017"
                 if not cfg.get("api_key"):
                     cfg["api_key"] = (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
                 if not cfg.get("http_proxy"):
@@ -53,18 +46,13 @@ def get_llm_config() -> dict:
     if _MEMORY_LLM_CONFIG:
         return dict(_MEMORY_LLM_CONFIG)
 
-    raw_env_base = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+    raw_env_base = os.getenv("LLM_BASE_URL", "https://api.vultrinference.com/v1")
     clean_env_base = _clean_slashes(raw_env_base)
     env_proxy = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
-    parsed_env = urlparse(clean_env_base)
-    if parsed_env.port in KNOWN_PROXY_PORTS or any(f":{p}" in clean_env_base for p in KNOWN_PROXY_PORTS):
-        if not env_proxy:
-            env_proxy = clean_env_base.replace("/v1", "").rstrip("/")
-        clean_env_base = "https://api.openai.com/v1"
 
     return {
         "base_url": clean_env_base,
-        "model": (os.getenv("LLM_MODEL") or "").strip() or "gpt-4o-mini",
+        "model": (os.getenv("LLM_MODEL") or "").strip() or "deepseek-v4.1-flash-1017",
         "api_key": (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip(),
         "http_proxy": env_proxy
     }
@@ -73,13 +61,12 @@ def set_llm_config(base_url: str, model: str, api_key: str, http_proxy: Optional
     clean_base = _clean_slashes(base_url)
     proxy_val = (http_proxy or "").strip()
 
-    # Intelligent auto-detection: If the user entered their proxy port as the Base URL
     parsed = urlparse(clean_base)
     if parsed.port in KNOWN_PROXY_PORTS or any(f":{p}" in clean_base for p in KNOWN_PROXY_PORTS):
-        detected_proxy = clean_base.replace("/v1", "").rstrip("/")
-        if not proxy_val:
-            proxy_val = detected_proxy
-        clean_base = "https://api.openai.com/v1"
+        raise ValueError(
+            f"Configured Base URL '{clean_base}' appears to be a local proxy port ({parsed.port}), not an inference endpoint. "
+            "Please configure the Outbound HTTP Proxy field instead, and set API Base URL to https://api.vultrinference.com/v1"
+        )
 
     norm_base = normalize_llm_base_url(clean_base)
     cfg_data = {
@@ -220,9 +207,8 @@ def verify_llm_connection(timeout: float = 12.0, model: Optional[str] = None) ->
     parsed_base = urlparse(base_url)
     if parsed_base.port in KNOWN_PROXY_PORTS or any(f":{p}" in base_url for p in KNOWN_PROXY_PORTS):
         return False, (
-            f"Port {parsed_base.port or 'proxy'} is an HTTP/SOCKS proxy port (e.g. v2rayN/Clash), NOT an OpenAI API endpoint. "
-            "Please set API Base URL to 'https://api.openai.com/v1' or 'https://api.vultrinference.com/v1' "
-            "and configure the HTTP Proxy field."
+            f"Port {parsed_base.port or 'proxy'} is an HTTP/SOCKS proxy port, NOT an inference endpoint. "
+            "Please configure the Outbound HTTP Proxy field in Settings, and set API Base URL to https://api.vultrinference.com/v1"
         )
 
     is_local = any(h in base_url.lower() for h in ["localhost", "127.0.0.1", "host.docker.internal", "ollama"])
@@ -386,7 +372,7 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
     if max_tokens:
         payload["max_tokens"] = max_tokens
 
-    base_url = config.get("base_url", "") or "https://api.openai.com/v1"
+    base_url = config.get("base_url", "") or "https://api.vultrinference.com/v1"
     norm_base = normalize_llm_base_url(base_url)
     url = _clean_slashes(f"{norm_base}/chat/completions")
 

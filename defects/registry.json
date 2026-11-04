@@ -1,0 +1,93 @@
+{
+  "DEF-01": {
+    "name": "Leaked API keys",
+    "category": "security",
+    "tier": "red",
+    "penalty": 40,
+    "description": "Exposed secrets or API keys visible in client or repository code."
+  },
+  "DEF-02": {
+    "name": "Unprotected admin routes",
+    "category": "security",
+    "tier": "red",
+    "penalty": 40,
+    "description": "Administrative routes accessible without server-side authentication."
+  },
+  "DEF-03": {
+    "name": "Database injection",
+    "category": "security",
+    "tier": "red",
+    "penalty": 40,
+    "description": "Direct string interpolation in database queries allowing SQL or Cypher injection."
+  },
+  "DEF-04": {
+    "name": "Crashes on unexpected input",
+    "category": "reliability",
+    "tier": "red",
+    "penalty": 40,
+    "description": "Unhandled exceptions or missing error boundaries causing process crashes."
+  },
+  "DEF-05": {
+    "name": "Infinite loops",
+    "category": "reliability",
+    "tier": "red",
+    "penalty": 40,
+    "description": "Synchronous infinite loops or unconstrained hook re-render cascades."
+  },
+  "DEF-06": {
+    "name": "Dead buttons on the main flow",
+    "category": "reliability",
+    "tier": "red",
+    "penalty": 40,
+    "description": "Non-functional buttons or empty click handlers on critical conversion paths."
+  },
+  "DEF-07": {
+    "name": "No loading state, double submission",
+    "category": "reliability",
+    "tier": "orange",
+    "penalty": 25,
+    "description": "Form submit buttons missing disabled states during active submission."
+  },
+  "DEF-08": {
+    "name": "No limits on what people can type",
+    "category": "correctness",
+    "tier": "orange",
+    "penalty": 25,
+    "description": "Unbounded user inputs without maxLength or schema validation."
+  },
+  "DEF-09": {
+    "name": "Search and sort are wrong",
+    "category": "correctness",
+    "tier": "orange",
+    "penalty": 12,
+    "description": "Non-debounced search inputs or naive string sorting on numeric data."
+  },
+  "DEF-10": {
+    "name": "Slow pages and heavy images",
+    "category": "correctness",
+    "tier": "orange",
+    "penalty": 12,
+    "description": "Unoptimized images exceeding 2MB degrading web performance."
+  },
+  "DEF-11": {
+    "name": "Over-complex files",
+    "category": "maintainability",
+    "tier": "yellow",
+    "penalty": 4,
+    "description": "Files exceeding 500 lines of code hindering maintainability."
+  },
+  "DEF-12": {
+    "name": "Debug code and no documentation",
+    "category": "maintainability",
+    "tier": "yellow",
+    "penalty": 4,
+    "description": "Active console logging, debug statements, or missing README documentation."
+  },
+  "DEF-13": {
+    "name": "Outdated methods",
+    "category": "maintainability",
+    "tier": "yellow",
+    "penalty": 4,
+    "description": "Usage of deprecated browser APIs or obsolete runtime methods."
+  }
+}

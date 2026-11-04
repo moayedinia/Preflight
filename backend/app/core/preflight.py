@@ -4,6 +4,7 @@ import json
 import ast
 import hashlib
 import time
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
@@ -11,6 +12,8 @@ from fastapi import HTTPException
 
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 from app.core.llm import call_llm
+
+logger = logging.getLogger("codegraph.preflight")
 
 # ==============================================================================
 # PREFLIGHT DETECTION SPEC V4 - 13 DEFECT RULES & SYSTEM PROMPTS
@@ -68,7 +71,8 @@ You MUST respond strictly in valid JSON format:
   "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
   "defects": [
     {
-      "rule": "Leaked API keys",
+      "id": "DEF-01",
+                                "rule": "Leaked API keys",
       "file": "path/to/file",
       "line": 1,
       "snippet": "offending snippet",
@@ -104,7 +108,8 @@ You MUST respond strictly in valid JSON format:
   "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
   "defects": [
     {
-      "rule": "No loading state, double submission",
+      "id": "DEF-07",
+                                "rule": "No loading state, double submission",
       "file": "path/to/file",
       "line": 1,
       "snippet": "offending snippet",
@@ -141,7 +146,8 @@ You MUST respond strictly in valid JSON format:
   "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
   "defects": [
     {
-      "rule": "Debug code and no documentation",
+      "id": "DEF-12",
+                                "rule": "Debug code and no documentation",
       "file": "path/to/file",
       "line": 1,
       "snippet": "offending snippet",
@@ -154,13 +160,66 @@ You MUST respond strictly in valid JSON format:
 
 
 # ==============================================================================
-# PART 5: PREFLIGHT 4-AREA SCORING ENGINE
+# PART 5: PREFLIGHT 4-AREA SCORING ENGINE & DEFECT REGISTRY
 # ==============================================================================
+
+def _load_defect_registry() -> Dict[str, Any]:
+    """Loads defects/registry.json for strict category and penalty dispatch."""
+    candidate_paths = [
+        Path.cwd() / "defects" / "registry.json",
+        Path(__file__).resolve().parent.parent.parent.parent / "defects" / "registry.json",
+        Path(__file__).resolve().parent.parent / "defects" / "registry.json",
+        Path("/app/defects/registry.json"),
+    ]
+    for cand in candidate_paths:
+        if cand.exists():
+            try:
+                with open(cand, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    # Embedded fallback registry if file path is not mounted
+    return {
+        "DEF-01": {"name": "Leaked API keys", "category": "security", "tier": "red", "penalty": 40},
+        "DEF-02": {"name": "Unprotected admin routes", "category": "security", "tier": "red", "penalty": 40},
+        "DEF-03": {"name": "Database injection", "category": "security", "tier": "red", "penalty": 40},
+        "DEF-04": {"name": "Crashes on unexpected input", "category": "reliability", "tier": "red", "penalty": 40},
+        "DEF-05": {"name": "Infinite loops", "category": "reliability", "tier": "red", "penalty": 40},
+        "DEF-06": {"name": "Dead buttons on the main flow", "category": "reliability", "tier": "red", "penalty": 40},
+        "DEF-07": {"name": "No loading state, double submission", "category": "reliability", "tier": "orange", "penalty": 25},
+        "DEF-08": {"name": "No limits on what people can type", "category": "correctness", "tier": "orange", "penalty": 25},
+        "DEF-09": {"name": "Search and sort are wrong", "category": "correctness", "tier": "orange", "penalty": 12},
+        "DEF-10": {"name": "Slow pages and heavy images", "category": "correctness", "tier": "orange", "penalty": 12},
+        "DEF-11": {"name": "Over-complex files", "category": "maintainability", "tier": "yellow", "penalty": 4},
+        "DEF-12": {"name": "Debug code and no documentation", "category": "maintainability", "tier": "yellow", "penalty": 4},
+        "DEF-13": {"name": "Outdated methods", "category": "maintainability", "tier": "yellow", "penalty": 4},
+    }
+
+DEFECT_REGISTRY = _load_defect_registry()
+
+RULE_NAME_TO_DEFECT_ID = {
+    "leaked api keys": "DEF-01",
+    "unprotected admin routes": "DEF-02",
+    "database injection": "DEF-03",
+    "crashes on unexpected input": "DEF-04",
+    "infinite loops": "DEF-05",
+    "dead buttons on the main flow": "DEF-06",
+    "no loading state, double submission": "DEF-07",
+    "no limits on what people can type": "DEF-08",
+    "search and sort are wrong": "DEF-09",
+    "slow pages and heavy images": "DEF-10",
+    "over-complex files": "DEF-11",
+    "debug code and no documentation": "DEF-12",
+    "outdated methods": "DEF-13",
+}
 
 def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Computes Preflight scoring across 4 areas and overall Readiness score strictly
-    following PART 5 of the Preflight Detection Spec v4:
+    following PART 5 of the Preflight Detection Spec v4.
+
+    Dispatch: Each defect is looked up by ID in defects/registry.json to read category
+    and penalty. Unregistered findings deduct 0 and are recorded as unconfirmed.
 
     Area Weights & User-facing Names:
     1. Security (35%): "Can someone hurt you"
@@ -168,25 +227,7 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
     3. Correctness (20%): "Does it behave properly"
     4. Maintainability (15%): "Can a developer work on it"
 
-    Deductions per confirmed finding:
-    - Red (40 pts):
-        - Leaked API keys, Unprotected admin routes, Database injection -> Deducts 40 from Security
-        - Crashes on unexpected input, Infinite loops, Dead buttons -> Deducts 40 from Reliability
-    - Orange-High (25 pts):
-        - No loading state, double submission -> Deducts 25 from Reliability
-        - No limits on what people can type -> Deducts 25 from Correctness
-    - Orange-Medium (12 pts):
-        - Search and sort are wrong -> Deducts 12 from Correctness
-        - Slow pages and heavy images -> Deducts 12 from Correctness
-    - Yellow (4 pts):
-        - Over-complex files -> Deducts 4 from Maintainability (unconfirmed suggestions subtract 0)
-        - Debug code and no documentation -> Deducts 4 from Maintainability
-        - Outdated methods -> Deducts 4 from Maintainability
-
-    Each area floors at 0. Unconfirmed findings subtract 0.
-    Readiness = round(Security * 0.35 + Reliability * 0.30 + Correctness * 0.20 + Maintainability * 0.15)
-
-    Verdict States (Part 2.1 of Spec):
+    Verdict States:
     - 🔴 Not ready: Any Red defect > 0, or Readiness < 70
     - 🟠 Launch with care: 0 Red defects, but Orange defects present or Readiness 70-89
     - 🟢 Ready: 0 Red defects, 0 Orange defects, and Readiness >= 90
@@ -201,50 +242,56 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
     yellow_count = 0
 
     for d in all_defects:
-        rule = str(d.get("rule", "")).lower()
-        tier = str(d.get("tier", "")).lower()
         is_unconfirmed = bool(d.get("unconfirmed", False))
         is_fixed = bool(d.get("fixed", False))
-
-        # Unconfirmed or fixed findings subtract nothing per spec
         if is_unconfirmed or is_fixed:
             continue
 
-        if tier == "red" or any(k in rule for k in ["leaked", "secret", "admin", "injection", "crash", "loop", "dead button"]):
+        defect_id = (d.get("id") or "").strip().upper()
+        if not defect_id:
+            rule_clean = str(d.get("rule", "")).strip().lower()
+            defect_id = RULE_NAME_TO_DEFECT_ID.get(rule_clean, "")
+
+        entry = DEFECT_REGISTRY.get(defect_id)
+        if not entry:
+            # Check for Preflight Code Review findings (P0, P1, P2)
+            tier_val = str(d.get("tier", "")).lower()
+            if defect_id.startswith("CR-") or tier_val in ("p0", "p1", "p2"):
+                if tier_val in ("red", "p0"):
+                    red_count += 1
+                    sec_deductions += 40
+                elif tier_val in ("orange", "p1"):
+                    orange_count += 1
+                    rel_deductions += 25
+                elif tier_val in ("yellow", "p2"):
+                    yellow_count += 1
+                    main_deductions += 4
+                continue
+
+            # Unrecognized defect without known ID in registry: count as unconfirmed per spec
+            logger.warning(f"Unregistered defect finding encountered without valid ID (rule: '{d.get('rule')}'). Marked as unconfirmed.")
+            d["unconfirmed"] = True
+            continue
+
+        tier = entry["tier"]
+        category = entry["category"]
+        penalty = entry["penalty"]
+
+        if tier == "red":
             red_count += 1
-            if any(k in rule for k in ["leaked", "secret", "admin", "injection", "proxy", "security", "auth", "p0"]):
-                sec_deductions += 40
-            else:
-                rel_deductions += 40
-
-        elif tier == "orange" or any(k in rule for k in ["loading", "double submission", "limit", "unbounded", "search", "sort", "slow", "heavy image"]):
+        elif tier == "orange":
             orange_count += 1
-            if any(k in rule for k in ["loading", "double submission", "threadpool"]):
-                # Orange-High: Reliability (-25)
-                rel_deductions += 25
-            elif any(k in rule for k in ["limit", "unbounded"]):
-                # Orange-High: Correctness (-25)
-                cor_deductions += 25
-            elif any(k in rule for k in ["search", "sort"]):
-                # Orange-Medium: Correctness (-12)
-                cor_deductions += 12
-            elif any(k in rule for k in ["slow", "heavy", "image"]):
-                # Orange-Medium: Correctness (-12)
-                cor_deductions += 12
-            else:
-                cor_deductions += 12
-
-        elif tier == "yellow" or any(k in rule for k in ["complex", "debug", "documentation", "readme", "outdated", "deprecated"]):
+        elif tier == "yellow":
             yellow_count += 1
-            if "complex" in rule:
-                # Over-complex files: if explicitly scored, deducts 4
-                main_deductions += 4
-            elif any(k in rule for k in ["debug", "documentation", "readme", "console", "todo"]):
-                main_deductions += 4
-            elif any(k in rule for k in ["outdated", "deprecated"]):
-                main_deductions += 4
-            else:
-                main_deductions += 4
+
+        if category == "security":
+            sec_deductions += penalty
+        elif category == "reliability":
+            rel_deductions += penalty
+        elif category == "correctness":
+            cor_deductions += penalty
+        elif category == "maintainability":
+            main_deductions += penalty
 
     sec_score = max(0, 100 - sec_deductions)
     rel_score = max(0, 100 - rel_deductions)
@@ -259,7 +306,8 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
     )
     readiness = max(0, min(100, readiness))
 
-    # Verdict determination per spec
+    # Strict verdict determination per spec:
+    # Green is ONLY possible when red_count == 0 AND orange_count == 0 AND readiness >= 90
     if red_count > 0 or readiness < 70:
         verdict_state = "not_ready"
         verdict_badge = "🔴 Not ready"
@@ -268,11 +316,6 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
             verdict_meaning = f"{red_count} serious problem{'s' if red_count > 1 else ''} need fixing first. Something here will hurt you. Fix before anyone uses it."
         else:
             verdict_meaning = "Overall readiness is below launch safety threshold. Fix critical blockers before launching."
-    elif readiness >= 100 or (orange_count == 0 and readiness >= 90):
-        verdict_state = "ready"
-        verdict_badge = "🟢 Ready"
-        verdict_title = "🟢 Ready to launch"
-        verdict_meaning = "Nothing serious found. Your app passed all preflight safety and reliability checks. Go."
     elif orange_count > 0 or readiness < 90:
         verdict_state = "launch_with_care"
         verdict_badge = "🟠 Launch with care"
@@ -850,6 +893,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": 1,
+                                "id": "DEF-10",
                                 "rule": "Slow pages and heavy images",
                                 "snippet": f"{fname} ({round(fsize / (1024*1024), 2)} MB)",
                                 "detail": "Your homepage loads a 10MB photo. Mobile users will leave.",
@@ -879,6 +923,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                     all_defects.append({
                         "file": rel_path,
                         "line": 1,
+                        "id": "DEF-11",
                         "rule": "Over-complex files",
                         "snippet": f"File total lines: {len(lines)} lines",
                         "detail": f"One file is {len(lines)} lines. Any developer you hire will charge you more to work in it.",
@@ -903,6 +948,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-01",
                                 "rule": "Leaked API keys",
                                 "snippet": line_str[:160],
                                 "detail": "Your secret key is visible to anyone who opens your site. They can spend your money.",
@@ -919,6 +965,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-02",
                                 "rule": "Unprotected admin routes",
                                 "snippet": line_str[:160],
                                 "detail": "Your admin page is hidden, not protected. Anyone who guesses the address can delete your data.",
@@ -935,6 +982,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-03",
                                 "rule": "Database injection",
                                 "snippet": line_str[:160],
                                 "detail": "Someone typing the right characters into your search box could read or destroy your database.",
@@ -953,7 +1001,8 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                                 all_defects.append({
                                     "file": rel_path,
                                     "line": line_idx,
-                                    "rule": "Crashes on unexpected input",
+                                    "id": "DEF-04",
+                                "rule": "Crashes on unexpected input",
                                     "snippet": line_str[:160],
                                     "detail": "If a user leaves a field empty, your whole app returns an error page.",
                                     "business_consequence": "Unhandled route exceptions return HTTP 500 crash pages to customers.",
@@ -968,6 +1017,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-04",
                                 "rule": "Crashes on unexpected input",
                                 "snippet": line_str[:160],
                                 "detail": "Empty catch block silently suppresses fatal runtime exceptions.",
@@ -984,6 +1034,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-05",
                                 "rule": "Infinite loops",
                                 "snippet": line_str[:160],
                                 "detail": "This page freezes the browser and never stops loading.",
@@ -1000,6 +1051,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-06",
                                 "rule": "Dead buttons on the main flow",
                                 "snippet": line_str[:160],
                                 "detail": "Your Pay button does nothing. Customers cannot give you money.",
@@ -1015,6 +1067,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-01",
                                 "rule": "Leaked API keys",
                                 "snippet": line_str[:160],
                                 "detail": "Traffic routed through a public CORS proxy leaks API tokens and credentials.",
@@ -1033,6 +1086,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-07",
                                 "rule": "No loading state, double submission",
                                 "snippet": line_str[:160],
                                 "detail": "Impatient users who click twice get charged twice.",
@@ -1048,6 +1102,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-07",
                                 "rule": "No loading state, double submission",
                                 "snippet": line_str[:160],
                                 "detail": "Synchronous blocking on async task freezes the server threadpool.",
@@ -1064,6 +1119,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-08",
                                 "rule": "No limits on what people can type",
                                 "snippet": line_str[:160],
                                 "detail": "Someone pasting a long text breaks the page or the database.",
@@ -1080,6 +1136,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-09",
                                 "rule": "Search and sort are wrong",
                                 "snippet": line_str[:160],
                                 "detail": "Your list sorts 10 before 2, and search fires on every keystroke.",
@@ -1095,6 +1152,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-09",
                                 "rule": "Search and sort are wrong",
                                 "snippet": line_str[:160],
                                 "detail": "Your list sorts 10 before 2 because JavaScript default sort is alphabetical.",
@@ -1113,6 +1171,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-12",
                                 "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
                                 "detail": "Leftover test code and console logs clutter production browser tools.",
@@ -1128,6 +1187,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-12",
                                 "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
                                 "detail": "Leftover debugger breakpoint left in production source code.",
@@ -1143,6 +1203,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-12",
                                 "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
                                 "detail": "Unfinished TODO / FIXME note found in production source.",
@@ -1159,6 +1220,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
+                                "id": "DEF-13",
                                 "rule": "Outdated methods",
                                 "snippet": line_str[:160],
                                 "detail": "Some code uses methods browsers have deprecated.",
@@ -1176,7 +1238,8 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
             all_defects.append({
                 "file": readme_path or "README.md",
                 "line": 1,
-                "rule": "Debug code and no documentation",
+                "id": "DEF-12",
+                                "rule": "Debug code and no documentation",
                 "snippet": f"README character count: {readme_char_count} chars",
                 "detail": "Leftover test code and an empty README. Looks unfinished to anyone technical.",
                 "business_consequence": "Makes the project look incomplete and unmaintainable to partners or developers.",

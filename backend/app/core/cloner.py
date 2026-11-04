@@ -8,7 +8,32 @@ from typing import Optional
 from fastapi import HTTPException
 from urllib.parse import urlparse, urlunparse
 
-from app.core.security import ALLOWED_REPO_DIR, sanitize_name
+MAX_REPO_BYTES = int(os.getenv("MAX_REPO_BYTES", str(100 * 1024 * 1024)))  # 100 MB
+MAX_FILE_COUNT = int(os.getenv("MAX_FILE_COUNT", "5000"))
+
+def _enforce_repo_limits(repo_path: Path):
+    """Enforces file count and total directory size caps on untrusted cloned/extracted repos."""
+    total_size = 0
+    total_files = 0
+    for root, _, files in os.walk(repo_path):
+        for f in files:
+            total_files += 1
+            if total_files > MAX_FILE_COUNT:
+                shutil.rmtree(repo_path, ignore_errors=True)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Repository exceeds file count limit (maximum {MAX_FILE_COUNT} files allowed)."
+                )
+            try:
+                total_size += (Path(root) / f).stat().st_size
+                if total_size > MAX_REPO_BYTES:
+                    shutil.rmtree(repo_path, ignore_errors=True)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Repository exceeds size limit (maximum {MAX_REPO_BYTES // (1024 * 1024)}MB allowed)."
+                    )
+            except (OSError, FileNotFoundError):
+                continue
 
 def sanitize_git_url(url: str, token: Optional[str] = None) -> str:
     """
@@ -101,6 +126,7 @@ def clone_git_repo(
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Git clone timed out after 3 minutes.")
 
+    _enforce_repo_limits(target_dir)
     return target_dir
 
 def decode_zip_filename(raw_name: str, flag_bits: int) -> str:
@@ -164,4 +190,5 @@ def extract_safe_zip(zip_path: Path, repo_name: str) -> Path:
                 with zf.open(member) as src_file, open(extracted_path, "wb") as dst_file:
                     shutil.copyfileobj(src_file, dst_file)
 
+    _enforce_repo_limits(target_dir)
     return target_dir
