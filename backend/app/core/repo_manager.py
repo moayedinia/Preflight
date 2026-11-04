@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
-from app.core.graph import driver
+from app.core.graph import driver, is_neo4j_available
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 
 def list_all_repositories() -> List[Dict[str, Any]]:
@@ -18,50 +18,51 @@ def list_all_repositories() -> List[Dict[str, Any]]:
     repo_map: Dict[str, Dict[str, Any]] = {}
 
     # 1. Query Neo4j Knowledge Graph if accessible
-    try:
-        with driver.session() as session:
-            query = """
-            MATCH (r:Repository)
-            OPTIONAL MATCH (r)-[:CONTAINS]->(f:File)
-            OPTIONAL MATCH (f)-[:CONTAINS]->(c:Class)
-            OPTIONAL MATCH (f)-[:CONTAINS]->(fn:Function)
-            WITH r,
-                 count(DISTINCT f) AS file_count,
-                 count(DISTINCT c) AS class_count,
-                 count(DISTINCT fn) AS func_count,
-                 COLLECT(DISTINCT f.language) AS languages
-            RETURN r.name AS name,
-                   file_count,
-                   class_count,
-                   func_count,
-                   [l in languages WHERE l IS NOT NULL AND l <> 'unknown'] AS languages
-            ORDER BY name ASC
-            """
-            for rec in session.run(query):
-                r = dict(rec)
-                name = r.get("name")
-                if not name:
-                    continue
-                f_cnt = int(r.get("file_count") or 0)
-                c_cnt = int(r.get("class_count") or 0)
-                fn_cnt = int(r.get("func_count") or 0)
-                langs = r.get("languages", [])
+    if is_neo4j_available():
+        try:
+            with driver.session() as session:
+                query = """
+                MATCH (r:Repository)
+                OPTIONAL MATCH (r)-[:CONTAINS]->(f:File)
+                OPTIONAL MATCH (f)-[:CONTAINS]->(c:Class)
+                OPTIONAL MATCH (f)-[:CONTAINS]->(fn:Function)
+                WITH r,
+                     count(DISTINCT f) AS file_count,
+                     count(DISTINCT c) AS class_count,
+                     count(DISTINCT fn) AS func_count,
+                     COLLECT(DISTINCT f.language) AS languages
+                RETURN r.name AS name,
+                       file_count,
+                       class_count,
+                       func_count,
+                       [l in languages WHERE l IS NOT NULL AND l <> 'unknown'] AS languages
+                ORDER BY name ASC
+                """
+                for rec in session.run(query):
+                    r = dict(rec)
+                    name = r.get("name")
+                    if not name:
+                        continue
+                    f_cnt = int(r.get("file_count") or 0)
+                    c_cnt = int(r.get("class_count") or 0)
+                    fn_cnt = int(r.get("func_count") or 0)
+                    langs = r.get("languages", [])
 
-                repo_map[name] = {
-                    "name": name,
-                    "file_count": f_cnt,
-                    "files_count": f_cnt,
-                    "total_files": f_cnt,
-                    "class_count": c_cnt,
-                    "classes_count": c_cnt,
-                    "total_classes": c_cnt,
-                    "func_count": fn_cnt,
-                    "functions_count": fn_cnt,
-                    "total_functions": fn_cnt,
-                    "languages": langs
-                }
-    except Exception as e:
-        print(f"[RepoManager Notice] Neo4j query skipped or offline: {e}", flush=True)
+                    repo_map[name] = {
+                        "name": name,
+                        "file_count": f_cnt,
+                        "files_count": f_cnt,
+                        "total_files": f_cnt,
+                        "class_count": c_cnt,
+                        "classes_count": c_cnt,
+                        "total_classes": c_cnt,
+                        "func_count": fn_cnt,
+                        "functions_count": fn_cnt,
+                        "total_functions": fn_cnt,
+                        "languages": langs
+                    }
+        except Exception:
+            pass
 
     # 2. Check disk repositories in ALLOWED_REPO_DIR
     try:
@@ -137,25 +138,26 @@ def get_repository_summary(repo_name: str) -> Dict[str, Any]:
     clean_name = sanitize_name(repo_name)
     summary = None
 
-    try:
-        with driver.session() as session:
-            query = """
-            MATCH (r:Repository {name: $repo_name})
-            OPTIONAL MATCH (r)-[:CONTAINS]->(f:File)
-            OPTIONAL MATCH (f)-[:CONTAINS]->(c:Class)
-            OPTIONAL MATCH (f)-[:CONTAINS]->(fn:Function)
-            WITH r, f, c, fn
-            RETURN r.name AS name,
-                   count(DISTINCT f) AS total_files,
-                   count(DISTINCT c) AS total_classes,
-                   count(DISTINCT fn) AS total_functions,
-                   COLLECT(DISTINCT f.language) AS languages
-            """
-            rec = session.run(query, repo_name=clean_name).single()
-            if rec and rec.get("name"):
-                summary = dict(rec)
-    except Exception:
-        summary = None
+    if is_neo4j_available():
+        try:
+            with driver.session() as session:
+                query = """
+                MATCH (r:Repository {name: $repo_name})
+                OPTIONAL MATCH (r)-[:CONTAINS]->(f:File)
+                OPTIONAL MATCH (f)-[:CONTAINS]->(c:Class)
+                OPTIONAL MATCH (f)-[:CONTAINS]->(fn:Function)
+                WITH r, f, c, fn
+                RETURN r.name AS name,
+                       count(DISTINCT f) AS total_files,
+                       count(DISTINCT c) AS total_classes,
+                       count(DISTINCT fn) AS total_functions,
+                       COLLECT(DISTINCT f.language) AS languages
+                """
+                rec = session.run(query, repo_name=clean_name).single()
+                if rec and rec.get("name"):
+                    summary = dict(rec)
+        except Exception:
+            summary = None
 
     if not summary or (summary.get("total_files", 0) == 0):
         all_repos = list_all_repositories()
@@ -189,19 +191,20 @@ def delete_repository(repo_name: str) -> Dict[str, Any]:
     clean_name = sanitize_name(repo_name)
 
     # 1. Prune graph nodes in Neo4j
-    try:
-        with driver.session() as session:
-            query = """
-            MATCH (r:Repository {name: $repo_name})
-            OPTIONAL MATCH (r)-[:CONTAINS]->(f:File)
-            OPTIONAL MATCH (f)-[:CONTAINS]->(c:Class)
-            OPTIONAL MATCH (f)-[:CONTAINS]->(fn:Function)
-            OPTIONAL MATCH (c)-[:HAS_METHOD]->(m:Function)
-            DETACH DELETE r, f, c, fn, m
-            """
-            session.run(query, repo_name=clean_name)
-    except Exception as e:
-        print(f"[RepoManager Delete Notice] Neo4j detach delete notice: {e}", flush=True)
+    if is_neo4j_available():
+        try:
+            with driver.session() as session:
+                query = """
+                MATCH (r:Repository {name: $repo_name})
+                OPTIONAL MATCH (r)-[:CONTAINS]->(f:File)
+                OPTIONAL MATCH (f)-[:CONTAINS]->(c:Class)
+                OPTIONAL MATCH (f)-[:CONTAINS]->(fn:Function)
+                OPTIONAL MATCH (c)-[:HAS_METHOD]->(m:Function)
+                DETACH DELETE r, f, c, fn, m
+                """
+                session.run(query, repo_name=clean_name)
+        except Exception:
+            pass
 
     # 2. Delete local sandbox folder if exists
     repo_disk_dir = ALLOWED_REPO_DIR / clean_name

@@ -1,7 +1,10 @@
 import os
 import time
 import re
-from neo4j import GraphDatabase
+try:
+    from neo4j import GraphDatabase
+except ImportError:
+    GraphDatabase = None
 from app.core.embedder import get_embedding, validate_embedding_configuration, EMBEDDING_DIM
 
 KEYWORDS_FN = {
@@ -96,45 +99,162 @@ def clean_function_name(name_str: str, node_id: str = None) -> str:
 
     return "Function"
 
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+ENABLE_NEO4J_RAW = os.getenv("ENABLE_NEO4J", "").strip().lower()
+NEO4J_URI = os.getenv("NEO4J_URI", "").strip()
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password123")
 NEO4J_AUTH = os.getenv("NEO4J_AUTH", "").strip().lower()
 
-driver_kwargs = {
-    "connection_timeout": 5.0,
-    "max_connection_lifetime": 300,
-}
+class DummyResult:
+    def __init__(self, items=None):
+        self._items = items or []
+    def __iter__(self):
+        return iter(self._items)
+    def single(self):
+        return self._items[0] if self._items else None
+    def consume(self):
+        return None
+    def data(self):
+        return [dict(x) if isinstance(x, dict) else {} for x in self._items]
+    def values(self):
+        return []
+    def keys(self):
+        return []
+    def peek(self):
+        return None
 
-if NEO4J_AUTH == "none" or (NEO4J_PASSWORD and NEO4J_PASSWORD.lower() == "none") or not NEO4J_PASSWORD:
-    driver = GraphDatabase.driver(NEO4J_URI, **driver_kwargs)
-else:
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD), **driver_kwargs)
+class DummySession:
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+    def run(self, *args, **kwargs):
+        return DummyResult()
+    def close(self):
+        pass
+    def execute_read(self, tx_func, *args, **kwargs):
+        return None
+    def execute_write(self, tx_func, *args, **kwargs):
+        return None
+
+class DummyDriver:
+    def session(self, *args, **kwargs):
+        return DummySession()
+    def close(self):
+        pass
+    def verify_connectivity(self):
+        return False
+
+def is_neo4j_enabled() -> bool:
+    """
+    Returns True if Neo4j is explicitly enabled and configured.
+    In 2-service mode (API + Dashboard), Neo4j is omitted from Docker Compose,
+    so this defaults to False to prevent connection errors and log spam.
+    """
+    if ENABLE_NEO4J_RAW in ("false", "0", "no"):
+        return False
+    if ENABLE_NEO4J_RAW in ("true", "1", "yes"):
+        return True
+    
+    # If not explicitly specified by ENABLE_NEO4J:
+    # Only enable if NEO4J_URI is explicitly set to an external/non-localhost URI.
+    if not NEO4J_URI or NEO4J_URI.lower() in ("none", "disabled", "false", "bolt://localhost:7687", "neo4j://localhost:7687"):
+        return False
+    return True
+
+_driver_instance = None
+
+def get_driver():
+    global _driver_instance
+    if not is_neo4j_enabled() or GraphDatabase is None:
+        return DummyDriver()
+    if _driver_instance is not None:
+        return _driver_instance
+    try:
+        driver_kwargs = {
+            "connection_timeout": 3.0,
+            "max_connection_lifetime": 300,
+        }
+        effective_uri = NEO4J_URI or "bolt://localhost:7687"
+        if NEO4J_AUTH == "none" or (NEO4J_PASSWORD and NEO4J_PASSWORD.lower() == "none") or not NEO4J_PASSWORD:
+            _driver_instance = GraphDatabase.driver(effective_uri, **driver_kwargs)
+        else:
+            _driver_instance = GraphDatabase.driver(effective_uri, auth=(NEO4J_USER, NEO4J_PASSWORD), **driver_kwargs)
+        return _driver_instance
+    except Exception:
+        return DummyDriver()
+
+class DriverProxy:
+    """Proxy object that routes session() and close() to the active or dummy driver."""
+    def session(self, *args, **kwargs):
+        return get_driver().session(*args, **kwargs)
+    def close(self):
+        return get_driver().close()
+    def verify_connectivity(self):
+        d = get_driver()
+        if hasattr(d, "verify_connectivity"):
+            try:
+                return d.verify_connectivity()
+            except Exception:
+                return False
+        return False
+
+driver = DriverProxy()
+
+_neo4j_available = None
+_neo4j_last_check: float = 0.0
+
+def is_neo4j_available(force_refresh: bool = False) -> bool:
+    """
+    Checks if Neo4j is enabled and responsive to Cypher queries.
+    Caches results for 60 seconds to avoid repeating socket checks.
+    """
+    global _neo4j_available, _neo4j_last_check
+    if not is_neo4j_enabled() or GraphDatabase is None:
+        return False
+    now = time.time()
+    if not force_refresh and _neo4j_available is not None and (now - _neo4j_last_check) < 60.0:
+        return _neo4j_available
+    try:
+        real_driver = get_driver()
+        if isinstance(real_driver, DummyDriver):
+            _neo4j_available = False
+        else:
+            with real_driver.session() as session:
+                session.run("RETURN 1").consume()
+            _neo4j_available = True
+    except Exception:
+        _neo4j_available = False
+    _neo4j_last_check = now
+    return _neo4j_available
 
 def wait_for_neo4j(max_retries: int = 30, retry_delay: float = 2.0) -> bool:
     """
     Waits for Neo4j to become responsive and ready to accept Cypher queries.
     Retries up to max_retries times with retry_delay seconds between attempts.
     """
-    if os.getenv('TESTING') == '1':
-        return True
+    if os.getenv('TESTING') == '1' or not is_neo4j_enabled():
+        return False
     for attempt in range(1, max_retries + 1):
         try:
-            with driver.session() as session:
-                session.run("RETURN 1").consume()
-            print(f"[Neo4j] Connected successfully to {NEO4J_URI} (ready after attempt {attempt}).", flush=True)
-            return True
+            if is_neo4j_available(force_refresh=True):
+                effective_uri = NEO4J_URI or "bolt://localhost:7687"
+                print(f"[Neo4j] Connected successfully to {effective_uri} (ready after attempt {attempt}).", flush=True)
+                return True
+            time.sleep(retry_delay)
         except Exception as e:
             if attempt < max_retries:
-                print(f"[Neo4j] Waiting for database to become available (attempt {attempt}/{max_retries}): {e} ...", flush=True)
                 time.sleep(retry_delay)
             else:
-                print(f"[Neo4j] Failed to connect to {NEO4J_URI} after {max_retries} attempts: {e}", flush=True)
+                effective_uri = NEO4J_URI or "bolt://localhost:7687"
+                print(f"[Neo4j] Failed to connect to {effective_uri} after {max_retries} attempts: {e}", flush=True)
                 return False
     return False
 
 def init_graph_schema(max_retries: int = 30, retry_delay: float = 2.0):
     """Initializes constraints and vector search indexes in Neo4j with connection retry."""
+    if not is_neo4j_enabled():
+        return
     if not wait_for_neo4j(max_retries=max_retries, retry_delay=retry_delay):
         print("[Neo4j Warning] Neo4j is not reachable. Schema initialization deferred.", flush=True)
         return
@@ -631,29 +751,50 @@ def get_graph_stats(repo_names: list = None) -> dict:
     """
     Returns total counts for dashboard overview.
     When `repo_names` is given (even empty), counts only nodes of those repositories.
+    Includes on-disk fallback when Neo4j is offline or running in 2-service mode.
     """
-    with driver.session() as session:
-        if repo_names is None:
-            result = session.run("""
-            RETURN
-              COUNT { MATCH (r:Repository) } AS repositories,
-              COUNT { MATCH (f:File) } AS files,
-              COUNT { MATCH (c:Class) } AS classes,
-              COUNT { MATCH (fn:Function) } AS functions,
-              COUNT { MATCH ()-[rel]->() } AS relationships
-            """)
-        else:
-            result = session.run("""
-            RETURN
-              COUNT { MATCH (r:Repository) WHERE r.name IN $names } AS repositories,
-              COUNT { MATCH (f:File) WHERE f.repo IN $names } AS files,
-              COUNT { MATCH (c:Class) WHERE c.repo IN $names } AS classes,
-              COUNT { MATCH (fn:Function) WHERE fn.repo IN $names } AS functions,
-              COUNT { MATCH (a)-[rel]->() WHERE a.repo IN $names OR (a:Repository AND a.name IN $names) } AS relationships
-            """, names=list(repo_names))
-        rec = result.single()
-        if rec:
-            return dict(rec)
+    if is_neo4j_available():
+        try:
+            with driver.session() as session:
+                if repo_names is None:
+                    result = session.run("""
+                    RETURN
+                      COUNT { MATCH (r:Repository) } AS repositories,
+                      COUNT { MATCH (f:File) } AS files,
+                      COUNT { MATCH (c:Class) } AS classes,
+                      COUNT { MATCH (fn:Function) } AS functions,
+                      COUNT { MATCH ()-[rel]->() } AS relationships
+                    """)
+                else:
+                    result = session.run("""
+                    RETURN
+                      COUNT { MATCH (r:Repository) WHERE r.name IN $names } AS repositories,
+                      COUNT { MATCH (f:File) WHERE f.repo IN $names } AS files,
+                      COUNT { MATCH (c:Class) WHERE c.repo IN $names } AS classes,
+                      COUNT { MATCH (fn:Function) WHERE fn.repo IN $names } AS functions,
+                      COUNT { MATCH (a)-[rel]->() WHERE a.repo IN $names OR (a:Repository AND a.name IN $names) } AS relationships
+                    """, names=list(repo_names))
+                rec = result.single()
+                if rec:
+                    return dict(rec)
+        except Exception:
+            pass
+
+    # Disk fallback when Neo4j is offline or disabled
+    try:
+        from app.core.repo_manager import list_all_repositories
+        all_repos = list_all_repositories()
+        if repo_names is not None:
+            names_set = set(repo_names)
+            all_repos = [r for r in all_repos if r["name"] in names_set]
+        return {
+            "repositories": len(all_repos),
+            "files": sum(r.get("total_files", 0) for r in all_repos),
+            "classes": sum(r.get("total_classes", 0) for r in all_repos),
+            "functions": sum(r.get("total_functions", 0) for r in all_repos),
+            "relationships": 0,
+        }
+    except Exception:
         return {"repositories": 0, "files": 0, "classes": 0, "functions": 0, "relationships": 0}
 
 def resolve_cross_references(repo_name: str = None):
