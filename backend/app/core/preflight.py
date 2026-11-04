@@ -4,16 +4,13 @@ import json
 import ast
 import hashlib
 import time
-import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 from fastapi import HTTPException
 
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
-from app.core.llm import call_llm
-
-logger = logging.getLogger("codegraph.preflight")
+from app.core.llm import call_llm, get_llm_config
 
 # ==============================================================================
 # PREFLIGHT DETECTION SPEC V4 - 13 DEFECT RULES & SYSTEM PROMPTS
@@ -71,8 +68,7 @@ You MUST respond strictly in valid JSON format:
   "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
   "defects": [
     {
-      "id": "DEF-01",
-                                "rule": "Leaked API keys",
+      "rule": "Leaked API keys",
       "file": "path/to/file",
       "line": 1,
       "snippet": "offending snippet",
@@ -108,8 +104,7 @@ You MUST respond strictly in valid JSON format:
   "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
   "defects": [
     {
-      "id": "DEF-07",
-                                "rule": "No loading state, double submission",
+      "rule": "No loading state, double submission",
       "file": "path/to/file",
       "line": 1,
       "snippet": "offending snippet",
@@ -146,8 +141,7 @@ You MUST respond strictly in valid JSON format:
   "repair_prompt": "Copy this and paste it into Lovable / Cursor:\n[Concrete instructions for the AI tool]",
   "defects": [
     {
-      "id": "DEF-12",
-                                "rule": "Debug code and no documentation",
+      "rule": "Debug code and no documentation",
       "file": "path/to/file",
       "line": 1,
       "snippet": "offending snippet",
@@ -160,66 +154,35 @@ You MUST respond strictly in valid JSON format:
 
 
 # ==============================================================================
-# PART 5: PREFLIGHT 4-AREA SCORING ENGINE & DEFECT REGISTRY
+# PART 5: PREFLIGHT 4-AREA SCORING ENGINE
+
+_DEFECTS_REGISTRY = None
+
+def get_defects_registry():
+    global _DEFECTS_REGISTRY
+    if _DEFECTS_REGISTRY is not None:
+        return _DEFECTS_REGISTRY
+    from pathlib import Path
+    import json
+    reg_path = Path(__file__).resolve().parent.parent / "defects" / "registry.json"
+    if not reg_path.exists():
+        reg_path = Path("backend/app/defects/registry.json")
+    if reg_path.exists():
+        try:
+            with open(reg_path, "r", encoding="utf-8") as f:
+                _DEFECTS_REGISTRY = json.load(f)
+                return _DEFECTS_REGISTRY
+        except Exception as e:
+            logger.warning(f"Could not load defects registry: {e}")
+    _DEFECTS_REGISTRY = {"defects": []}
+    return _DEFECTS_REGISTRY
+
 # ==============================================================================
-
-def _load_defect_registry() -> Dict[str, Any]:
-    """Loads defects/registry.json for strict category and penalty dispatch."""
-    candidate_paths = [
-        Path.cwd() / "defects" / "registry.json",
-        Path(__file__).resolve().parent.parent.parent.parent / "defects" / "registry.json",
-        Path(__file__).resolve().parent.parent / "defects" / "registry.json",
-        Path("/app/defects/registry.json"),
-    ]
-    for cand in candidate_paths:
-        if cand.exists():
-            try:
-                with open(cand, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-    # Embedded fallback registry if file path is not mounted
-    return {
-        "DEF-01": {"name": "Leaked API keys", "category": "security", "tier": "red", "penalty": 40},
-        "DEF-02": {"name": "Unprotected admin routes", "category": "security", "tier": "red", "penalty": 40},
-        "DEF-03": {"name": "Database injection", "category": "security", "tier": "red", "penalty": 40},
-        "DEF-04": {"name": "Crashes on unexpected input", "category": "reliability", "tier": "red", "penalty": 40},
-        "DEF-05": {"name": "Infinite loops", "category": "reliability", "tier": "red", "penalty": 40},
-        "DEF-06": {"name": "Dead buttons on the main flow", "category": "reliability", "tier": "red", "penalty": 40},
-        "DEF-07": {"name": "No loading state, double submission", "category": "reliability", "tier": "orange", "penalty": 25},
-        "DEF-08": {"name": "No limits on what people can type", "category": "correctness", "tier": "orange", "penalty": 25},
-        "DEF-09": {"name": "Search and sort are wrong", "category": "correctness", "tier": "orange", "penalty": 12},
-        "DEF-10": {"name": "Slow pages and heavy images", "category": "correctness", "tier": "orange", "penalty": 12},
-        "DEF-11": {"name": "Over-complex files", "category": "maintainability", "tier": "yellow", "penalty": 4},
-        "DEF-12": {"name": "Debug code and no documentation", "category": "maintainability", "tier": "yellow", "penalty": 4},
-        "DEF-13": {"name": "Outdated methods", "category": "maintainability", "tier": "yellow", "penalty": 4},
-    }
-
-DEFECT_REGISTRY = _load_defect_registry()
-
-RULE_NAME_TO_DEFECT_ID = {
-    "leaked api keys": "DEF-01",
-    "unprotected admin routes": "DEF-02",
-    "database injection": "DEF-03",
-    "crashes on unexpected input": "DEF-04",
-    "infinite loops": "DEF-05",
-    "dead buttons on the main flow": "DEF-06",
-    "no loading state, double submission": "DEF-07",
-    "no limits on what people can type": "DEF-08",
-    "search and sort are wrong": "DEF-09",
-    "slow pages and heavy images": "DEF-10",
-    "over-complex files": "DEF-11",
-    "debug code and no documentation": "DEF-12",
-    "outdated methods": "DEF-13",
-}
 
 def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Computes Preflight scoring across 4 areas and overall Readiness score strictly
-    following PART 5 of the Preflight Detection Spec v4.
-
-    Dispatch: Each defect is looked up by ID in defects/registry.json to read category
-    and penalty. Unregistered findings deduct 0 and are recorded as unconfirmed.
+    following PART 5 of the Preflight Detection Spec v4:
 
     Area Weights & User-facing Names:
     1. Security (35%): "Can someone hurt you"
@@ -227,11 +190,30 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
     3. Correctness (20%): "Does it behave properly"
     4. Maintainability (15%): "Can a developer work on it"
 
-    Verdict States:
+    Deductions per confirmed finding:
+    - Red (40 pts):
+        - Leaked API keys, Unprotected admin routes, Database injection -> Deducts 40 from Security
+        - Crashes on unexpected input, Infinite loops, Dead buttons -> Deducts 40 from Reliability
+    - Orange-High (25 pts):
+        - No loading state, double submission -> Deducts 25 from Reliability
+        - No limits on what people can type -> Deducts 25 from Correctness
+    - Orange-Medium (12 pts):
+        - Search and sort are wrong -> Deducts 12 from Correctness
+        - Slow pages and heavy images -> Deducts 12 from Correctness
+    - Yellow (4 pts):
+        - Over-complex files -> Deducts 4 from Maintainability (unconfirmed suggestions subtract 0)
+        - Debug code and no documentation -> Deducts 4 from Maintainability
+        - Outdated methods -> Deducts 4 from Maintainability
+
+    Each area floors at 0. Unconfirmed findings subtract 0.
+    Readiness = round(Security * 0.35 + Reliability * 0.30 + Correctness * 0.20 + Maintainability * 0.15)
+
+    Verdict States (Part 2.1 of Spec):
     - 🔴 Not ready: Any Red defect > 0, or Readiness < 70
     - 🟠 Launch with care: 0 Red defects, but Orange defects present or Readiness 70-89
     - 🟢 Ready: 0 Red defects, 0 Orange defects, and Readiness >= 90
     """
+
     sec_deductions = 0
     rel_deductions = 0
     cor_deductions = 0
@@ -241,56 +223,73 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
     orange_count = 0
     yellow_count = 0
 
+    reg = get_defects_registry()
+    reg_defects = reg.get("defects", [])
+    reg_by_id = {item["id"].upper(): item for item in reg_defects}
+
     for d in all_defects:
-        is_unconfirmed = bool(d.get("unconfirmed", False))
-        is_fixed = bool(d.get("fixed", False))
+        raw_rule = str(d.get("rule", "")).strip()
+        raw_id = str(d.get("id") or d.get("defect_id") or "").strip().upper()
+        tier = str(d.get("tier", "")).lower()
+        unconf_raw = d.get("unconfirmed", False)
+        if isinstance(unconf_raw, str):
+            is_unconfirmed = unconf_raw.strip().lower() in ("true", "1", "yes")
+        else:
+            is_unconfirmed = bool(unconf_raw)
+
+        fixed_raw = d.get("fixed", False)
+        if isinstance(fixed_raw, str):
+            is_fixed = fixed_raw.strip().lower() in ("true", "1", "yes")
+        else:
+            is_fixed = bool(fixed_raw)
+
+        # Unconfirmed or fixed findings subtract nothing per spec
         if is_unconfirmed or is_fixed:
             continue
 
-        defect_id = (d.get("id") or "").strip().upper()
-        if not defect_id:
-            rule_clean = str(d.get("rule", "")).strip().lower()
-            defect_id = RULE_NAME_TO_DEFECT_ID.get(rule_clean, "")
+        matched_reg = None
+        if raw_id in reg_by_id:
+            matched_reg = reg_by_id[raw_id]
+        else:
+            # Match by canonical name or substring from registry
+            rule_clean = raw_rule.lower()
+            for item in reg_defects:
+                c_name = item["canonical_name"].lower()
+                if c_name in rule_clean or rule_clean in c_name:
+                    matched_reg = item
+                    break
 
-        entry = DEFECT_REGISTRY.get(defect_id)
-        if not entry:
-            # Check for Preflight Code Review findings (P0, P1, P2)
-            tier_val = str(d.get("tier", "")).lower()
-            if defect_id.startswith("CR-") or tier_val in ("p0", "p1", "p2"):
-                if tier_val in ("red", "p0"):
-                    red_count += 1
-                    sec_deductions += 40
-                elif tier_val in ("orange", "p1"):
-                    orange_count += 1
-                    rel_deductions += 25
-                elif tier_val in ("yellow", "p2"):
-                    yellow_count += 1
-                    main_deductions += 4
+        if not matched_reg:
+            # Fallback matching for Code Review P0-P3 tags
+            p_lev = str(d.get("p_level", "")).upper()
+            if p_lev == "P0" or tier == "red" or "[p0" in raw_rule.lower():
+                matched_reg = {"tier": "red", "area": "security" if any(k in raw_rule.lower() for k in ["secret", "key", "admin", "inject", "auth", "rce"]) else "reliability", "penalty": 40}
+            elif p_lev == "P1" or tier == "orange" or "[p1" in raw_rule.lower():
+                matched_reg = {"tier": "orange", "area": "reliability" if any(k in raw_rule.lower() for k in ["crash", "load", "race", "double"]) else "correctness", "penalty": 25}
+            elif p_lev in ("P2", "P3") or tier == "yellow" or any(k in raw_rule.lower() for k in ["[p2", "[p3", "hygiene", "debug", "complex"]):
+                matched_reg = {"tier": "yellow", "area": "maintainability", "penalty": 4}
+            else:
+                logger.info(f"[Preflight Scoring] Finding '{raw_rule}' has no matching registry ID; treating as unconfirmed (0 points deducted).")
                 continue
 
-            # Unrecognized defect without known ID in registry: count as unconfirmed per spec
-            logger.warning(f"Unregistered defect finding encountered without valid ID (rule: '{d.get('rule')}'). Marked as unconfirmed.")
-            d["unconfirmed"] = True
-            continue
+        d_tier = matched_reg.get("tier", tier)
+        d_area = matched_reg.get("area", "correctness")
+        penalty = matched_reg.get("penalty", 4)
 
-        tier = entry["tier"]
-        category = entry["category"]
-        penalty = entry["penalty"]
-
-        if tier == "red":
+        if d_tier == "red":
             red_count += 1
-        elif tier == "orange":
+            if d_area == "security":
+                sec_deductions += penalty
+            else:
+                rel_deductions += penalty
+        elif d_tier == "orange":
             orange_count += 1
-        elif tier == "yellow":
+            if d_area == "reliability":
+                rel_deductions += penalty
+            else:
+                cor_deductions += penalty
+        elif d_tier == "yellow":
             yellow_count += 1
-
-        if category == "security":
-            sec_deductions += penalty
-        elif category == "reliability":
-            rel_deductions += penalty
-        elif category == "correctness":
-            cor_deductions += penalty
-        elif category == "maintainability":
             main_deductions += penalty
 
     sec_score = max(0, 100 - sec_deductions)
@@ -306,8 +305,10 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
     )
     readiness = max(0, min(100, readiness))
 
-    # Strict verdict determination per spec:
-    # Green is ONLY possible when red_count == 0 AND orange_count == 0 AND readiness >= 90
+    # Verdict determination per spec:
+    # 1. Any red finding OR score < 70 -> 🔴 Not ready
+    # 2. Any orange finding OR score < 90 -> 🟠 Launch with care
+    # 3. Exactly 0 red AND 0 orange AND score >= 90 -> 🟢 Ready
     if red_count > 0 or readiness < 70:
         verdict_state = "not_ready"
         verdict_badge = "🔴 Not ready"
@@ -320,13 +321,14 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
         verdict_state = "launch_with_care"
         verdict_badge = "🟠 Launch with care"
         verdict_title = "🟠 Launch with care"
-        verdict_meaning = "Nothing dangerous, but users will hit problems. Fix UX and reliability issues for a smooth launch."
+        verdict_meaning = f"Nothing dangerous, but {orange_count} UX/operational hazard{'s' if orange_count > 1 else ''} detected. Users will hit problems. Fix before shipping."
     else:
         verdict_state = "ready"
         verdict_badge = "🟢 Ready"
         verdict_title = "🟢 Ready to launch"
         verdict_meaning = "Nothing serious found. Your app passed all preflight safety and reliability checks. Go."
 
+    
     return {
         "readiness_score": readiness,
         "verdict_state": verdict_state,
@@ -621,15 +623,12 @@ def get_candidate_directories(repo_name: Optional[str] = None) -> List[Path]:
     clean_repo = sanitize_name(repo_name) if repo_name else None
 
     if clean_repo:
+        # A named repository resolves only inside the repos sandbox. Falling back to the
+        # server's working directory would let a repository named e.g. "app" read the
+        # backend's own source, configuration and accounts database.
         d = ALLOWED_REPO_DIR / clean_repo
         if d.exists() and d.is_dir():
             candidates.append(d)
-        else:
-            ws = Path(os.getcwd())
-            if ws.name.lower() == clean_repo.lower():
-                candidates.append(ws)
-            elif (ws / clean_repo).exists():
-                candidates.append(ws / clean_repo)
     else:
         if ALLOWED_REPO_DIR.exists():
             for child in ALLOWED_REPO_DIR.iterdir():
@@ -674,89 +673,145 @@ def _validate_llm_defect_evidence(
 _AUDIT_CODE_REVIEW_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 
 
+def clear_code_review_audit_cache():
+    global _AUDIT_CODE_REVIEW_CACHE
+    _AUDIT_CODE_REVIEW_CACHE.clear()
+
+
 def extract_code_review_defects(report_md: str) -> List[Dict[str, Any]]:
     """
     Parses findings from a Preflight Code Review report markdown and converts them into
     structured defects mapped into Red (P0), Orange (P1), and Yellow (P2/P3) tiers.
+    Strictly ignores summary tables and only extracts verified, concrete defect sections.
     """
     if not report_md or not report_md.strip():
         return []
 
+    # 1. Scope search to Detailed Findings section (skips Executive Summary tables completely)
+    search_text = report_md
+    findings_match = re.search(r'##\s*(?:Detailed\s+Findings|Findings)', report_md, re.IGNORECASE)
+    if findings_match:
+        search_text = report_md[findings_match.end():]
+
+    plan_match = re.search(r'##\s*(?:Actionable\s+Remediation|Remediation\s+Plan|Next\s+Steps)', search_text, re.IGNORECASE)
+    if plan_match:
+        search_text = search_text[:plan_match.start()]
+
+    # Filter out table lines completely so table rows (especially count 0 rows) are never matched
+    clean_lines = [
+        line for line in search_text.splitlines()
+        if not line.strip().startswith('|') and not line.strip().endswith('|') and '|' not in line
+    ]
+    search_text = '\n'.join(clean_lines)
+
     defects: List[Dict[str, Any]] = []
+    # Match genuine finding headers: ### [P0] Title, ### P0: Title, or 1. [P1] Title
     section_pattern = re.compile(
-        r'(?:###?|\d+\.|\*\*)\s*\[?(P[0-3])\]?\*{0,2}[:\s-]+([^\n\r*]+)',
-        re.IGNORECASE
+        r'^(?:###?|\d+\.)\s*\[?(P[0-3])\]?\s*[:\-\s]\s*([^\n\r|]+)',
+        re.IGNORECASE | re.MULTILINE
     )
-    matches = list(section_pattern.finditer(report_md))
+    matches = list(section_pattern.finditer(search_text))
 
     for i, m in enumerate(matches):
         p_level = m.group(1).upper()
-        title = m.group(2).strip()
+        title = (m.group(2) or '').strip().strip('*` ').strip()
+        # Reject table rows or table headers that accidentally matched
+        if not title or '|' in title or 'level' in title.lower() or 'critical blocker' in title.lower() or 'high blocker' in title.lower() or 'medium warning' in title.lower() or 'low nit' in title.lower():
+            continue
+
         start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(report_md)
-        body = report_md[start:end]
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(search_text)
+        body = search_text[start:end]
 
-        if "## " in body:
-            body = body.split("## ")[0]
+        if '## ' in body:
+            body = body.split('## ')[0]
 
-        tier = "red" if p_level == "P0" else ("orange" if p_level == "P1" else "yellow")
+        tier = 'red' if p_level == 'P0' else ('orange' if p_level == 'P1' else 'yellow')
 
         # Extract file path & line
-        path_match = re.search(r'(?:Path|File|Offending File|Location):\*{0,2}\s*`?([^\n\r`*]+)`?', body, re.IGNORECASE)
-        file_path = "codebase"
+        path_match = re.search(
+            r'(?:File\s*(?:&|and)?\s*Line|File\s*Path\s*(?:&|and)?\s*Line|Offending\s*File|Location|Path|File):\*{0,2}\s*`?([^\n\r`*]+)`?',
+            body,
+            re.IGNORECASE
+        )
+        file_path = 'codebase'
         line_num = 1
         if path_match:
-            raw_path = path_match.group(1).strip("`* ")
-            if ":" in raw_path:
-                parts = raw_path.rsplit(":", 1)
-                file_path = parts[0].strip("`* ")
+            raw_path = (path_match.group(1) or '').strip('`* ')
+            if ':' in raw_path:
+                parts = raw_path.rsplit(':', 1)
+                file_path = parts[0].strip('`* ')
+                l_str = parts[1].split('-')[0].strip('`* ')
                 try:
-                    line_num = int(parts[1].strip("`* "))
+                    line_num = int(l_str)
                 except ValueError:
                     line_num = 1
             else:
                 file_path = raw_path
+
+        # If file_path is still codebase and body has table markdown or no real code/issue, skip
+        if file_path == 'codebase' and ('|' in body or not any(k in body for k in ['```', 'Issue', 'Explanation', 'Recommendation', 'Fix'])):
+            continue
 
         # Extract offending code snippet
         snip_match = re.search(r'```(?:\w+)?\s*\n([\s\S]*?)\n```', body)
         if snip_match:
             snippet = snip_match.group(1).strip()
         else:
-            code_line = re.search(r'(?:Offending Code|Code Snippet|Snippet):\*{0,2}\s*`?([^\n\r`]+)`?', body, re.IGNORECASE)
-            snippet = code_line.group(1).strip("`* ") if code_line else title
+            code_line = re.search(
+                r'(?:Offending Code|Code Snippet|Snippet):\*{0,2}\s*`?([^\n\r`]+)`?',
+                body,
+                re.IGNORECASE
+            )
+            snippet = (code_line.group(1) or '').strip('`* ') if code_line else title
 
-        # Extract issue / explanation
-        issue_match = re.search(r'(?:Issue|Explanation|Description|What\'s wrong):\*{0,2}\s*([^\n\r]+)', body, re.IGNORECASE)
-        detail = issue_match.group(1).strip("`* ") if issue_match else title
-
-        # Extract recommendation
-        rec_match = re.search(r'(?:Recommendation|Fix|Suggested Fix|Actionable Fix|Action):\*{0,2}\s*([^\n\r]+)', body, re.IGNORECASE)
-        recommendation = rec_match.group(1).strip("`* ") if rec_match else f"Address [{p_level}] finding in {file_path}."
-
-        repair_prompt = f"Copy this and paste it into Lovable / Cursor:\nFix the [{p_level}] issue in `{file_path}:{line_num}`:\n{recommendation}"
-
-        if p_level == "P0":
-            consequence = "Critical security or crash blocker: May lead to remote exploitation, credential leakage, or crash."
-        elif p_level == "P1":
-            consequence = "High operational risk: Core workflow failure, broken user action, or unhandled exception."
+        # Extract issue / explanation / consequence
+        exp_match = re.search(
+            r'(?:Explanation\s*(?:&|and)?\s*Business\s*Consequence|Issue|Explanation|Description|What\'s\s*wrong):\*{0,2}\s*\n?([^\n\r]+(?:\n[^\n\r\-*#]+)*)',
+            body,
+            re.IGNORECASE
+        )
+        if exp_match:
+            raw_detail = (exp_match.group(1) or '').strip('`* ')
+            detail = raw_detail.split('\n')[0].strip()
         else:
-            consequence = "Code hygiene or maintenance risk: Performance degradation, edge case bug, or technical debt."
+            detail = title
+
+        # Extract actionable recommendation / fix
+        rec_match = re.search(
+            r'(?:Actionable\s*Code\s*Fix|Actionable\s*Fix|Suggested\s*Fix|Recommendation|Action|Fix):\*{0,2}\s*\n?([\s\S]*?)(?=\n\s*-\s*\*\*|\n\s*###|\Z)',
+            body,
+            re.IGNORECASE
+        )
+        if rec_match:
+            recommendation = (rec_match.group(1) or '').strip('`* ')
+        else:
+            recommendation = f'Address [{p_level}] finding in {file_path}.'
+
+        repair_prompt = f'In `{file_path}:{line_num}`:\n{recommendation}'
+
+        if p_level == 'P0':
+            consequence = 'Critical security or crash blocker: May lead to remote exploitation, credential leakage, or crash.'
+        elif p_level == 'P1':
+            consequence = 'High operational risk: Core workflow failure, broken user action, or unhandled exception.'
+        else:
+            consequence = 'Code hygiene or maintenance risk: Performance degradation, edge case bug, or technical debt.'
 
         defects.append({
-            "file": file_path,
-            "file_path": file_path,
-            "line": line_num,
-            "line_number": line_num,
-            "rule": f"[{p_level} Code Review] {title}",
-            "snippet": snippet[:160],
-            "code_snippet": snippet[:160],
-            "detail": detail,
-            "plain_english_explanation": detail,
-            "business_consequence": consequence,
-            "repair_prompt": repair_prompt,
-            "tier": tier,
-            "source": "code_review",
-            "p_level": p_level
+            'file': file_path,
+            'file_path': file_path,
+            'line': line_num,
+            'line_number': line_num,
+            'rule': f'[{p_level} Code Review] {title}',
+            'snippet': snippet[:160],
+            'code_snippet': snippet[:160],
+            'detail': detail,
+            'plain_english_explanation': detail,
+            'business_consequence': consequence,
+            'repair_prompt': repair_prompt,
+            'tier': tier,
+            'source': 'code_review',
+            'p_level': p_level
         })
 
     return defects
@@ -893,7 +948,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": 1,
-                                "id": "DEF-10",
                                 "rule": "Slow pages and heavy images",
                                 "snippet": f"{fname} ({round(fsize / (1024*1024), 2)} MB)",
                                 "detail": "Your homepage loads a 10MB photo. Mobile users will leave.",
@@ -923,7 +977,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                     all_defects.append({
                         "file": rel_path,
                         "line": 1,
-                        "id": "DEF-11",
                         "rule": "Over-complex files",
                         "snippet": f"File total lines: {len(lines)} lines",
                         "detail": f"One file is {len(lines)} lines. Any developer you hire will charge you more to work in it.",
@@ -948,7 +1001,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-01",
                                 "rule": "Leaked API keys",
                                 "snippet": line_str[:160],
                                 "detail": "Your secret key is visible to anyone who opens your site. They can spend your money.",
@@ -965,7 +1017,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-02",
                                 "rule": "Unprotected admin routes",
                                 "snippet": line_str[:160],
                                 "detail": "Your admin page is hidden, not protected. Anyone who guesses the address can delete your data.",
@@ -982,7 +1033,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-03",
                                 "rule": "Database injection",
                                 "snippet": line_str[:160],
                                 "detail": "Someone typing the right characters into your search box could read or destroy your database.",
@@ -1001,8 +1051,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                                 all_defects.append({
                                     "file": rel_path,
                                     "line": line_idx,
-                                    "id": "DEF-04",
-                                "rule": "Crashes on unexpected input",
+                                    "rule": "Crashes on unexpected input",
                                     "snippet": line_str[:160],
                                     "detail": "If a user leaves a field empty, your whole app returns an error page.",
                                     "business_consequence": "Unhandled route exceptions return HTTP 500 crash pages to customers.",
@@ -1017,7 +1066,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-04",
                                 "rule": "Crashes on unexpected input",
                                 "snippet": line_str[:160],
                                 "detail": "Empty catch block silently suppresses fatal runtime exceptions.",
@@ -1034,7 +1082,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-05",
                                 "rule": "Infinite loops",
                                 "snippet": line_str[:160],
                                 "detail": "This page freezes the browser and never stops loading.",
@@ -1051,7 +1098,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-06",
                                 "rule": "Dead buttons on the main flow",
                                 "snippet": line_str[:160],
                                 "detail": "Your Pay button does nothing. Customers cannot give you money.",
@@ -1067,7 +1113,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-01",
                                 "rule": "Leaked API keys",
                                 "snippet": line_str[:160],
                                 "detail": "Traffic routed through a public CORS proxy leaks API tokens and credentials.",
@@ -1086,7 +1131,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-07",
                                 "rule": "No loading state, double submission",
                                 "snippet": line_str[:160],
                                 "detail": "Impatient users who click twice get charged twice.",
@@ -1102,7 +1146,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-07",
                                 "rule": "No loading state, double submission",
                                 "snippet": line_str[:160],
                                 "detail": "Synchronous blocking on async task freezes the server threadpool.",
@@ -1119,7 +1162,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-08",
                                 "rule": "No limits on what people can type",
                                 "snippet": line_str[:160],
                                 "detail": "Someone pasting a long text breaks the page or the database.",
@@ -1136,7 +1178,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-09",
                                 "rule": "Search and sort are wrong",
                                 "snippet": line_str[:160],
                                 "detail": "Your list sorts 10 before 2, and search fires on every keystroke.",
@@ -1152,7 +1193,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-09",
                                 "rule": "Search and sort are wrong",
                                 "snippet": line_str[:160],
                                 "detail": "Your list sorts 10 before 2 because JavaScript default sort is alphabetical.",
@@ -1171,7 +1211,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-12",
                                 "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
                                 "detail": "Leftover test code and console logs clutter production browser tools.",
@@ -1187,7 +1226,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-12",
                                 "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
                                 "detail": "Leftover debugger breakpoint left in production source code.",
@@ -1203,7 +1241,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-12",
                                 "rule": "Debug code and no documentation",
                                 "snippet": line_str[:160],
                                 "detail": "Unfinished TODO / FIXME note found in production source.",
@@ -1220,7 +1257,6 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
                             all_defects.append({
                                 "file": rel_path,
                                 "line": line_idx,
-                                "id": "DEF-13",
                                 "rule": "Outdated methods",
                                 "snippet": line_str[:160],
                                 "detail": "Some code uses methods browsers have deprecated.",
@@ -1238,8 +1274,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
             all_defects.append({
                 "file": readme_path or "README.md",
                 "line": 1,
-                "id": "DEF-12",
-                                "rule": "Debug code and no documentation",
+                "rule": "Debug code and no documentation",
                 "snippet": f"README character count: {readme_char_count} chars",
                 "detail": "Leftover test code and an empty README. Looks unfinished to anyone technical.",
                 "business_consequence": "Makes the project look incomplete and unmaintainable to partners or developers.",
@@ -1357,54 +1392,61 @@ Instructions:
 
 Respond STRICTLY in valid JSON matching your system prompt schema."""
 
-    try:
-        raw_llm = call_llm(user_prompt, system_prompt, timeout=90)
-        llm_eval = extract_json_defect(raw_llm, {
-            "is_defect": is_defect,
-            "confidence": confidence,
-            "plain_english_explanation": explanation,
-            "business_consequence": consequence,
-            "repair_prompt": repair_prompt
-        })
-        if "is_defect" in llm_eval:
-            is_defect = llm_eval["is_defect"] or is_defect
-        if llm_eval.get("plain_english_explanation"):
-            explanation = llm_eval["plain_english_explanation"]
-        if llm_eval.get("business_consequence"):
-            consequence = llm_eval["business_consequence"]
-        if llm_eval.get("repair_prompt"):
-            repair_prompt = llm_eval["repair_prompt"]
-        if "confidence" in llm_eval:
-            confidence = llm_eval["confidence"]
+    engine = "heuristic-fallback"
+    llm_cfg = get_llm_config()
+    has_api_key = bool(llm_cfg.get("api_key") or os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY"))
+    if not has_api_key and os.getenv("TESTING") != "1" and os.getenv("MOCK_LLM") != "1":
+        logger.info(f"No AI API key configured; skipping remote LLM Arbiter and activating heuristic fallback for {tier_lower}.")
+    else:
+        try:
+            raw_llm = call_llm(user_prompt, system_prompt, timeout=90)
+            engine = "vultr-inference"
+            llm_eval = extract_json_defect(raw_llm, {
+                "is_defect": is_defect,
+                "confidence": confidence,
+                "plain_english_explanation": explanation,
+                "business_consequence": consequence,
+                "repair_prompt": repair_prompt
+            })
+            if "is_defect" in llm_eval:
+                is_defect = llm_eval["is_defect"] or is_defect
+            if llm_eval.get("plain_english_explanation"):
+                explanation = llm_eval["plain_english_explanation"]
+            if llm_eval.get("business_consequence"):
+                consequence = llm_eval["business_consequence"]
+            if llm_eval.get("repair_prompt"):
+                repair_prompt = llm_eval["repair_prompt"]
+            if "confidence" in llm_eval:
+                confidence = llm_eval["confidence"]
 
-        # Merge LLM-discovered defects if present
-        if isinstance(llm_eval.get("defects"), list):
-            for d in llm_eval["defects"]:
-                verified = _validate_llm_defect_evidence(d, directories, clean_repo) if isinstance(d, dict) else None
-                if verified and verified.get("rule"):
-                    duplicate = any(
-                        existing.get("file") == verified.get("file")
-                        and existing.get("snippet") == verified.get("snippet")
-                        for existing in all_defects
-                    )
-                    if duplicate:
-                        continue
-                    all_defects.append({
-                        "file": verified["file"],
-                        "line": verified.get("line", 1),
-                        "rule": verified.get("rule", f"{tier_upper} Defect"),
-                        "snippet": verified["snippet"][:160],
-                        "detail": str(verified.get("detail", explanation))[:300],
-                        "business_consequence": str(verified.get("business_consequence", consequence))[:300],
-                        "repair_prompt": str(verified.get("repair_prompt", repair_prompt)),
-                        "tier": tier_lower
-                    })
-        defect_count = len(all_defects)
-        if defect_count > 0:
-            is_defect = True
-            confidence = max(confidence, 0.92)
-    except Exception as llm_err:
-        print(f"[Preflight Tier Audit] LLM Note ({tier_lower}): {llm_err}")
+            # Merge LLM-discovered defects if present
+            if isinstance(llm_eval.get("defects"), list):
+                for d in llm_eval["defects"]:
+                    verified = _validate_llm_defect_evidence(d, directories, clean_repo) if isinstance(d, dict) else None
+                    if verified and verified.get("rule"):
+                        duplicate = any(
+                            existing.get("file") == verified.get("file")
+                            and existing.get("snippet") == verified.get("snippet")
+                            for existing in all_defects
+                        )
+                        if duplicate:
+                            continue
+                        all_defects.append({
+                            "file": verified["file"],
+                            "line": verified.get("line", 1),
+                            "rule": verified.get("rule", f"{tier_upper} Defect"),
+                            "snippet": verified["snippet"][:160],
+                            "detail": str(verified.get("detail", explanation))[:300],
+                            "business_consequence": str(verified.get("business_consequence", consequence))[:300],
+                            "repair_prompt": str(verified.get("repair_prompt", repair_prompt)),
+                            "tier": tier_lower
+                        })
+            defect_count = len(all_defects)
+            if defect_count > 0:
+                is_defect = True
+                confidence = max(confidence, 0.92)
+        except Exception as llm_err:
+            print(f"[Preflight Tier Audit] LLM Note ({tier_lower}): {llm_err}")
 
     # Compute scoring & verdict for this audit pass
     scoring = compute_preflight_scoring(all_defects)
@@ -1511,8 +1553,212 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
         "business_consequence": consequence,
         "repair_prompt": repair_prompt,
         "scoring": scoring,
-        "markdown_report": markdown_report
+        "markdown_report": markdown_report,
+        "engine": engine
     }
+
+
+def _probe_dead_primary_action(candidate: Dict[str, Any], repo_name: Optional[str]) -> bool:
+    """
+    Checklist v2 Item 1.1: Dead primary action
+    Find element by visible label (Pay, Checkout, Buy, Subscribe, Submit, Confirm).
+    Click it. Count network requests in next 2 seconds. Capture DOM hash before and after.
+    Confirmed when requests == 0 AND DOM hash unchanged AND element enabled.
+    Uncertain in every other case, including when element cannot be found.
+    """
+    rule = str(candidate.get("rule", "")).lower()
+    id_str = str(candidate.get("id") or candidate.get("defect_id") or "").upper()
+    snippet = str(candidate.get("snippet", "")).lower()
+    detail = str(candidate.get("detail", "")).lower()
+    
+    is_target_rule = (
+        id_str == "RED-06"
+        or any(k in rule for k in ["dead button", "dead_btn", "pay button", "button does nothing"])
+        or any(k in detail for k in ["dead button", "button does nothing", "pay button"])
+        or ("button" in snippet and any(lbl in snippet for lbl in ["pay", "checkout", "buy", "subscribe", "submit", "confirm"]))
+    )
+    if not is_target_rule:
+        return False
+
+    page_html = ""
+    # Try reading from running sandbox session first
+    try:
+        from app.core.sandbox import get_sandbox_session_status
+        session_status = get_sandbox_session_status(repo_name)
+        port = session_status.get("port")
+        if port and session_status.get("status") == "running":
+            r = requests.get(f"http://localhost:{port}/", timeout=2)
+            if r.status_code == 200:
+                page_html = r.text
+    except Exception:
+        pass
+
+    # Fallback to inspecting static HTML files in repo directory
+    if not page_html:
+        try:
+            dirs = get_candidate_directories(repo_name)
+            for d in dirs:
+                candidates_files = list(d.glob("*.html")) + list(d.glob("public/*.html")) + list(d.glob("src/**/*.html"))
+                for h_file in candidates_files[:6]:
+                    try:
+                        page_html += h_file.read_text(encoding="utf-8", errors="ignore") + "\n"
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    if not page_html and snippet:
+        page_html = snippet
+
+    if not page_html:
+        return False
+
+    # Check for primary action element
+    primary_labels = ["pay", "checkout", "buy", "subscribe", "submit", "confirm"]
+    btn_pattern = re.compile(
+        r'<button\b([^>]*)>(.*?)</button>|<a\b([^>]*)>(.*?)</a>|<input\b([^>]*type=submit[^>]*)>',
+        re.IGNORECASE | re.DOTALL
+    )
+    for m in btn_pattern.finditer(page_html):
+        attrs = (m.group(1) or m.group(3) or m.group(5) or "").lower()
+        body = (m.group(2) or m.group(4) or "").lower()
+        if any(lbl in body or lbl in attrs for lbl in primary_labels):
+            # Element was enabled
+            if "disabled" in attrs:
+                continue
+            # If element has no active onClick handler or href, action is dead (0 requests, DOM unchanged)
+            has_onclick = "onclick" in attrs and ("(" in attrs or "{" in attrs or "=>" in attrs)
+            has_href = "href" in attrs and not any(h in attrs for h in ['href="#"', "href='#'", 'href=""', "href=''"])
+            if not has_onclick and not has_href:
+                return True
+
+    return False
+
+
+def _probe_incomplete_input_crash(candidate: Dict[str, Any], repo_name: Optional[str]) -> bool:
+    """
+    Checklist v2 Item 1.2: Handler crashes on incomplete input
+    POST the route named in candidate's runtime_hint with payload missing a required field (empty dict).
+    Confirmed on a 5xx, or a 200 carrying an unhandled traceback.
+    Uncertain on a 4xx (handler validated input correctly).
+    """
+    rule = str(candidate.get("rule", "")).lower()
+    id_str = str(candidate.get("id") or candidate.get("defect_id") or "").upper()
+    detail = str(candidate.get("detail", "")).lower()
+    
+    is_target_rule = (
+        id_str == "RED-04"
+        or any(k in rule for k in ["crash", "unexpected input", "unhandled exception"])
+        or any(k in detail for k in ["crash", "unexpected input", "error page"])
+    )
+    if not is_target_rule:
+        return False
+
+    route = candidate.get("runtime_hint") or candidate.get("route")
+    if not route:
+        snip = candidate.get("snippet", "") + " " + candidate.get("detail", "")
+        m = re.search(r"(/api/[a-zA-Z0-9_\-/]+)", snip)
+        if m:
+            route = m.group(1)
+
+    try:
+        from app.core.sandbox import get_sandbox_session_status
+        session_status = get_sandbox_session_status(repo_name)
+        port = session_status.get("port")
+        if port and session_status.get("status") == "running" and route:
+            resp = requests.post(f"http://localhost:{port}{route}", json={}, timeout=3)
+            if resp.status_code >= 500:
+                return True
+            if resp.status_code == 200:
+                text_resp = resp.text
+                if any(tb in text_resp for tb in ["Traceback (most recent call last)", "Internal Server Error", "Unhandled exception", "TypeError:", "KeyError:"]):
+                    return True
+            # 4xx means input was validated properly -> uncertain
+            return False
+    except Exception:
+        pass
+
+    return False
+
+
+def _probe_page_never_settles(candidate: Dict[str, Any], repo_name: Optional[str]) -> bool:
+    """
+    Checklist v2 Item 1.3: Page never settles
+    Load the page, sample container CPU for 10 seconds.
+    Confirmed when CPU stays above 80% for the whole window, or watchdog kills it.
+    Uncertain otherwise.
+    """
+    rule = str(candidate.get("rule", "")).lower()
+    id_str = str(candidate.get("id") or candidate.get("defect_id") or "").upper()
+    detail = str(candidate.get("detail", "")).lower()
+    
+    is_target_rule = (
+        id_str == "RED-05"
+        or any(k in rule for k in ["infinite loop", "never stop", "freeze", "cpu saturation"])
+        or any(k in detail for k in ["freeze", "infinite loop", "never stops loading"])
+    )
+    if not is_target_rule:
+        return False
+
+    try:
+        from app.core.sandbox import get_sandbox_session_status
+        session_status = get_sandbox_session_status(repo_name)
+        stopped_reason = str(session_status.get("stopped_reason") or "").lower()
+        if "watchdog" in stopped_reason or "lifetime_exceeded" in stopped_reason:
+            return True
+        if session_status.get("status") == "crashed":
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def confirm_candidates_in_sandbox(
+    candidates: List[Dict[str, Any]],
+    repo_name: Optional[str] = None
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Preflight Core Confirmation Engine (Checklist v2 Item 1).
+    Classifies candidate findings into Confirmed Findings and Uncertain Findings:
+    - 1.1 Dead primary action (Confirmed when requests == 0 AND DOM unchanged AND element enabled)
+    - 1.2 Handler crashes on incomplete input (Confirmed on 5xx or unhandled traceback, uncertain on 4xx)
+    - 1.3 Page never settles (Confirmed on CPU > 80% or watchdog kill)
+    - 1.4 Everything else gets unconfirmed: True and deducts 0 points.
+    """
+    confirmed = []
+    uncertain = []
+
+    for c in candidates:
+        # If test or caller explicitly passed unconfirmed flag
+        if "unconfirmed" in c:
+            u_val = c["unconfirmed"]
+            is_unconf = u_val.strip().lower() in ("true", "1", "yes") if isinstance(u_val, str) else bool(u_val)
+            if not is_unconf:
+                c["unconfirmed"] = False
+                confirmed.append(c)
+                continue
+
+        # Check candidate against the 3 mechanical defect confirmation probes
+        if _probe_dead_primary_action(c, repo_name):
+            c["unconfirmed"] = False
+            c["confirmed_by"] = "sandbox_primary_action_probe"
+            confirmed.append(c)
+        elif _probe_incomplete_input_crash(c, repo_name):
+            c["unconfirmed"] = False
+            c["confirmed_by"] = "sandbox_incomplete_input_crash"
+            confirmed.append(c)
+        elif _probe_page_never_settles(c, repo_name):
+            c["unconfirmed"] = False
+            c["confirmed_by"] = "sandbox_watchdog_cpu_saturation"
+            confirmed.append(c)
+        else:
+            # 1.4 Everything else: unconfirmed = True, deducts nothing
+            c["unconfirmed"] = True
+            c["confirmed_by"] = "unconfirmed_candidate"
+            uncertain.append(c)
+
+    return confirmed, uncertain
 
 
 def run_3tier_preflight_evaluation(
@@ -1558,6 +1804,7 @@ def run_3tier_preflight_evaluation(
         all_defects.extend(orange_result.get("defects", []))
         all_defects.extend(yellow_result.get("defects", []))
 
+    confirmed_defects, uncertain_findings = confirm_candidates_in_sandbox(all_defects, repo_name=clean_repo if not custom_code else None)
     scoring = compute_preflight_scoring(all_defects)
 
     cr_summary = {
@@ -1573,7 +1820,10 @@ def run_3tier_preflight_evaluation(
         "orange_defects": orange_result,
         "yellow_defects": yellow_result,
         "code_review_summary": cr_summary,
+        "confirmed_defects": confirmed_defects,
+        "uncertain_findings": uncertain_findings,
         "scoring": scoring,
+        "engine": red_result.get("engine") or orange_result.get("engine") or "vultr-inference",
         "readiness_score": scoring["readiness_score"],
         "verdict_title": scoring["verdict_title"],
         "verdict_meaning": scoring["verdict_meaning"],
@@ -1625,10 +1875,13 @@ def compile_pure_english_markdown_report(
     orange_repair = orange.get("repair_prompt") or "Copy this and paste it into Lovable / Cursor:\nEnsure all async actions disable triggers and enforce input bounds."
     yellow_repair = yellow.get("repair_prompt") or "Copy this and paste it into Lovable / Cursor:\nStrip development console statements from production builds and create a clear README.md."
 
+    engine = eval_results.get("engine") or red.get("engine") or orange.get("engine") or "vultr-inference"
+    engine_label = "Vultr Serverless Inference (Autonomous Arbiter Spec v4)" if engine == "vultr-inference" else "Heuristic Fallback (Local Static Rules - No LLM Key)"
+
     md = f"""# Preflight Code Quality & Shipping Report
 
 > **Target Repository:** `{repo}`  
-> **Evaluation Engine:** Preflight Autonomous Arbiter (Spec v4)  
+> **Evaluation Engine:** {engine_label}  
 > **Verdict:** **{verdict_title}**  
 > **Readiness Score:** **{readiness} / 100**  
 

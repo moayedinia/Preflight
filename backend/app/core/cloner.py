@@ -8,32 +8,41 @@ from typing import Optional
 from fastapi import HTTPException
 from urllib.parse import urlparse, urlunparse
 
-MAX_REPO_BYTES = int(os.getenv("MAX_REPO_BYTES", str(100 * 1024 * 1024)))  # 100 MB
-MAX_FILE_COUNT = int(os.getenv("MAX_FILE_COUNT", "5000"))
+from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 
-def _enforce_repo_limits(repo_path: Path):
-    """Enforces file count and total directory size caps on untrusted cloned/extracted repos."""
+MAX_REPO_SIZE_MB = int(os.getenv("MAX_REPO_SIZE_MB", "50"))
+MAX_REPO_FILE_COUNT = int(os.getenv("MAX_REPO_FILE_COUNT", "1000"))
+
+def verify_repo_limits(target_dir: Path) -> None:
+    """Enforces repository size cap (50MB) and file count cap (1000 files) per Item 7."""
     total_size = 0
-    total_files = 0
-    for root, _, files in os.walk(repo_path):
+    file_count = 0
+    max_bytes = MAX_REPO_SIZE_MB * 1024 * 1024
+
+    for root, dirs, files in os.walk(target_dir):
         for f in files:
-            total_files += 1
-            if total_files > MAX_FILE_COUNT:
-                shutil.rmtree(repo_path, ignore_errors=True)
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Repository exceeds file count limit (maximum {MAX_FILE_COUNT} files allowed)."
-                )
+            fp = Path(root) / f
             try:
-                total_size += (Path(root) / f).stat().st_size
-                if total_size > MAX_REPO_BYTES:
-                    shutil.rmtree(repo_path, ignore_errors=True)
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Repository exceeds size limit (maximum {MAX_REPO_BYTES // (1024 * 1024)}MB allowed)."
-                    )
-            except (OSError, FileNotFoundError):
+                size = fp.stat().st_size
+                total_size += size
+                if ".git" not in root.split(os.sep):
+                    file_count += 1
+            except OSError:
                 continue
+
+            if total_size > max_bytes:
+                shutil.rmtree(target_dir, ignore_errors=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Repository exceeds maximum allowed size ({MAX_REPO_SIZE_MB}MB). Operation aborted for safety."
+                )
+            if file_count > MAX_REPO_FILE_COUNT:
+                shutil.rmtree(target_dir, ignore_errors=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Repository exceeds maximum allowed file count ({MAX_REPO_FILE_COUNT} files). Operation aborted for safety."
+                )
+
 
 def sanitize_git_url(url: str, token: Optional[str] = None) -> str:
     """
@@ -126,7 +135,7 @@ def clone_git_repo(
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Git clone timed out after 3 minutes.")
 
-    _enforce_repo_limits(target_dir)
+    verify_repo_limits(target_dir)
     return target_dir
 
 def decode_zip_filename(raw_name: str, flag_bits: int) -> str:
@@ -190,5 +199,5 @@ def extract_safe_zip(zip_path: Path, repo_name: str) -> Path:
                 with zf.open(member) as src_file, open(extracted_path, "wb") as dst_file:
                     shutil.copyfileobj(src_file, dst_file)
 
-    _enforce_repo_limits(target_dir)
+    verify_repo_limits(target_dir)
     return target_dir

@@ -220,6 +220,35 @@ Now your AI assistant can execute `/read`, `/routes`, `/search`, and `/audit` di
 
 ---
 
+## 🔐 Accounts & Private Repositories
+
+Every API route except `/`, `/healthz` and the signed GitHub webhook requires a logged-in user.
+
+- **Accounts:** sign up with a username and password (Argon2id-hashed). Sessions are server-side, carried in an `HttpOnly`, `SameSite=Lax` cookie; state-changing requests also need the session's `X-CSRF-Token` header (the dashboard handles this).
+- **Ownership:** each imported repository (Git URL or ZIP) is recorded in SQLite against the authenticated user. Every repository API checks ownership on the server and answers `404` for anyone else's repository.
+- **Database:** SQLite at `PREFLIGHT_DB_PATH` (default `backend/data/preflight.db`), created and migrated automatically at startup. Existing data is never dropped.
+- **Password recovery:** at sign-up each user gets a one-time recovery key. *Forgot Password?* exchanges username + recovery key for a 15-minute, single-use reset token; resetting signs out every session and issues a new recovery key. There is no e-mail delivery (see below).
+
+| Auth endpoint | Purpose |
+| :--- | :--- |
+| `POST /api/v1/auth/signup` | Create account, start session, return the recovery key (shown once) |
+| `POST /api/v1/auth/login` / `logout` | Start / end a session |
+| `GET /api/v1/auth/me` | Current user and CSRF token |
+| `POST /api/v1/auth/password/forgot` | Username + recovery key → reset token |
+| `POST /api/v1/auth/password/reset` | Reset token + new password |
+
+Operator commands (run inside the API container, e.g. `docker compose exec api ...`):
+
+```bash
+python -m app.auth_admin list-users
+python -m app.auth_admin reset-link <username> --base-url https://your-host   # for users who lost their recovery key
+python -m app.auth_admin assign-repo <repository_name> <username>             # claim repos imported before accounts existed
+```
+
+Relevant settings: `PREFLIGHT_DB_PATH`, `COOKIE_SECURE` (`auto`/`true`/`false`), `SESSION_TTL_HOURS`, `SESSION_IDLE_MINUTES`, `PASSWORD_RESET_TTL_MINUTES`, `TRUST_PROXY_HEADERS`. The old shared `API_KEY` / `ALLOW_UNAUTHENTICATED` switches no longer grant access to the REST API.
+
+---
+
 ## 🧪 Running Unit Tests
 
 The backend includes a comprehensive test suite covering the auditor, sandbox engine, GraphRAG, security validators, and Vultr standards compliance:

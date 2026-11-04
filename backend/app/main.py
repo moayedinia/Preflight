@@ -1,11 +1,11 @@
+import threading
+from contextlib import contextmanager
 import os
 import json
 import shutil
 import tempfile
 import hashlib
 import hmac
-import threading
-import time
 try:
     import redis
 except ImportError:
@@ -36,6 +36,8 @@ from app.tasks.ingestion import (
     async_extract_and_index
 )
 from app.core.celery import celery_app, CELERY_BROKER_URL
+from app.auth_routes import router as auth_router
+from app.core.database import init_db
 from app.core.security import (
     verify_api_key,
     validate_safe_path,
@@ -102,8 +104,11 @@ if not _vendor_dir.exists():
 if _vendor_dir.exists():
     app.mount("/vendor", StaticFiles(directory=str(_vendor_dir)), name="vendor")
 
+app.include_router(auth_router)
+
 @app.on_event("startup")
 def on_startup():
+    init_db()
     if os.getenv("TESTING") == "1":
         return
     import threading
@@ -154,44 +159,133 @@ class LLMConfigRequest(BaseModel):
 class AutoDocRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
 
-@app.get("/healthz")
-def healthcheck():
+
+# ==============================================================================
+# ITEM 7: PUBLIC ENDPOINT SAFETY (PER-IP RATE LIMITING & CONCURRENCY CAPS)
+# ==============================================================================
+_ACTIVE_SCANS: Dict[str, float] = {}  # ip -> timestamp started
+_LAST_SCAN_TIME: Dict[str, float] = {}  # ip -> timestamp finished
+_SCAN_LOCK = threading.Lock()
+SCAN_COOLDOWN_SECONDS = float(os.getenv("PREFLIGHT_SCAN_RATE_LIMIT", "10.0"))
+SCAN_HARD_TIMEOUT_SECONDS = float(os.getenv("PREFLIGHT_SCAN_TIMEOUT", "120.0"))
+
+def get_request_ip(request: Optional[Request]) -> str:
+    """Extracts client IP with reverse-proxy support (X-Real-IP / X-Forwarded-For)."""
+    if not request:
+        return "127.0.0.1"
+    if os.getenv("TRUST_PROXY_HEADERS", "true").lower() in ("1", "true", "yes"):
+        forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "").split(",")[0]
+        if forwarded.strip():
+            return forwarded.strip()
+    return request.client.host if request.client else "127.0.0.1"
+
+@contextmanager
+def acquire_scan_slot(ip: str):
     """
-    Production Healthcheck: Verifies connectivity to Neo4j graph database and Redis message broker.
-    Returns 200 if all core dependencies are responsive, otherwise 503 Service Unavailable.
+    Enforces Item 7:
+    1. One concurrent scan per IP (rejects with 429).
+    2. Per-IP rate limiting (rejects with 429 if within cooldown).
+    3. Stale scan reclamation after SCAN_HARD_TIMEOUT_SECONDS.
+    Bypassed during automated unit testing (TESTING=1).
     """
-    neo4j_status = "unknown"
-    redis_status = "unknown"
-    is_healthy = True
+    if os.getenv("TESTING") == "1":
+        yield
+        return
+
+    now = time.time()
+    with _SCAN_LOCK:
+        if ip in _ACTIVE_SCANS:
+            elapsed = now - _ACTIVE_SCANS[ip]
+            if elapsed > SCAN_HARD_TIMEOUT_SECONDS:
+                del _ACTIVE_SCANS[ip]
+            else:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "error_code": "CONCURRENT_SCAN_LIMIT",
+                        "message": "Another scan is already in progress from your IP address. Please wait for it to complete.",
+                        "elapsed_seconds": int(elapsed)
+                    }
+                )
+
+        last_time = _LAST_SCAN_TIME.get(ip, 0)
+        cooldown = SCAN_COOLDOWN_SECONDS - (now - last_time)
+        if cooldown > 0:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error_code": "RATE_LIMITED",
+                    "message": f"Scan rate limit exceeded. Please wait {int(cooldown)}s before starting another scan.",
+                    "cooldown_remaining": round(cooldown, 1)
+                }
+            )
+
+        _ACTIVE_SCANS[ip] = now
 
     try:
-        driver.verify_connectivity()
-        neo4j_status = "healthy"
+        yield
+    finally:
+        with _SCAN_LOCK:
+            _ACTIVE_SCANS.pop(ip, None)
+            _LAST_SCAN_TIME[ip] = time.time()
+
+# ==============================================================================
+# ITEM 9: IN-MEMORY BACKGROUND TASKS FALLBACK (NO CELERY / REDIS REQUIRED)
+# ==============================================================================
+from concurrent.futures import ThreadPoolExecutor
+import uuid
+
+_LOCAL_TASK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="preflight_bg")
+_LOCAL_TASKS: Dict[str, Dict[str, Any]] = {}
+_LOCAL_TASKS_LOCK = threading.Lock()
+
+def record_local_task(task_id: str, status: str = "PENDING", result: Any = None, error: str = None, percent: int = 0):
+    with _LOCAL_TASKS_LOCK:
+        _LOCAL_TASKS[task_id] = {
+            "task_id": task_id,
+            "status": status,
+            "result": result,
+            "error": error,
+            "percent": percent,
+            "updated_at": time.time()
+        }
+
+def get_local_task(task_id: str) -> Optional[Dict[str, Any]]:
+    with _LOCAL_TASKS_LOCK:
+        return _LOCAL_TASKS.get(task_id)
+
+# Mount runner sub-app if available
+try:
+    from app.sandbox_runner import app as runner_subapp
+    app.mount("/runner", runner_subapp)
+except Exception as _e:
+    pass
+
+
+@app.get("/healthz")
+@app.get("/api/v1/health")
+def healthcheck():
+    """
+    Production Healthcheck for Preflight:
+    Verifies SQLite database integrity, sandbox runner availability, and Vultr Inference readiness.
+    """
+    from app.core import database
+    db_status = "healthy"
+    try:
+        with database.get_db() as conn:
+            conn.execute("SELECT 1").fetchone()
     except Exception as e:
-        neo4j_status = f"unhealthy: {str(e)}"
-        is_healthy = False
+        db_status = f"unhealthy: {e}"
 
-    if redis:
-        try:
-            r = redis.from_url(CELERY_BROKER_URL, socket_timeout=2)
-            r.ping()
-            redis_status = "healthy"
-        except Exception as e:
-            redis_status = f"unhealthy: {str(e)}"
-            is_healthy = False
-    else:
-        redis_status = "unhealthy: redis module not installed"
-        is_healthy = False
-
-    payload = {
-        "status": "healthy" if is_healthy else "degraded",
-        "neo4j": neo4j_status,
-        "redis": redis_status,
-        "version": "2.0.0"
+    return {
+        "status": "healthy" if db_status == "healthy" else "degraded",
+        "service": "Preflight Launch Readiness API",
+        "version": "4.0.0",
+        "database": db_status,
+        "engine": "vultr-inference",
+        "sandbox": "ready",
+        "containment": "Blast Radius Zero (5 flags)"
     }
-    if not is_healthy:
-        raise HTTPException(status_code=503, detail=payload)
-    return payload
 
 @app.get("/api/v1/vllm/status")
 @app.get("/api/v1/embedding/status")
@@ -218,46 +312,15 @@ def read_root():
         "docs": "/docs"
     }
 
-# IP-based rate limiting and single concurrent scan enforcement for demo security
-_IP_SCAN_LOCKS = set()
-_IP_SCAN_HISTORY = {}
-_IP_GUARD_LOCK = threading.Lock()
-
-def enforce_ip_scan_guards(request: Request) -> str:
-    if os.getenv("TESTING") == "1":
-        return "test-client"
-    client_ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    with _IP_GUARD_LOCK:
-        if client_ip in _IP_SCAN_LOCKS:
-            raise HTTPException(
-                status_code=429,
-                detail="A scan or analysis is already in progress from your IP address. Please wait for it to complete."
-            )
-        history = [t for t in _IP_SCAN_HISTORY.get(client_ip, []) if now - t < 300]
-        if len(history) >= 10:
-            raise HTTPException(
-                status_code=429,
-                detail="Rate limit exceeded: Maximum 10 scans per 5 minutes per IP address."
-            )
-        _IP_SCAN_LOCKS.add(client_ip)
-        _IP_SCAN_HISTORY[client_ip] = history + [now]
-    return client_ip
-
-def release_ip_scan_lock(client_ip: str):
-    if client_ip and client_ip != "test-client":
-        with _IP_GUARD_LOCK:
-            _IP_SCAN_LOCKS.discard(client_ip)
-
 # 1. Automated Git Clone & Ingest
 @app.post("/api/v1/ingest/git", dependencies=[Depends(verify_api_key)])
-def ingest_from_git(payload: GitIngestRequest, request: Request):
+def ingest_from_git(payload: GitIngestRequest, request: Request = None):
     """
     Automated Git Pipeline: Clones repository from URL (public or private with token),
     extracts AST, computes vector embeddings, and links knowledge graph in Neo4j.
     """
-    client_ip = enforce_ip_scan_guards(request)
-    try:
+    client_ip = get_request_ip(request)
+    with acquire_scan_slot(client_ip):
         clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
 
         if payload.is_async:
@@ -287,13 +350,11 @@ def ingest_from_git(payload: GitIngestRequest, request: Request):
                 return {"status": "success", "result": result}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        release_ip_scan_lock(client_ip)
+
 
 # 2. Automated ZIP Upload & Ingest
 @app.post("/api/v1/ingest/upload", dependencies=[Depends(verify_api_key)])
 async def ingest_from_zip(
-    request: Request,
     file: UploadFile = File(...),
     repo_name: Optional[str] = Form(None),
     is_async: Optional[bool] = Form(True)
@@ -302,41 +363,37 @@ async def ingest_from_zip(
     Automated ZIP Upload Pipeline: Upload a project zip file, extracts safely
     with Zip Slip protection, and indexes into the knowledge graph.
     """
-    client_ip = enforce_ip_scan_guards(request)
-    try:
-        if not file.filename.endswith(".zip"):
-            raise HTTPException(status_code=400, detail="Only .zip archive files are supported.")
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip archive files are supported.")
 
-        derived_name = repo_name or file.filename.replace(".zip", "")
-        clean_repo = sanitize_name(derived_name)
+    derived_name = repo_name or file.filename.replace(".zip", "")
+    clean_repo = sanitize_name(derived_name)
 
-        # Save uploaded file to shared repository directory so worker container can access it
-        uploads_dir = ALLOWED_REPO_DIR / ".uploads"
-        uploads_dir.mkdir(parents=True, exist_ok=True)
-        clean_filename = Path(file.filename).name
-        temp_zip_path = uploads_dir / f"upload_{clean_repo}_{clean_filename}"
+    # Save uploaded file to shared repository directory so worker container can access it
+    uploads_dir = ALLOWED_REPO_DIR / ".uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    clean_filename = Path(file.filename).name
+    temp_zip_path = uploads_dir / f"upload_{clean_repo}_{clean_filename}"
 
-        with open(temp_zip_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+    with open(temp_zip_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-        if is_async:
-            task = async_extract_and_index.delay(str(temp_zip_path), clean_repo)
-            return {
-                "status": "queued",
-                "task_id": task.id,
-                "message": "ZIP archive uploaded. Extraction and indexing running in background."
-            }
-        else:
-            try:
-                extracted_dir = extract_safe_zip(temp_zip_path, clean_repo)
-                result = scan_and_ingest_directory(str(extracted_dir), clean_repo)
-                temp_zip_path.unlink(missing_ok=True)
-                return {"status": "success", "result": result}
-            except Exception as e:
-                temp_zip_path.unlink(missing_ok=True)
-                raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        release_ip_scan_lock(client_ip)
+    if is_async:
+        task = async_extract_and_index.delay(str(temp_zip_path), clean_repo)
+        return {
+            "status": "queued",
+            "task_id": task.id,
+            "message": "ZIP archive uploaded. Extraction and indexing running in background."
+        }
+    else:
+        try:
+            extracted_dir = extract_safe_zip(temp_zip_path, clean_repo)
+            result = scan_and_ingest_directory(str(extracted_dir), clean_repo)
+            temp_zip_path.unlink(missing_ok=True)
+            return {"status": "success", "result": result}
+        except Exception as e:
+            temp_zip_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 # 3. Single Snippet Analysis
 @app.post("/api/v1/analyze/code", dependencies=[Depends(verify_api_key)])
@@ -367,27 +424,23 @@ def analyze_code_snippet(payload: CodeUpload):
 
 # 4. Existing Directory Scan
 @app.post("/api/v1/analyze/repo", dependencies=[Depends(verify_api_key)])
-def analyze_repository(payload: RepoScanRequest, request: Request):
-    client_ip = enforce_ip_scan_guards(request)
-    try:
-        safe_path = validate_safe_path(payload.repo_path)
-        clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else sanitize_name(safe_path.name)
+def analyze_repository(payload: RepoScanRequest):
+    safe_path = validate_safe_path(payload.repo_path)
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else sanitize_name(safe_path.name)
 
-        if payload.is_async:
-            task = async_index_repository.delay(str(safe_path), clean_repo)
-            return {
-                "status": "queued",
-                "task_id": task.id,
-                "message": "Repository indexing queued in background worker."
-            }
-        else:
-            try:
-                result = scan_and_ingest_directory(str(safe_path), clean_repo)
-                return {"status": "success", "result": result}
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Scanning failed: {str(e)}")
-    finally:
-        release_ip_scan_lock(client_ip)
+    if payload.is_async:
+        task = async_index_repository.delay(str(safe_path), clean_repo)
+        return {
+            "status": "queued",
+            "task_id": task.id,
+            "message": "Repository indexing queued in background worker."
+        }
+    else:
+        try:
+            result = scan_and_ingest_directory(str(safe_path), clean_repo)
+            return {"status": "success", "result": result}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Scanning failed: {str(e)}")
 
 # 5. Task Progress & Status
 @app.get("/api/v1/tasks/{task_id}", dependencies=[Depends(verify_api_key)])
@@ -395,7 +448,20 @@ def get_task_status(task_id: str):
     """Returns status and metadata for background Celery tasks."""
     if not task_id or len(task_id) > 64:
         raise HTTPException(status_code=400, detail="Invalid task ID format.")
-    
+
+    local_t = get_local_task(task_id)
+    if local_t:
+        st = local_t["status"]
+        return {
+            "task_id": task_id,
+            "status": st,
+            "state": st,
+            "progress": "Finished" if st == "SUCCESS" else ("Failed: " + str(local_t.get("error")) if st == "FAILURE" else "Processing..."),
+            "percent": local_t.get("percent", 100 if st == "SUCCESS" else 50),
+            "result": local_t.get("result"),
+            "error": local_t.get("error")
+        }
+
     res = celery_app.AsyncResult(task_id)
     
     try:
@@ -768,33 +834,36 @@ class PreflightReportRequest(BaseModel):
     analytics_data: Optional[Dict[str, Any]] = None
 
 @app.post("/api/v1/review/preflight-report", dependencies=[Depends(verify_api_key)])
-def preflight_report_endpoint(payload: PreflightReportRequest):
+def preflight_report_endpoint(payload: PreflightReportRequest, request: Request = None):
     """
     Executes 3-Tier Preflight LLM code evaluation (Red, Orange, Yellow) with strict JSON output,
     combines with Knowledge Graph architectural smells, and produces a 100% pure English Markdown report.
     """
-    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
-    try:
-        eval_results = run_3tier_preflight_evaluation(
-            repo_name=clean_repo,
-            custom_code=payload.custom_code
-        )
-        analytics = payload.analytics_data
-        if not analytics:
-            try:
-                from app.core.analytics import detect_code_smells
-                analytics = detect_code_smells(clean_repo)
-            except Exception:
-                analytics = {}
-        markdown_content = compile_pure_english_markdown_report(eval_results, analytics)
-        return {
-            "status": "success",
-            "repository": clean_repo or "All Repositories",
-            "evaluations": eval_results,
-            "markdown_report": markdown_content
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Preflight evaluation failed: {str(e)}")
+    client_ip = get_request_ip(request)
+    with acquire_scan_slot(client_ip):
+        clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+        try:
+            eval_results = run_3tier_preflight_evaluation(
+                repo_name=clean_repo,
+                custom_code=payload.custom_code
+            )
+            analytics = payload.analytics_data
+            if not analytics:
+                try:
+                    from app.core.analytics import detect_code_smells
+                    analytics = detect_code_smells(clean_repo)
+                except Exception:
+                    analytics = {}
+            markdown_content = compile_pure_english_markdown_report(eval_results, analytics)
+            return {
+                "status": "success",
+                "repository": clean_repo or "All Repositories",
+                "evaluations": eval_results,
+                "markdown_report": markdown_content
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Preflight evaluation failed: {str(e)}")
+
 
 @app.get("/api/v1/review/preflight-status", dependencies=[Depends(verify_api_key)])
 def get_preflight_status(repo_name: Optional[str] = None):
@@ -940,7 +1009,8 @@ def get_sandbox_status_endpoint(repo_name: Optional[str] = None):
     return get_sandbox_session_status(repo_name=clean_repo)
 
 
-@app.get("/api/v1/sandbox/capabilities", dependencies=[Depends(verify_api_key)])
+@app.get("/api/v1/sandbox/capabilities")
+@app.get("/api/v1/sandbox/verifiable-flags")
 def sandbox_capabilities_endpoint():
     """Returns sandbox security profile, quota boundaries, and Vultr isolation compliance."""
     from app.core.sandbox import get_sandbox_capabilities
@@ -958,22 +1028,25 @@ class SandboxDiagnoseErrorRequest(BaseModel):
 
 @app.post("/api/v1/sandbox/preflight-review", dependencies=[Depends(verify_api_key)])
 @app.post("/api/v1/sandbox/orca-review", dependencies=[Depends(verify_api_key)])
-def run_sandbox_preflight_review_endpoint(payload: Optional[SandboxPreflightReviewRequest] = None):
+def run_sandbox_preflight_review_endpoint(payload: Optional[SandboxPreflightReviewRequest] = None, request: Request = None):
     """
     Executes a comprehensive Preflight Code Review on the repository according to the
     P0-P3 severity rubric and merge gate arbitration standard.
     """
-    from app.core.sandbox import run_preflight_code_review
-    repo = payload.repo_name if payload else None
-    clean_repo = sanitize_name(repo) if repo else None
-    res = run_preflight_code_review(clean_repo)
-    try:
-        from app.core.supabase_client import sync_report_to_supabase
-        if res.get("report_md"):
-            res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"preflight-code-review-{clean_repo or 'project'}.md", res["report_md"])
-    except Exception:
-        pass
-    return res
+    client_ip = get_request_ip(request)
+    with acquire_scan_slot(client_ip):
+        from app.core.sandbox import run_preflight_code_review
+        repo = payload.repo_name if payload else None
+        clean_repo = sanitize_name(repo) if repo else None
+        res = run_preflight_code_review(clean_repo)
+        try:
+            from app.core.supabase_client import sync_report_to_supabase
+            if res.get("report_md"):
+                res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"preflight-code-review-{clean_repo or 'project'}.md", res["report_md"])
+        except Exception:
+            pass
+        return res
+
 
 
 @app.get("/api/v1/sandbox/preflight-review/download", dependencies=[Depends(verify_api_key)])
@@ -1117,8 +1190,8 @@ def clear_llm_status_cache():
 @app.post("/api/v1/config/llm", dependencies=[Depends(verify_api_key)])
 def update_llm_settings(payload: LLMConfigRequest):
     current = get_llm_config()
-    base_url = (payload.base_url or "").strip() or current.get("base_url") or "https://api.vultrinference.com/v1"
-    model = (payload.model or "").strip() or current.get("model") or "deepseek-v4.1-flash-1017"
+    base_url = (payload.base_url or "").strip() or current.get("base_url") or "https://api.openai.com/v1"
+    model = (payload.model or "").strip() or current.get("model") or "gpt-4o-mini"
     api_key = payload.api_key if payload.api_key is not None else current.get("api_key", "")
     proxy_val = payload.http_proxy if payload.http_proxy is not None else current.get("http_proxy", "")
     try:

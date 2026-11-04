@@ -627,17 +627,30 @@ def expand_graph_context(function_ids: list[str]) -> list[dict]:
         result = session.run(query, function_ids=function_ids)
         return [dict(record) for record in result]
 
-def get_graph_stats() -> dict:
-    """Returns total counts for dashboard overview."""
+def get_graph_stats(repo_names: list = None) -> dict:
+    """
+    Returns total counts for dashboard overview.
+    When `repo_names` is given (even empty), counts only nodes of those repositories.
+    """
     with driver.session() as session:
-        result = session.run("""
-        RETURN
-          COUNT { MATCH (r:Repository) } AS repositories,
-          COUNT { MATCH (f:File) } AS files,
-          COUNT { MATCH (c:Class) } AS classes,
-          COUNT { MATCH (fn:Function) } AS functions,
-          COUNT { MATCH ()-[rel]->() } AS relationships
-        """)
+        if repo_names is None:
+            result = session.run("""
+            RETURN
+              COUNT { MATCH (r:Repository) } AS repositories,
+              COUNT { MATCH (f:File) } AS files,
+              COUNT { MATCH (c:Class) } AS classes,
+              COUNT { MATCH (fn:Function) } AS functions,
+              COUNT { MATCH ()-[rel]->() } AS relationships
+            """)
+        else:
+            result = session.run("""
+            RETURN
+              COUNT { MATCH (r:Repository) WHERE r.name IN $names } AS repositories,
+              COUNT { MATCH (f:File) WHERE f.repo IN $names } AS files,
+              COUNT { MATCH (c:Class) WHERE c.repo IN $names } AS classes,
+              COUNT { MATCH (fn:Function) WHERE fn.repo IN $names } AS functions,
+              COUNT { MATCH (a)-[rel]->() WHERE a.repo IN $names OR (a:Repository AND a.name IN $names) } AS relationships
+            """, names=list(repo_names))
         rec = result.single()
         if rec:
             return dict(rec)

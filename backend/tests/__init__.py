@@ -1,3 +1,7 @@
+import sys
+from unittest.mock import MagicMock
+if 'neo4j' not in sys.modules:
+    sys.modules['neo4j'] = MagicMock()
 import os
 
 os.environ["TESTING"] = "1"

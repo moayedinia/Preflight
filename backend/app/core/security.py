@@ -32,30 +32,38 @@ ALLOWED_REPO_DIR = _resolve_allowed_repo_dir()
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 
+from fastapi import Request
+
 def verify_api_key(
+    request: Request = None,
     header_key: Optional[str] = Security(api_key_header),
     token: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme)
 ) -> bool:
     """
-    Verifies that the incoming request contains a valid API key.
-    Checks either 'X-API-Key' header or 'Authorization: Bearer <key>'.
+    Verifies that the incoming request is authenticated via:
+    1. ALLOW_UNAUTHENTICATED mode
+    2. Active user session cookie (auth system)
+    3. Valid 'X-API-Key' or 'Authorization: Bearer <key>'
     """
-    # If unauthenticated access is explicitly enabled, bypass checks
     if ALLOW_UNAUTHENTICATED:
         return True
 
-    if not API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server security configuration error: API_KEY is not configured in environment."
-        )
+    # 1. Check for valid user session cookie
+    try:
+        from app.core.auth import resolve_session, SESSION_COOKIE_NAME
+        if request is not None:
+            cookie_val = request.cookies.get(SESSION_COOKIE_NAME)
+            if cookie_val and resolve_session(cookie_val):
+                return True
+    except Exception:
+        pass
 
+    # 2. Check for API key
     provided_key = header_key or (token.credentials if token else None)
-
-    if not provided_key or provided_key != API_KEY:
+    if not provided_key or not API_KEY or provided_key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API Key. Provide a valid 'X-API-Key' header.",
+            detail="Authentication required. Please log in or provide a valid 'X-API-Key' header.",
             headers={"WWW-Authenticate": "ApiKey"}
         )
 

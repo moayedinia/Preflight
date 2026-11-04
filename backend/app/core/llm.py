@@ -1,4 +1,5 @@
 import os
+import time
 import re
 import json
 import logging
@@ -22,7 +23,30 @@ def _clean_slashes(url: str) -> str:
     s = str(url).strip().rstrip("/")
     return re.sub(r'(?<!:)/+', '/', s)
 
-KNOWN_PROXY_PORTS = {20128, 10808, 10809, 7890, 7891}
+KNOWN_PROXY_PORTS = {10808, 10809, 7890, 7891}
+
+def is_known_proxy_port(url_str: str) -> Tuple[bool, Optional[int]]:
+    """Checks whether the URL specifies an exact known proxy port (prevents false matches on :78901)."""
+    if not url_str:
+        return False, None
+    try:
+        parsed = urlparse(url_str)
+        if parsed.port and parsed.port in KNOWN_PROXY_PORTS:
+            return True, parsed.port
+    except (ValueError, TypeError):
+        pass
+    m = re.search(r':(\d+)(?:[/?#]|$)', url_str)
+    if m:
+        try:
+            port_num = int(m.group(1))
+            if port_num in KNOWN_PROXY_PORTS:
+                return True, port_num
+        except (ValueError, TypeError):
+            pass
+    return False, None
+
+DEFAULT_LLM_BASE_URL = "https://api.vultrinference.com/v1"
+DEFAULT_LLM_MODEL = "deepseek-v4.1-flash-1017"
 
 _MEMORY_LLM_CONFIG = {}
 
@@ -33,11 +57,23 @@ def get_llm_config() -> dict:
             if config:
                 cfg = json.loads(config)
                 if cfg.get("base_url"):
-                    cfg["base_url"] = _clean_slashes(cfg["base_url"])
+                    clean = _clean_slashes(cfg["base_url"])
+                    is_proxy, p_num = is_known_proxy_port(clean)
+                    if is_proxy and not clean.endswith("/v1"):
+                        logger.warning(
+                            f"Configured base_url {clean} matches a local proxy port ({p_num}) rather than an inference endpoint."
+                        )
+                    cfg["base_url"] = clean
                 if not cfg.get("model"):
-                    cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or "deepseek-v4.1-flash-1017"
+                    cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or DEFAULT_LLM_MODEL
                 if not cfg.get("api_key"):
-                    cfg["api_key"] = (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+                    cfg["api_key"] = (os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+                # Auto-sanitize if 20128 was mistakenly placed in http_proxy instead of base_url
+                if "20128" in (cfg.get("http_proxy") or ""):
+                    if "20128" not in (cfg.get("base_url") or ""):
+                        cfg["base_url"] = cfg["http_proxy"]
+                    cfg["http_proxy"] = ""
+
                 if not cfg.get("http_proxy"):
                     cfg["http_proxy"] = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
                 return cfg
@@ -46,14 +82,19 @@ def get_llm_config() -> dict:
     if _MEMORY_LLM_CONFIG:
         return dict(_MEMORY_LLM_CONFIG)
 
-    raw_env_base = os.getenv("LLM_BASE_URL", "https://api.vultrinference.com/v1")
+    raw_env_base = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
     clean_env_base = _clean_slashes(raw_env_base)
     env_proxy = (os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
+    is_env_proxy, env_p_num = is_known_proxy_port(clean_env_base)
+    if is_env_proxy and not clean_env_base.endswith("/v1"):
+        logger.warning(
+            f"LLM_BASE_URL {clean_env_base} appears to be a local proxy port ({env_p_num}) rather than an authentic inference endpoint."
+        )
 
     return {
         "base_url": clean_env_base,
-        "model": (os.getenv("LLM_MODEL") or "").strip() or "deepseek-v4.1-flash-1017",
-        "api_key": (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip(),
+        "model": (os.getenv("LLM_MODEL") or "").strip() or DEFAULT_LLM_MODEL,
+        "api_key": (os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip(),
         "http_proxy": env_proxy
     }
 
@@ -61,21 +102,31 @@ def set_llm_config(base_url: str, model: str, api_key: str, http_proxy: Optional
     clean_base = _clean_slashes(base_url)
     proxy_val = (http_proxy or "").strip()
 
-    parsed = urlparse(clean_base)
-    if parsed.port in KNOWN_PROXY_PORTS or any(f":{p}" in clean_base for p in KNOWN_PROXY_PORTS):
+    # 9router on port 20128 is an OpenAI-compatible Gateway, not an HTTP forward proxy.
+    if "20128" in proxy_val:
+        if "20128" not in clean_base:
+            clean_base = proxy_val
+        proxy_val = ""
+
+    # Proxy port detection: raise an informative error rather than substituting another provider
+    is_base_proxy, base_p_num = is_known_proxy_port(clean_base)
+    if is_base_proxy and not clean_base.endswith("/v1"):
         raise ValueError(
-            f"Configured Base URL '{clean_base}' appears to be a local proxy port ({parsed.port}), not an inference endpoint. "
-            "Please configure the Outbound HTTP Proxy field instead, and set API Base URL to https://api.vultrinference.com/v1"
+            f"Base URL '{clean_base}' matches a local proxy port ({base_p_num}). "
+            "Every inference call in Challenge 1 must target an authentic endpoint (such as "
+            "https://api.vultrinference.com/v1). Please configure your proxy in the HTTP_PROXY "
+            "field instead of replacing the inference Base URL."
         )
 
     norm_base = normalize_llm_base_url(clean_base)
     cfg_data = {
         "base_url": norm_base,
-        "model": model,
+        "model": model or DEFAULT_LLM_MODEL,
         "api_key": api_key,
         "http_proxy": proxy_val
     }
     _MEMORY_LLM_CONFIG.update(cfg_data)
+    clear_llm_verification_cache()
     if r_client:
         try:
             r_client.set("codegraph_llm_config", json.dumps(cfg_data))
@@ -103,7 +154,7 @@ def _sanitize_docker_proxy_env():
                 os.environ[var] = val.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
         
         # Ensure NO_PROXY always bypasses host.docker.internal, loopback, and docker network aliases
-        required_no_proxy = ["localhost", "127.0.0.1", "host.docker.internal", "neo4j", "redis", "api", "celery_worker", "mcp_server"]
+        required_no_proxy = ["localhost", "127.0.0.1", "host.docker.internal", "neo4j", "redis", "api", "celery_worker", "mcp_server", "sandbox_runner", "frontend", "graphrag_api", "graphrag_worker", "graphrag_mcp", "graphrag_dashboard", "graphrag_sandbox_runner"]
         for no_var in ["NO_PROXY", "no_proxy"]:
             current = os.getenv(no_var, "")
             parts = [p.strip() for p in current.split(",") if p.strip()]
@@ -146,7 +197,7 @@ def execute_llm_http(method: str, url: str, **kwargs):
     except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as first_err:
         err_msg = str(first_err)
         # Check if error is related to proxy, timeout, or connection refused (e.g. [Errno 111])
-        is_refusal = any(sig in err_msg for sig in ["Connection refused", "NewConnectionError", "ProxyError", "Read timed out", "timeout", "111", "20128"])
+        is_refusal = any(sig in err_msg for sig in ["Connection refused", "NewConnectionError", "ProxyError", "Read timed out", "timeout", "111", "20128", "RemoteDisconnected", "Connection aborted"])
         
         if is_refusal and kwargs.get("proxies") != {"http": None, "https": None}:
             # Fallback 1: Try without proxy in case of stale/hanging proxy
@@ -164,14 +215,23 @@ def execute_llm_http(method: str, url: str, **kwargs):
                 except Exception:
                     pass
 
-        # If it still fails and mentions localhost or 20128
-        if "20128" in err_msg or "localhost" in err_msg or "127.0.0.1" in err_msg or "111" in err_msg:
+        # Distinguish read/connect timeouts from connection refusals
+        if isinstance(first_err, requests.exceptions.Timeout) or any(sig in err_msg.lower() for sig in ["read timed out", "connect timed out", "timeout"]):
+            timeout_val = kwargs.get("timeout", 60)
+            explanation = (
+                f"{err_msg} - The AI model endpoint reached the server, but timed out after {timeout_val}s waiting for tokens to be generated. "
+                "The upstream model or proxy is taking longer than usual to produce a response."
+            )
+            raise requests.exceptions.Timeout(explanation) from first_err
+
+        # If connection was refused or could not reach host/port
+        if any(sig in err_msg for sig in ["Connection refused", "NewConnectionError", "111", "RemoteDisconnected", "Connection aborted", "Failed to establish a new connection"]):
             explanation = (
                 f"{err_msg} - "
                 "Notice: When running inside Docker, 'localhost' refers to the container itself. "
                 "If your proxy or local AI endpoint is on your host machine (port 20128), "
                 "make sure 'Allow LAN / Allow connection from LAN' is enabled in your proxy software (e.g. v2ray, Clash) "
-                "or use https://api.openai.com/v1 if you intend to connect to cloud AI directly."
+                "or configure https://api.vultrinference.com/v1 with your Vultr API key."
             )
             raise requests.exceptions.ConnectionError(explanation) from first_err
         raise first_err
@@ -186,7 +246,17 @@ def normalize_llm_base_url(base_url: str) -> str:
         normalized += "/v1"
     return _clean_slashes(normalized)
 
-def verify_llm_connection(timeout: float = 12.0, model: Optional[str] = None) -> Tuple[bool, str]:
+_VERIFICATION_CACHE: Dict[str, Any] = {
+    "key": "",
+    "timestamp": 0.0,
+    "result": (False, "")
+}
+
+def clear_llm_verification_cache() -> None:
+    global _VERIFICATION_CACHE
+    _VERIFICATION_CACHE = {"key": "", "timestamp": 0.0, "result": (False, "")}
+
+def verify_llm_connection(timeout: float = 60.0, model: Optional[str] = None, use_cache: bool = True) -> Tuple[bool, str]:
     """
     Deeply checks if the LLM provider is reachable, API key is authenticated,
     and the specified model actually exists and accepts chat completions.
@@ -205,18 +275,24 @@ def verify_llm_connection(timeout: float = 12.0, model: Optional[str] = None) ->
 
     # Immediate proxy port sanity check to avoid 45s hanging when user misconfigures Base URL
     parsed_base = urlparse(base_url)
-    if parsed_base.port in KNOWN_PROXY_PORTS or any(f":{p}" in base_url for p in KNOWN_PROXY_PORTS):
+    if (parsed_base.port in KNOWN_PROXY_PORTS or any(f":{p}" in base_url for p in KNOWN_PROXY_PORTS)) and not base_url.endswith("/v1"):
         return False, (
-            f"Port {parsed_base.port or 'proxy'} is an HTTP/SOCKS proxy port, NOT an inference endpoint. "
-            "Please configure the Outbound HTTP Proxy field in Settings, and set API Base URL to https://api.vultrinference.com/v1"
+            f"Port {parsed_base.port or 'proxy'} is an HTTP/SOCKS proxy port (e.g. v2rayN/Clash), NOT an OpenAI API endpoint. "
+            "Please set API Base URL to 'https://api.vultrinference.com/v1' with your Vultr API key "
+            "and configure the HTTP Proxy field."
         )
 
     is_local = any(h in base_url.lower() for h in ["localhost", "127.0.0.1", "host.docker.internal", "ollama"])
     if not is_local and not api_key:
         return False, "AI API Key is not configured. Please enter your API key in Settings (⚙️)."
 
+    norm_base = normalize_llm_base_url(base_url)
+    cache_key = f"{norm_base}:{target_model}:{api_key[:12]}"
+    now = time.time()
+    if use_cache and _VERIFICATION_CACHE["key"] == cache_key and (now - _VERIFICATION_CACHE["timestamp"] < 120.0) and _VERIFICATION_CACHE["result"][0]:
+        return _VERIFICATION_CACHE["result"]
+
     try:
-        norm_base = normalize_llm_base_url(base_url)
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -233,7 +309,11 @@ def verify_llm_connection(timeout: float = 12.0, model: Optional[str] = None) ->
         chat_resp = execute_llm_http("post", f"{norm_base}/chat/completions", headers=headers, json=probe_payload, timeout=timeout)
         
         if chat_resp.ok:
-            return True, f"Verified: Successfully connected and authenticated with model '{target_model}'."
+            success_res = (True, f"Verified: Successfully connected and authenticated with model '{target_model}'.")
+            _VERIFICATION_CACHE["key"] = cache_key
+            _VERIFICATION_CACHE["timestamp"] = now
+            _VERIFICATION_CACHE["result"] = success_res
+            return success_res
 
         # Parse provider error message
         err_msg = ""
@@ -351,7 +431,9 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
 
     config = get_llm_config()
     headers = {"Content-Type": "application/json"}
-    api_key = (config.get("api_key") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+    api_key = (config.get("api_key") or os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        raise ValueError("No AI API key configured. Remote inference call refused for security.")
     if api_key:
         clean_key = re.sub(r'^(?:Bearer\s+|["\'])', '', api_key, flags=re.IGNORECASE)
         clean_key = re.sub(r'["\']$', '', clean_key).strip()
@@ -361,7 +443,7 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
         headers["X-API-KEY"] = clean_key
 
     payload = {
-        "model": config.get("model", "") or "gpt-4o-mini",
+        "model": config.get("model", "") or DEFAULT_LLM_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
@@ -372,7 +454,7 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
     if max_tokens:
         payload["max_tokens"] = max_tokens
 
-    base_url = config.get("base_url", "") or "https://api.vultrinference.com/v1"
+    base_url = config.get("base_url", "") or DEFAULT_LLM_BASE_URL
     norm_base = normalize_llm_base_url(base_url)
     url = _clean_slashes(f"{norm_base}/chat/completions")
 

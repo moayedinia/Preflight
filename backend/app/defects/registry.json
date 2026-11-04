@@ -1,0 +1,136 @@
+{
+  "version": "4.0.0",
+  "spec": "Preflight Detection Spec v4",
+  "defects": [
+    {
+      "id": "RED-01",
+      "rule": "Leaked API keys",
+      "canonical_name": "Leaked API keys",
+      "tier": "red",
+      "area": "security",
+      "penalty": 40,
+      "severity": "P0",
+      "plain_english": "Your secret key is visible to anyone who opens your site. They can spend your money."
+    },
+    {
+      "id": "RED-02",
+      "rule": "Unprotected admin routes",
+      "canonical_name": "Unprotected admin routes",
+      "tier": "red",
+      "area": "security",
+      "penalty": 40,
+      "severity": "P0",
+      "plain_english": "Your admin page is hidden, not protected. Anyone who guesses the address can delete your data."
+    },
+    {
+      "id": "RED-03",
+      "rule": "Database injection",
+      "canonical_name": "Database injection",
+      "tier": "red",
+      "area": "security",
+      "penalty": 40,
+      "severity": "P0",
+      "plain_english": "Someone typing the right characters into your search box could read or destroy your database."
+    },
+    {
+      "id": "RED-04",
+      "rule": "Crashes on unexpected input",
+      "canonical_name": "Crashes on unexpected input",
+      "tier": "red",
+      "area": "reliability",
+      "penalty": 40,
+      "severity": "P0",
+      "plain_english": "If a user leaves a field empty, your whole app returns an error page."
+    },
+    {
+      "id": "RED-05",
+      "rule": "Infinite loops",
+      "canonical_name": "Infinite loops",
+      "tier": "red",
+      "area": "reliability",
+      "penalty": 40,
+      "severity": "P0",
+      "plain_english": "This page freezes the browser and never stops loading."
+    },
+    {
+      "id": "RED-06",
+      "rule": "Dead buttons on the main flow",
+      "canonical_name": "Dead buttons on the main flow",
+      "tier": "red",
+      "area": "reliability",
+      "penalty": 40,
+      "severity": "P0",
+      "plain_english": "Your Pay button does nothing. Customers cannot give you money."
+    },
+    {
+      "id": "ORANGE-07",
+      "rule": "No loading state, double submission",
+      "canonical_name": "No loading state, double submission",
+      "tier": "orange",
+      "area": "reliability",
+      "penalty": 25,
+      "severity": "P1",
+      "plain_english": "Impatient users who click twice get charged twice."
+    },
+    {
+      "id": "ORANGE-08",
+      "rule": "No limits on what people can type",
+      "canonical_name": "No limits on what people can type",
+      "tier": "orange",
+      "area": "correctness",
+      "penalty": 25,
+      "severity": "P1",
+      "plain_english": "Someone pasting a long text breaks the page or the database."
+    },
+    {
+      "id": "ORANGE-09",
+      "rule": "Search and sort are wrong",
+      "canonical_name": "Search and sort are wrong",
+      "tier": "orange",
+      "area": "correctness",
+      "penalty": 12,
+      "severity": "P2",
+      "plain_english": "Your list sorts 10 before 2, and search fires on every keystroke."
+    },
+    {
+      "id": "ORANGE-10",
+      "rule": "Slow pages and heavy images",
+      "canonical_name": "Slow pages and heavy images",
+      "tier": "orange",
+      "area": "correctness",
+      "penalty": 12,
+      "severity": "P2",
+      "plain_english": "Your homepage loads a 10MB photo. Mobile users will leave."
+    },
+    {
+      "id": "YELLOW-11",
+      "rule": "Over-complex files",
+      "canonical_name": "Over-complex files",
+      "tier": "yellow",
+      "area": "maintainability",
+      "penalty": 4,
+      "severity": "P3",
+      "plain_english": "One file is 600 lines. Any developer you hire will charge you more to work in it."
+    },
+    {
+      "id": "YELLOW-12",
+      "rule": "Debug code and no documentation",
+      "canonical_name": "Debug code and no documentation",
+      "tier": "yellow",
+      "area": "maintainability",
+      "penalty": 4,
+      "severity": "P3",
+      "plain_english": "Leftover test code and an empty README. Looks unfinished to anyone technical."
+    },
+    {
+      "id": "YELLOW-13",
+      "rule": "Outdated methods",
+      "canonical_name": "Outdated methods",
+      "tier": "yellow",
+      "area": "maintainability",
+      "penalty": 4,
+      "severity": "P3",
+      "plain_english": "Some code uses methods browsers have deprecated."
+    }
+  ]
+}

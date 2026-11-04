@@ -100,30 +100,46 @@ class TestSkillsModule(unittest.TestCase):
             from app.main import app
             from fastapi.testclient import TestClient
             client = TestClient(app)
+            import tempfile, shutil
+            from pathlib import Path
+            from tests.auth_helpers import login_client
+            login_client(client, repos=["skills_fixture_repo"])
+            repos_root = Path(tempfile.mkdtemp(prefix="preflight-repos-"))
+            fixture = repos_root / "skills_fixture_repo"
+            fixture.mkdir()
+            (fixture / "api.py").write_text(
+                "from fastapi import FastAPI\napp = FastAPI()\n\n@app.get('/api/v1/items')\ndef items():\n    return []\n",
+                encoding="utf-8",
+            )
+            repos_patch = patch("app.core.preflight.ALLOWED_REPO_DIR", repos_root)
+            repos_patch.start()
+            try:
+                # GET /api/v1/skills
+                res = client.get("/api/v1/skills")
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                self.assertIn("skills", data)
+                self.assertGreaterEqual(len(data["skills"]), 8)
 
-            # GET /api/v1/skills
-            res = client.get("/api/v1/skills")
-            self.assertEqual(res.status_code, 200)
-            data = res.json()
-            self.assertIn("skills", data)
-            self.assertGreaterEqual(len(data["skills"]), 8)
+                # POST /api/v1/skills/execute
+                res_exec = client.post("/api/v1/skills/execute", json={
+                    "skill_name": "inspect_routes", "repo_name": "skills_fixture_repo"
+                })
+                self.assertEqual(res_exec.status_code, 200)
+                data_exec = res_exec.json()
+                self.assertTrue(data_exec["success"])
 
-            # POST /api/v1/skills/execute
-            res_exec = client.post("/api/v1/skills/execute", json={
-                "skill_name": "inspect_routes"
-            })
-            self.assertEqual(res_exec.status_code, 200)
-            data_exec = res_exec.json()
-            self.assertTrue(data_exec["success"])
-
-            # Chat with /routes command
-            res_chat = client.post("/api/v1/chat", json={
-                "message": "/routes"
-            })
-            self.assertEqual(res_chat.status_code, 200)
-            data_chat = res_chat.json()
-            self.assertEqual(data_chat["mode"], "skill")
-            self.assertIn("Discovered API Route Endpoints", data_chat["response"])
+                # Chat with /routes command
+                res_chat = client.post("/api/v1/chat", json={
+                    "message": "/routes", "repo_name": "skills_fixture_repo"
+                })
+                self.assertEqual(res_chat.status_code, 200)
+                data_chat = res_chat.json()
+                self.assertEqual(data_chat["mode"], "skill")
+                self.assertIn("Discovered API Route Endpoints", data_chat["response"])
+            finally:
+                repos_patch.stop()
+                shutil.rmtree(repos_root, ignore_errors=True)
 
 
 if __name__ == "__main__":

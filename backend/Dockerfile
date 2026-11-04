@@ -60,7 +60,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --retries 10 --timeout 120 -r requirements.txt
 
 # Create sandboxed repos directory and set ownership
-RUN mkdir -p /app/repos && chown -R appuser:appgroup /app
+RUN mkdir -p /app/repos /app/data && chown -R appuser:appgroup /app
 
 COPY --chown=appuser:appgroup . .
 

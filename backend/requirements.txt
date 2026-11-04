@@ -22,3 +22,5 @@ requests>=2.31.0
 orjson>=3.9.0
 docker>=7.1.0,<8
 
+
+argon2-cffi>=23.1.0

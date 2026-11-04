@@ -15,12 +15,13 @@ for mod_name, mock_mod in mock_modules.items():
 
 from fastapi.testclient import TestClient
 from app.main import app
+from tests.auth_helpers import login_client
 from app.core.llm import fetch_vultr_inference_models, VULTR_INFERENCE_BASE_URL, VULTR_DEFAULT_MODELS
 from app.core.sandbox import get_sandbox_capabilities, CloudSandboxDriver
 from app.core.supabase_client import (
     get_supabase_config,
     set_supabase_config,
-    test_supabase_connection,
+    test_supabase_connection as check_supabase_connection,
     sync_report_to_supabase
 )
 
@@ -31,6 +32,7 @@ class TestVultrStandards(unittest.TestCase):
         self.auth_patch.start()
         os.environ["TESTING"] = "1"
         self.client = TestClient(app)
+        login_client(self.client)
 
     def tearDown(self):
         self.auth_patch.stop()
@@ -57,8 +59,8 @@ class TestVultrStandards(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("Vultr", data["security_profile"])
-        self.assertEqual(data["memory_quota"], "1g")
-        self.assertEqual(data["pids_limit"], 100)
+        self.assertEqual(data["memory_quota"], "256m")
+        self.assertEqual(data["pids_limit"], 64)
         self.assertEqual(data["cap_drop"], ["ALL"])
         self.assertIn("Vultr Agent Sandboxing (Cloud Compute)", data["standards"])
 

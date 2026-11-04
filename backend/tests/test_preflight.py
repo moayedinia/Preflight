@@ -338,8 +338,9 @@ class TestPreflightEvaluation(unittest.TestCase):
     def test_apply_preflight_bug_fix_and_endpoint(self, mock_llm, mock_verify):
         """Verifies that apply_preflight_bug_fix edits the file on disk and the /api/v1/review/fix-bug endpoint works."""
         mock_llm.return_value = "```javascript\nfunction onPay() { /* Preflight Auto-Fix Applied */ }\n```"
-        # Create a temp file inside a dummy repo folder under current working dir
-        test_dir = Path("temp_test_repo")
+        # Create a temp file inside a dummy repo folder under ALLOWED_REPO_DIR
+        from app.core.security import ALLOWED_REPO_DIR
+        test_dir = ALLOWED_REPO_DIR / "temp_test_repo"
         test_dir.mkdir(exist_ok=True)
         test_file = test_dir / "PaymentFlow.js"
         test_file.write_text("function onPay() { /* missing handler */ }", encoding="utf-8")

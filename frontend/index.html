@@ -74,9 +74,185 @@
     .interactive-card:hover {
       transform: translateY(-1.5px);
     }
+
+    /* Authentication gate: until a session is confirmed only the auth screen and toasts render */
+    body.auth-locked > *:not(#auth-screen):not(#toast):not(script) { display: none !important; }
+    body:not(.auth-locked) #auth-screen { display: none !important; }
+    .auth-panel { animation: modalFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    .auth-input {
+      width: 100%; background: rgba(2, 6, 23, 0.8); border: 1px solid #1e293b; border-radius: 0.75rem;
+      padding: 0.625rem 0.875rem; font-size: 0.8125rem; color: #e2e8f0; transition: border-color .15s, box-shadow .15s;
+    }
+    .auth-input:focus { outline: none; border-color: #10b981; box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.3); }
+    .auth-input[aria-invalid="true"] { border-color: rgba(239, 68, 68, 0.6); }
+    .pw-rule { display: flex; align-items: center; gap: 0.375rem; color: #64748b; }
+    .pw-rule.ok { color: #34d399; }
+    .pw-rule::before { content: '○'; font-size: 0.65rem; }
+    .pw-rule.ok::before { content: '●'; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-brand-500/30 selection:text-brand-100">
+<body class="auth-locked bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-brand-500/30 selection:text-brand-100">
+
+  <!-- ================= AUTHENTICATION SCREENS ================= -->
+  <div id="auth-screen" class="min-h-screen w-full flex items-center justify-center px-4 py-10 bg-[radial-gradient(ellipse_at_top,_rgba(16,185,129,0.12),_transparent_60%)]">
+    <div class="w-full max-w-md">
+      <div class="flex items-center justify-center gap-2.5 mb-7">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <i data-lucide="rocket" class="w-5 h-5 text-white"></i>
+        </div>
+        <div>
+          <span class="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-emerald-400 bg-clip-text text-transparent">Preflight</span>
+          <span class="ml-1 px-1.5 py-0.5 text-[10px] uppercase font-semibold tracking-wider rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Vibe Edition</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl shadow-2xl shadow-black/40 p-6 sm:p-7">
+
+        <!-- Session check -->
+        <div id="auth-panel-loading" data-auth-panel class="auth-panel flex flex-col items-center gap-3 py-8 text-xs text-slate-400">
+          <i data-lucide="loader-2" class="w-5 h-5 animate-spin text-emerald-400"></i>
+          Checking your session...
+        </div>
+
+        <!-- Login -->
+        <form id="auth-panel-login" data-auth-panel class="auth-panel hidden space-y-4" onsubmit="submitLogin(event)" novalidate>
+          <div>
+            <h1 class="text-base font-bold text-white">Welcome back</h1>
+            <p class="text-xs text-slate-400 mt-1">Log in to see your repositories and audits.</p>
+          </div>
+          <div data-auth-error class="hidden p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300" role="alert"></div>
+          <div data-auth-success class="hidden p-3 rounded-xl text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-300" role="status"></div>
+          <label class="block space-y-1.5">
+            <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Username</span>
+            <input id="login-username" name="username" type="text" class="auth-input" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required>
+          </label>
+          <label class="block space-y-1.5">
+            <span class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Password</span>
+              <a href="#forgot-password" class="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium">Forgot Password?</a>
+            </span>
+            <input id="login-password" name="password" type="password" class="auth-input" autocomplete="current-password" maxlength="128" required>
+          </label>
+          <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-900/30 flex items-center justify-center gap-2">
+            <i data-lucide="log-in" class="w-4 h-4"></i>
+            <span>Login</span>
+          </button>
+          <p class="text-center text-xs text-slate-400">New to Preflight? <a href="#signup" class="text-emerald-400 hover:text-emerald-300 font-semibold">Create an account</a></p>
+        </form>
+
+        <!-- Sign up -->
+        <form id="auth-panel-signup" data-auth-panel class="auth-panel hidden space-y-4" onsubmit="submitSignup(event)" novalidate>
+          <div>
+            <h1 class="text-base font-bold text-white">Create your account</h1>
+            <p class="text-xs text-slate-400 mt-1">Repositories you import are private to your account.</p>
+          </div>
+          <div data-auth-error class="hidden p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300" role="alert"></div>
+          <label class="block space-y-1.5">
+            <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Username</span>
+            <input id="signup-username" type="text" class="auth-input" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required oninput="updatePasswordChecklist('signup')">
+            <span class="block text-[11px] text-slate-500">3–32 characters: letters, digits, <code>.</code> <code>_</code> <code>-</code></span>
+          </label>
+          <label class="block space-y-1.5">
+            <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Password</span>
+            <input id="signup-password" type="password" class="auth-input" autocomplete="new-password" maxlength="128" required oninput="updatePasswordChecklist('signup')">
+          </label>
+          <ul id="signup-pw-rules" class="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px]">
+            <li class="pw-rule" data-rule="length">At least 10 characters</li>
+            <li class="pw-rule" data-rule="classes">3 of: a-z, A-Z, 0-9, symbol</li>
+            <li class="pw-rule" data-rule="username">Doesn't contain username</li>
+            <li class="pw-rule" data-rule="match">Passwords match</li>
+          </ul>
+          <label class="block space-y-1.5">
+            <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Confirm Password</span>
+            <input id="signup-confirm" type="password" class="auth-input" autocomplete="new-password" maxlength="128" required oninput="updatePasswordChecklist('signup')">
+          </label>
+          <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-900/30 flex items-center justify-center gap-2">
+            <i data-lucide="user-plus" class="w-4 h-4"></i>
+            <span>Create Account</span>
+          </button>
+          <p class="text-center text-xs text-slate-400">Already have an account? <a href="#login" class="text-emerald-400 hover:text-emerald-300 font-semibold">Log in</a></p>
+        </form>
+
+        <!-- Forgot password -->
+        <form id="auth-panel-forgot" data-auth-panel class="auth-panel hidden space-y-4" onsubmit="submitForgotPassword(event)" novalidate>
+          <div>
+            <h1 class="text-base font-bold text-white">Reset your password</h1>
+            <p class="text-xs text-slate-400 mt-1">Enter your username and the recovery key you saved when you created your account.</p>
+          </div>
+          <div data-auth-error class="hidden p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300" role="alert"></div>
+          <label class="block space-y-1.5">
+            <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Username</span>
+            <input id="forgot-username" type="text" class="auth-input" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required>
+          </label>
+          <label class="block space-y-1.5">
+            <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Recovery Key</span>
+            <input id="forgot-recovery-key" type="text" class="auth-input font-mono uppercase tracking-wider" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" required>
+          </label>
+          <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-900/30 flex items-center justify-center gap-2">
+            <i data-lucide="key-round" class="w-4 h-4"></i>
+            <span>Request Password Reset</span>
+          </button>
+          <p class="text-[11px] text-slate-500 leading-relaxed">Lost your recovery key? Ask your Preflight administrator to issue a one-time reset link.</p>
+          <p class="text-center text-xs text-slate-400"><a href="#login" class="text-emerald-400 hover:text-emerald-300 font-semibold">Back to login</a></p>
+        </form>
+
+        <!-- Reset password -->
+        <form id="auth-panel-reset" data-auth-panel class="auth-panel hidden space-y-4" onsubmit="submitResetPassword(event)" novalidate>
+          <div>
+            <h1 class="text-base font-bold text-white">Choose a new password</h1>
+            <p class="text-xs text-slate-400 mt-1">This reset link works once and expires shortly. All existing sessions will be signed out.</p>
+          </div>
+          <div data-auth-error class="hidden p-3 rounded-xl text-xs bg-red-500/10 border border-red-500/30 text-red-300" role="alert"></div>
+          <div data-auth-success class="hidden p-3 rounded-xl text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-300" role="status"></div>
+          <label class="block space-y-1.5">
+            <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">New Password</span>
+            <input id="reset-password" type="password" class="auth-input" autocomplete="new-password" maxlength="128" required oninput="updatePasswordChecklist('reset')">
+          </label>
+          <ul id="reset-pw-rules" class="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px]">
+            <li class="pw-rule" data-rule="length">At least 10 characters</li>
+            <li class="pw-rule" data-rule="classes">3 of: a-z, A-Z, 0-9, symbol</li>
+            <li class="pw-rule" data-rule="match">Passwords match</li>
+          </ul>
+          <label class="block space-y-1.5">
+            <span class="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Confirm New Password</span>
+            <input id="reset-confirm" type="password" class="auth-input" autocomplete="new-password" maxlength="128" required oninput="updatePasswordChecklist('reset')">
+          </label>
+          <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-900/30 flex items-center justify-center gap-2">
+            <i data-lucide="lock-keyhole" class="w-4 h-4"></i>
+            <span>Set New Password</span>
+          </button>
+          <p class="text-center text-xs text-slate-400"><a href="#login" class="text-emerald-400 hover:text-emerald-300 font-semibold">Back to login</a></p>
+        </form>
+
+        <!-- Recovery key display (after sign up / reset) -->
+        <div id="auth-panel-recovery" data-auth-panel class="auth-panel hidden space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 flex items-center justify-center shrink-0">
+              <i data-lucide="shield-alert" class="w-4.5 h-4.5"></i>
+            </div>
+            <div>
+              <h1 id="recovery-title" class="text-base font-bold text-white">Save your recovery key</h1>
+              <p class="text-xs text-slate-400 mt-1">It is shown only once. You need it to reset your password if you forget it.</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 p-3 rounded-xl bg-slate-950/80 border border-amber-500/30">
+            <code id="recovery-key-value" class="flex-1 text-sm font-bold tracking-wider text-amber-200 break-all select-all"></code>
+            <button type="button" onclick="copyRecoveryKey()" class="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors" title="Copy recovery key">
+              <i data-lucide="copy" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+            <input id="recovery-ack" type="checkbox" class="accent-emerald-500" onchange="document.getElementById('recovery-continue').disabled = !this.checked">
+            I have stored my recovery key somewhere safe
+          </label>
+          <button id="recovery-continue" type="button" disabled onclick="continueAfterRecoveryKey()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2">
+            <span id="recovery-continue-text">Continue to Dashboard</span>
+            <i data-lucide="arrow-right" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ================= TOP NAVIGATION BAR ================= -->
   <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-4 lg:px-8 py-3 flex items-center justify-between">
@@ -143,6 +319,18 @@
       <button onclick="openModal('modal-settings')" title="AI & API Settings" class="p-1.5 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800/60 transition-all shrink-0">
         <i data-lucide="settings" class="w-4 h-4"></i>
       </button>
+
+      <!-- Signed-in user & Logout -->
+      <div class="flex items-center gap-1 pl-1 sm:pl-2 border-l border-slate-800 shrink-0">
+        <span class="hidden xl:flex items-center gap-1.5 px-2 py-1 text-xs text-slate-300" title="Signed in">
+          <i data-lucide="circle-user-round" class="w-4 h-4 text-emerald-400"></i>
+          <span id="topbar-username" class="max-w-[120px] truncate font-medium"></span>
+        </span>
+        <button onclick="logout()" id="btn-logout" title="Log out" aria-label="Log out" class="p-1.5 border border-slate-800 hover:border-red-500/40 text-slate-400 hover:text-red-300 rounded-lg hover:bg-red-500/10 transition-all flex items-center gap-1.5">
+          <i data-lucide="log-out" class="w-4 h-4"></i>
+          <span class="hidden 2xl:inline text-xs font-medium">Logout</span>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -177,12 +365,20 @@
         <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
           
           <div class="space-y-2">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 Publish Readiness Scanner
               </span>
               <span id="active-repo-badge" class="text-xs text-slate-400">Project: Loading...</span>
+              <span id="engine-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                <i data-lucide="zap" class="w-3 h-3"></i>
+                <span id="engine-badge-text">⚡ Vultr Serverless Inference</span>
+              </span>
+              <a href="/api/v1/sandbox/verifiable-flags" target="_blank" id="containment-flags-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors" title="Verified Container Containment: 256MB RAM, 0.5 CPU, 64 PIDs, cap-drop=ALL, no-new-privileges">
+                <i data-lucide="shield-check" class="w-3 h-3"></i>
+                <span>Blast Radius Zero (5 Flags)</span>
+              </a>
             </div>
             <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
               Is your code ready to ship?
@@ -798,20 +994,19 @@
 
         <!-- API Base URL -->
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1">API Base URL (OpenAI-compatible)</label>
-          <input type="text" id="settings-base-url" placeholder="https://api.openai.com/v1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
-          <p class="text-[11px] text-slate-500 mt-1">Default: https://api.openai.com/v1 (or https://api.vultrinference.com/v1 for Vultr)</p>
+          <label class="block text-xs font-medium text-slate-300 mb-1">API Base URL (Vultr Serverless Inference)</label>
+          <input type="text" id="settings-base-url" placeholder="https://api.vultrinference.com/v1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+          <p class="text-[11px] text-slate-500 mt-1">Default: https://api.vultrinference.com/v1 (Vultr Serverless Inference native endpoint)</p>
         </div>
         <!-- Outbound HTTP/HTTPS Proxy (Optional) -->
         <div>
           <label class="block text-xs font-medium text-slate-300 mb-1 flex items-center justify-between">
             <span>Outbound HTTP Proxy <span class="text-slate-500 font-normal">(Optional for VPN / v2ray / Clash)</span></span>
-            <span class="text-[10px] text-cyan-400">e.g. http://host.docker.internal:20128</span>
+            <span class="text-[10px] text-cyan-400">e.g. http://host.docker.internal:10808</span>
           </label>
-          <input type="text" id="settings-http-proxy" placeholder="http://host.docker.internal:20128" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
-          <p class="text-[11px] text-slate-500 mt-1">If connecting via local proxy (v2ray/Clash on port 20128), specify it here. Keep API Base URL as https://api.openai.com/v1.</p>
+          <input type="text" id="settings-http-proxy" placeholder="http://host.docker.internal:10808" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+          <p class="text-[11px] text-slate-500 mt-1">Leave EMPTY if using 9router or local models. Only use for remote APIs (OpenAI) through v2rayN/Clash (port 10808 or 7890).</p>
         </div>
-
 
         <!-- Model Name -->
         <div>
@@ -823,7 +1018,7 @@
             </button>
           </div>
           <div class="relative">
-            <input type="text" id="settings-model" list="vultr-models-list" placeholder="gpt-4o-mini" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+            <input type="text" id="settings-model" list="vultr-models-list" placeholder="deepseek-v4.1-flash-1017" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
             <datalist id="vultr-models-list"></datalist>
           </div>
           <p id="vultr-models-counter" class="text-[10px] text-cyan-400 mt-1 flex items-center gap-1.5 hidden"></p>
@@ -1160,6 +1355,353 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
       ? 'http://localhost:8001'
       : '';
 
+    // --- Authentication & Session ---
+    // The session lives in an HttpOnly cookie set by the server. The CSRF token is
+    // kept only in memory and re-fetched from /api/v1/auth/me on every page load.
+    const authState = { user: null, csrfToken: '', appStarted: false, pendingRecovery: null };
+    const AUTH_ENDPOINTS = ['/api/v1/auth/login', '/api/v1/auth/signup', '/api/v1/auth/me',
+                            '/api/v1/auth/password/forgot', '/api/v1/auth/password/reset', '/api/v1/auth/logout'];
+
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async function (input, init = {}) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      let path = url;
+      try { path = new URL(url, window.location.href).pathname; } catch (e) {}
+      if (!path.startsWith('/api/')) return nativeFetch(input, init);
+
+      const opts = Object.assign({}, init);
+      opts.credentials = API_BASE ? 'include' : 'same-origin';
+      const method = String(opts.method || 'GET').toUpperCase();
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && authState.csrfToken) {
+        const headers = new Headers(opts.headers || {});
+        headers.set('X-CSRF-Token', authState.csrfToken);
+        opts.headers = headers;
+      }
+      const res = await nativeFetch(input, opts);
+      if (res.status === 401 && !AUTH_ENDPOINTS.includes(path) && authState.user) {
+        handleSessionExpired();
+      }
+      return res;
+    };
+
+    async function readApiError(res, fallback) {
+      try {
+        const data = await res.json();
+        const d = data && data.detail;
+        if (typeof d === 'string') return d;
+        if (Array.isArray(d)) return d.map(x => x.msg || String(x)).join(' ');
+        if (d && d.message) return d.message;
+      } catch (e) {}
+      if (res.status === 429) return 'Too many attempts. Please wait a few minutes and try again.';
+      return fallback || ('Request failed (HTTP ' + res.status + ').');
+    }
+
+    function authPanelFor(route) {
+      return { login: 'login', signup: 'signup', 'forgot-password': 'forgot', 'reset-password': 'reset' }[route] || 'login';
+    }
+
+    function parseAuthHash() {
+      const raw = (window.location.hash || '').replace(/^#\/?/, '');
+      const [route, query] = raw.split('?');
+      return { route, params: new URLSearchParams(query || '') };
+    }
+
+    function showAuthPanel(name, opts = {}) {
+      document.body.classList.add('auth-locked');
+      document.querySelectorAll('[data-auth-panel]').forEach(p => p.classList.add('hidden'));
+      const panel = document.getElementById('auth-panel-' + name);
+      if (!panel) return;
+      panel.classList.remove('hidden');
+      panel.querySelectorAll('[data-auth-error], [data-auth-success]').forEach(el => el.classList.add('hidden'));
+      if (opts.error) setAuthMessage(panel, opts.error, true);
+      if (opts.success) setAuthMessage(panel, opts.success, false);
+      const first = panel.querySelector('input:not([type=checkbox])');
+      if (first) setTimeout(() => first.focus(), 30);
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function setAuthMessage(panel, msg, isError) {
+      const box = panel.querySelector(isError ? '[data-auth-error]' : '[data-auth-success]');
+      const other = panel.querySelector(isError ? '[data-auth-success]' : '[data-auth-error]');
+      if (other) other.classList.add('hidden');
+      if (!box) return;
+      box.innerText = msg;
+      box.classList.remove('hidden');
+    }
+
+    function setFormBusy(form, busy, busyLabel) {
+      const btn = form.querySelector('button[type=submit]');
+      form.querySelectorAll('input').forEach(i => { i.disabled = busy; });
+      if (!btn) return;
+      if (busy) {
+        btn.dataset.idleHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>${escapeHtml(busyLabel)}</span>`;
+      } else {
+        btn.disabled = false;
+        if (btn.dataset.idleHtml) btn.innerHTML = btn.dataset.idleHtml;
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function passwordChecks(password, confirm, username) {
+      const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter(r => r.test(password)).length;
+      return {
+        length: password.length >= 10 && password.length <= 128,
+        classes: classes >= 3,
+        username: !username || username.length < 3 || !password.toLowerCase().includes(username.toLowerCase()),
+        match: password.length > 0 && password === confirm
+      };
+    }
+
+    function updatePasswordChecklist(prefix) {
+      const pw = document.getElementById(prefix + '-password').value;
+      const confirm = document.getElementById(prefix + '-confirm').value;
+      const userEl = document.getElementById(prefix + '-username');
+      const checks = passwordChecks(pw, confirm, userEl ? userEl.value.trim() : '');
+      document.querySelectorAll(`#${prefix}-pw-rules [data-rule]`).forEach(li => {
+        li.classList.toggle('ok', !!checks[li.dataset.rule]);
+      });
+      return checks;
+    }
+
+    function validUsername(u) {
+      return /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30})[A-Za-z0-9]$/.test(u);
+    }
+
+    function markInvalid(input, invalid) {
+      if (input) input.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+    }
+
+    async function submitLogin(e) {
+      e.preventDefault();
+      const form = e.target;
+      const userEl = document.getElementById('login-username');
+      const passEl = document.getElementById('login-password');
+      const username = userEl.value.trim();
+      const password = passEl.value;
+      markInvalid(userEl, !username);
+      markInvalid(passEl, !password);
+      if (!username || !password) return setAuthMessage(form, 'Enter your username and password.', true);
+
+      setFormBusy(form, true, 'Logging in...');
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        if (!res.ok) {
+          markInvalid(passEl, true);
+          return setAuthMessage(form, await readApiError(res, 'Login failed.'), true);
+        }
+        const data = await res.json();
+        passEl.value = '';
+        onAuthenticated(data, `Welcome back, ${data.user.username}!`);
+      } catch (err) {
+        setAuthMessage(form, 'Could not reach the server. Please try again.', true);
+      } finally {
+        setFormBusy(form, false);
+      }
+    }
+
+    async function submitSignup(e) {
+      e.preventDefault();
+      const form = e.target;
+      const userEl = document.getElementById('signup-username');
+      const username = userEl.value.trim();
+      const password = document.getElementById('signup-password').value;
+      const confirm = document.getElementById('signup-confirm').value;
+      const checks = updatePasswordChecklist('signup');
+
+      markInvalid(userEl, !validUsername(username));
+      if (!validUsername(username)) {
+        return setAuthMessage(form, 'Username must be 3–32 characters, start and end with a letter or digit, and use only letters, digits, ".", "_" or "-".', true);
+      }
+      if (!checks.length || !checks.classes || !checks.username) {
+        return setAuthMessage(form, 'Please choose a stronger password that meets every requirement below.', true);
+      }
+      if (!checks.match) return setAuthMessage(form, 'Passwords do not match.', true);
+
+      setFormBusy(form, true, 'Creating account...');
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, confirm_password: confirm })
+        });
+        if (!res.ok) {
+          if (res.status === 409) markInvalid(userEl, true);
+          return setAuthMessage(form, await readApiError(res, 'Could not create your account.'), true);
+        }
+        const data = await res.json();
+        form.reset();
+        updatePasswordChecklist('signup');
+        authState.pendingRecovery = { mode: 'signup', session: data };
+        showRecoveryKey(data.recovery_key, 'Account created — save your recovery key', 'Continue to Dashboard');
+      } catch (err) {
+        setAuthMessage(form, 'Could not reach the server. Please try again.', true);
+      } finally {
+        setFormBusy(form, false);
+      }
+    }
+
+    async function submitForgotPassword(e) {
+      e.preventDefault();
+      const form = e.target;
+      const username = document.getElementById('forgot-username').value.trim();
+      const recoveryKey = document.getElementById('forgot-recovery-key').value.trim();
+      if (!username || !recoveryKey) return setAuthMessage(form, 'Enter your username and recovery key.', true);
+
+      setFormBusy(form, true, 'Verifying...');
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/password/forgot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, recovery_key: recoveryKey })
+        });
+        if (!res.ok) return setAuthMessage(form, await readApiError(res, 'Could not verify your recovery key.'), true);
+        const data = await res.json();
+        form.reset();
+        // Keep the token out of browser history: hand it to the reset form in memory.
+        authState.resetToken = data.reset_token;
+        history.replaceState(null, '', '#reset-password');
+        showAuthPanel('reset', { success: 'Recovery key verified. Choose a new password.' });
+      } catch (err) {
+        setAuthMessage(form, 'Could not reach the server. Please try again.', true);
+      } finally {
+        setFormBusy(form, false);
+      }
+    }
+
+    async function submitResetPassword(e) {
+      e.preventDefault();
+      const form = e.target;
+      const token = authState.resetToken;
+      const password = document.getElementById('reset-password').value;
+      const confirm = document.getElementById('reset-confirm').value;
+      const checks = updatePasswordChecklist('reset');
+      if (!token) return setAuthMessage(form, 'This password reset link is invalid or has expired. Request a new one.', true);
+      if (!checks.length || !checks.classes) return setAuthMessage(form, 'Please choose a stronger password that meets every requirement below.', true);
+      if (!checks.match) return setAuthMessage(form, 'Passwords do not match.', true);
+
+      setFormBusy(form, true, 'Updating password...');
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/password/reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, new_password: password, confirm_password: confirm })
+        });
+        if (!res.ok) return setAuthMessage(form, await readApiError(res, 'Could not reset your password.'), true);
+        const data = await res.json();
+        form.reset();
+        updatePasswordChecklist('reset');
+        authState.resetToken = null;
+        authState.pendingRecovery = { mode: 'reset', username: data.username };
+        showRecoveryKey(data.recovery_key, 'Password updated — save your new recovery key', 'Continue to Login');
+      } catch (err) {
+        setAuthMessage(form, 'Could not reach the server. Please try again.', true);
+      } finally {
+        setFormBusy(form, false);
+      }
+    }
+
+    function showRecoveryKey(key, title, continueLabel) {
+      document.getElementById('recovery-key-value').innerText = key;
+      document.getElementById('recovery-title').innerText = title;
+      document.getElementById('recovery-continue-text').innerText = continueLabel;
+      document.getElementById('recovery-ack').checked = false;
+      document.getElementById('recovery-continue').disabled = true;
+      showAuthPanel('recovery');
+    }
+
+    function copyRecoveryKey() {
+      copyToClipboard(document.getElementById('recovery-key-value').innerText, 'Recovery key copied');
+    }
+
+    function continueAfterRecoveryKey() {
+      const pending = authState.pendingRecovery;
+      authState.pendingRecovery = null;
+      document.getElementById('recovery-key-value').innerText = '';
+      if (pending && pending.mode === 'signup') {
+        onAuthenticated(pending.session, `Welcome to Preflight, ${pending.session.user.username}!`);
+      } else {
+        history.replaceState(null, '', '#login');
+        showAuthPanel('login', { success: 'Password updated. Log in with your new password.' });
+        if (pending && pending.username) document.getElementById('login-username').value = pending.username;
+      }
+    }
+
+    function onAuthenticated(data, welcomeMsg) {
+      const previousUser = authState.user;
+      authState.user = data.user;
+      authState.csrfToken = data.csrf_token;
+      if (authState.appStarted && (!previousUser || previousUser.id !== data.user.id)) {
+        // Another account's data may still be on screen: start from a clean page.
+        history.replaceState(null, '', window.location.pathname);
+        window.location.reload();
+        return;
+      }
+      history.replaceState(null, '', window.location.pathname);
+      document.body.classList.remove('auth-locked');
+      const nameEl = document.getElementById('topbar-username');
+      if (nameEl) nameEl.innerText = data.user.username;
+      if (welcomeMsg) showToast(welcomeMsg);
+      if (!authState.appStarted) {
+        authState.appStarted = true;
+        startDashboard();
+      }
+    }
+
+    function handleSessionExpired() {
+      if (document.body.classList.contains('auth-locked')) return;
+      authState.csrfToken = '';
+      showAuthPanel('login', { error: 'Your session has expired. Please log in again.' });
+    }
+
+    async function logout() {
+      const btn = document.getElementById('btn-logout');
+      if (btn) btn.disabled = true;
+      try {
+        await fetch(`${API_BASE}/api/v1/auth/logout`, { method: 'POST' });
+      } catch (e) {}
+      authState.user = null;
+      authState.csrfToken = '';
+      localStorage.removeItem('preflight_active_repo');
+      // Reload so nothing from this account stays in memory or on screen.
+      window.location.replace(window.location.pathname + '#login');
+      window.location.reload();
+    }
+
+    function routeAuthHash() {
+      if (authState.user && !document.body.classList.contains('auth-locked')) return;
+      const { route, params } = parseAuthHash();
+      if (route === 'reset-password') {
+        const token = params.get('token');
+        if (token) {
+          authState.resetToken = token;
+          history.replaceState(null, '', '#reset-password');  // drop the token from the address bar
+        }
+        if (!authState.resetToken) {
+          return showAuthPanel('forgot', { error: 'This password reset link is invalid or has expired. Request a new one.' });
+        }
+      }
+      // Never navigate away while a one-time recovery key is on screen.
+      if (!document.getElementById('auth-panel-recovery').classList.contains('hidden')) return;
+      showAuthPanel(authPanelFor(route));
+    }
+    window.addEventListener('hashchange', routeAuthHash);
+
+    async function checkSession() {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/me`, { cache: 'no-store' });
+        if (res.ok) return await res.json();
+      } catch (e) {
+        console.error('Session check failed:', e);
+      }
+      return null;
+    }
+
     // --- State Management ---
     let currentRepo = null;
     let allDefects = [];
@@ -1373,6 +1915,17 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
     // --- Initialization & Repositories ---
     async function initApp() {
       if (window.lucide) lucide.createIcons();
+      // A password reset link always opens the reset form, even if another session is active.
+      if (parseAuthHash().route === 'reset-password') return routeAuthHash();
+      const session = await checkSession();
+      if (session && session.user) {
+        onAuthenticated(session);
+      } else {
+        routeAuthHash();
+      }
+    }
+
+    async function startDashboard() {
       await loadSettings();
       await loadRepositories();
       if (currentRepo) {
@@ -1386,9 +1939,6 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
 
     async function loadRepositories() {
       try {
-        const pElem = document.getElementById('settings-http-proxy');
-        const hp = pElem ? pElem.value.trim() : '';
-        const testBody = { base_url: baseUrl, model: model, api_key: apiKey, http_proxy: hp, test_connection: true };
         const res = await fetch(`${API_BASE}/api/v1/repos`);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const repos = await res.json();
@@ -1397,6 +1947,8 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
         
         if (select) select.innerHTML = '';
         if (!repos || repos.length === 0) {
+          currentRepo = null;
+          cachedReposList = [];
           if (select) select.innerHTML = '<option value="">No repository loaded</option>';
           const badge = document.getElementById('active-repo-badge');
           if (badge) badge.innerText = 'No Project Loaded';
@@ -1578,7 +2130,9 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
     async function deleteRepo(name) {
       if (!confirm('Are you sure you want to remove ' + name + ' from index?')) return;
       try {
-        await fetch(`${API_BASE}/api/v1/repos/` + encodeURIComponent(name), { method: 'DELETE' });
+        const res = await fetch(`${API_BASE}/api/v1/repos/` + encodeURIComponent(name), { method: 'DELETE' });
+        if (!res.ok) throw new Error(await readApiError(res, 'Delete failed.'));
+        if (currentRepo === name) { currentRepo = null; localStorage.removeItem('preflight_active_repo'); }
         showToast('Repository ' + name + ' deleted.');
         loadRepositories();
       } catch (e) {
@@ -1899,7 +2453,16 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
         statusText = 'Critical Blockers 🛑';
         statusClass = 'text-[11px] text-red-400 font-semibold';
         scoreClass = 'text-3xl sm:text-4xl font-black text-red-400 mt-0.5';
-      } else if (readinessScore === 100 || (orangeCount === 0 && readinessScore >= 90)) {
+      } else if (orangeCount > 0 || readinessScore < 90) {
+        verdictState = 'launch_with_care';
+        verdictTitle = '🟠 Launch with care';
+        verdictMeaning = `Nothing dangerous, but ${orangeCount} UX/operational hazard${orangeCount > 1 ? 's' : ''} detected. Users will hit problems. Fix before shipping.`;
+        verdictBannerBorder = 'border-orange-500/50 bg-orange-950/30';
+        verdictBadgeClass = 'border-orange-500/60 bg-orange-500/20 text-orange-300';
+        statusText = 'Needs Polish ⚠️';
+        statusClass = 'text-[11px] text-amber-400 font-semibold';
+        scoreClass = 'text-3xl sm:text-4xl font-black text-amber-400 mt-0.5';
+      } else {
         verdictState = 'ready';
         verdictTitle = '🟢 Ready to launch';
         verdictMeaning = 'Nothing serious found. Your app passed all preflight safety and reliability checks. Go.';
@@ -1908,15 +2471,6 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
         statusText = 'Ready to Ship 🚀';
         statusClass = 'text-[11px] text-emerald-400 font-semibold';
         scoreClass = 'text-3xl sm:text-4xl font-black text-emerald-400 mt-0.5';
-      } else {
-        verdictState = 'launch_with_care';
-        verdictTitle = '🟠 Launch with care';
-        verdictMeaning = 'Nothing dangerous, but users will hit problems. Fix UX and reliability issues for a smooth launch.';
-        verdictBannerBorder = 'border-orange-500/50 bg-orange-950/30';
-        verdictBadgeClass = 'border-orange-500/60 bg-orange-500/20 text-orange-300';
-        statusText = 'Needs Polish ⚠️';
-        statusClass = 'text-[11px] text-amber-400 font-semibold';
-        scoreClass = 'text-3xl sm:text-4xl font-black text-amber-400 mt-0.5';
       }
 
       // Update Verdict Banner
@@ -2913,6 +3467,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ git_url: url, repo_name: name || undefined })
           });
+          if (!res.ok) throw new Error(await readApiError(res, 'Import request was rejected.'));
           const data = await res.json();
           taskId = data.task_id;
         } else {
@@ -2938,6 +3493,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
             method: 'POST',
             body: formData
           });
+          if (!res.ok) throw new Error(await readApiError(res, 'Import request was rejected.'));
           const data = await res.json();
           taskId = data.task_id;
         }
@@ -3228,6 +3784,10 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       const apiKey = k ? k.value.trim() : '';
 
       try {
+        const p = document.getElementById('settings-http-proxy');
+        const httpProxy = p ? p.value.trim() : '';
+        const testBody = { base_url: baseUrl, model: model, api_key: apiKey, test_connection: true };
+        if (httpProxy) testBody.http_proxy = httpProxy;
         const res = await fetch(`${API_BASE}/api/v1/config/llm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

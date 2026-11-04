@@ -17,6 +17,7 @@ for mod_name, mock_mod in mock_modules.items():
 
 from fastapi.testclient import TestClient
 from app.main import app
+from tests.auth_helpers import login_client, grant_repo
 from app.core.sandbox import (
     discover_project_launch_plan,
     find_available_port,
@@ -32,6 +33,7 @@ class TestSandboxEngine(unittest.TestCase):
     def setUp(self):
         os.environ["ALLOW_UNAUTHENTICATED"] = "true"
         self.client = TestClient(app)
+        self.user_id, _ = login_client(self.client, repos=["test_repo"])
 
     def test_find_available_port(self):
         port = find_available_port(start_port=9200, max_port=9250)
@@ -87,13 +89,13 @@ class TestSandboxEngine(unittest.TestCase):
 
     @patch("app.core.security.ALLOW_UNAUTHENTICATED", True)
     def test_sandbox_api_endpoints(self):
-        resp_plan = self.client.get("/api/v1/sandbox/plan")
+        resp_plan = self.client.get("/api/v1/sandbox/plan?repo_name=test_repo")
         self.assertEqual(resp_plan.status_code, 200)
         data = resp_plan.json()
         self.assertIn("command", data)
         self.assertIn("assigned_port", data)
 
-        resp_status = self.client.get("/api/v1/sandbox/status")
+        resp_status = self.client.get("/api/v1/sandbox/status?repo_name=test_repo")
         self.assertEqual(resp_status.status_code, 200)
 
         resp_stop = self.client.post("/api/v1/sandbox/stop", json={"repo_name": "test_repo"})
@@ -115,6 +117,7 @@ class TestSandboxEngine(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             (tmp_path / "main.py").write_text("print('hello world')", encoding="utf-8")
+            grant_repo(self.user_id, tmp_path.name)
             with patch("app.core.sandbox.ALLOWED_REPO_DIR", tmp_path.parent):
                 # Test primary preflight review endpoint
                 resp_review = self.client.post("/api/v1/sandbox/preflight-review", json={"repo_name": tmp_path.name})
@@ -149,6 +152,7 @@ class TestSandboxEngine(unittest.TestCase):
         )
         with TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
+            grant_repo(self.user_id, tmp_path.name)
             with patch("app.core.sandbox.ALLOWED_REPO_DIR", tmp_path.parent):
                 resp_diag = self.client.post("/api/v1/sandbox/diagnose-error", json={"repo_name": tmp_path.name})
                 self.assertEqual(resp_diag.status_code, 200)
