@@ -1170,7 +1170,8 @@ def get_sandbox_session_status(repo_name: Optional[str] = None) -> Dict[str, Any
             result["proxy_url"] = f"/api/v1/sandbox/proxy/{key}/"
             return result
         except Exception as exc:
-            logger.warning(f"Could not reach sandbox runner ({exc}), checking host-process session.")
+            if os.getenv("DEBUG", "").lower() in ("true", "1"):
+                logger.debug(f"Could not reach sandbox runner ({exc}), checking host-process session.")
 
     with _SANDBOX_LOCK:
         session = _ACTIVE_SANDBOXES.get(key)

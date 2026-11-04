@@ -13,16 +13,36 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import docker
+try:
+    import docker
+    from docker.errors import DockerException, ImageNotFound, NotFound
+except ImportError:
+    docker = None
+    class DockerException(Exception): pass
+    class ImageNotFound(Exception): pass
+    class NotFound(Exception): pass
+
 import requests
-from docker.errors import DockerException, ImageNotFound, NotFound
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.responses import Response, StreamingResponse
 
 
 app = FastAPI(title="Preflight Sandbox Runner", docs_url=None, redoc_url=None)
-client = docker.from_env()
+
+_docker_client = None
+
+def get_docker_client():
+    global _docker_client
+    if _docker_client is not None:
+        return _docker_client
+    if docker is None:
+        return None
+    try:
+        _docker_client = docker.from_env()
+        return _docker_client
+    except Exception as e:
+        return None
 def _resolve_repos_dir() -> Path:
     env_dir = os.getenv("ALLOWED_REPO_DIR")
     if env_dir:
@@ -212,15 +232,21 @@ def remove_session(name: str):
 
 @app.get("/health", dependencies=[Depends(authorize)])
 def health():
+    cli = get_docker_client()
+    if cli is None:
+        return {"status": "degraded", "detail": "Docker daemon not reachable"}
     try:
-        client.ping()
+        cli.ping()
         return {"status": "ok"}
-    except DockerException as exc:
+    except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
 
 @app.post("/sessions/start", dependencies=[Depends(authorize)])
 def start(payload: StartRequest):
+    cli = get_docker_client()
+    if cli is None:
+        raise HTTPException(status_code=503, detail="Docker daemon unavailable on this host.")
     name = clean_name(payload.repo_name)
     repo_dir = (REPOS_DIR / name).resolve()
     if REPOS_DIR not in repo_dir.parents or not repo_dir.is_dir():
@@ -239,22 +265,22 @@ def start(payload: StartRequest):
         remove_session(name)
         try:
             try:
-                client.images.get(image)
+                cli.images.get(image)
             except ImageNotFound:
-                client.images.pull(image)
+                cli.images.pull(image)
             try:
-                old = client.containers.get(container_name)
+                old = cli.containers.get(container_name)
                 old.remove(force=True)
             except NotFound:
                 pass
             try:
-                old_volume = client.volumes.get(volume_name)
+                old_volume = cli.volumes.get(volume_name)
                 old_volume.remove(force=True)
             except NotFound:
                 pass
 
-            volume = client.volumes.create(name=volume_name, labels={"preflight.sandbox": "true"})
-            container = client.containers.create(
+            volume = cli.volumes.create(name=volume_name, labels={"preflight.sandbox": "true"})
+            container = cli.containers.create(
                 image=image,
                 name=container_name,
                 command=["sh", "-lc", shell_command],
