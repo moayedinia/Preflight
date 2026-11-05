@@ -233,27 +233,14 @@ def acquire_scan_slot(ip: str):
 # ==============================================================================
 # ITEM 9: IN-MEMORY BACKGROUND TASKS FALLBACK (NO CELERY / REDIS REQUIRED)
 # ==============================================================================
-from concurrent.futures import ThreadPoolExecutor
-import uuid
-
-_LOCAL_TASK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="preflight_bg")
-_LOCAL_TASKS: Dict[str, Dict[str, Any]] = {}
-_LOCAL_TASKS_LOCK = threading.Lock()
-
-def record_local_task(task_id: str, status: str = "PENDING", result: Any = None, error: str = None, percent: int = 0):
-    with _LOCAL_TASKS_LOCK:
-        _LOCAL_TASKS[task_id] = {
-            "task_id": task_id,
-            "status": status,
-            "result": result,
-            "error": error,
-            "percent": percent,
-            "updated_at": time.time()
-        }
-
-def get_local_task(task_id: str) -> Optional[Dict[str, Any]]:
-    with _LOCAL_TASKS_LOCK:
-        return _LOCAL_TASKS.get(task_id)
+from app.core.task_manager import (
+    record_local_task,
+    get_local_task,
+    submit_local_task,
+    _LOCAL_TASKS,
+    _LOCAL_TASKS_LOCK,
+    _EXECUTOR as _LOCAL_TASK_EXECUTOR,
+)
 
 # Mount runner sub-app if available
 try:
@@ -453,14 +440,17 @@ def get_task_status(task_id: str):
     local_t = get_local_task(task_id)
     if local_t:
         st = local_t["status"]
+        prog = local_t.get("progress") or ("Finished" if st == "SUCCESS" else ("Failed: " + str(local_t.get("error")) if st == "FAILURE" else "Processing..."))
         return {
             "task_id": task_id,
             "status": st,
             "state": st,
-            "progress": "Finished" if st == "SUCCESS" else ("Failed: " + str(local_t.get("error")) if st == "FAILURE" else "Processing..."),
+            "progress": prog,
             "percent": local_t.get("percent", 100 if st == "SUCCESS" else 50),
             "result": local_t.get("result"),
-            "error": local_t.get("error")
+            "repo_name": local_t.get("repo_name") or (local_t.get("result") or {}).get("repo_name"),
+            "error": local_t.get("error"),
+            "meta": local_t.get("meta") or {}
         }
 
     res = celery_app.AsyncResult(task_id)

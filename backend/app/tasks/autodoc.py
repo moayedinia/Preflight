@@ -4,11 +4,13 @@ from app.core.celery import celery_app, CELERY_BROKER_URL
 from app.core.graph import driver
 from app.core.llm import call_llm
 
-try:
-    import redis
-    _r_client = redis.from_url(CELERY_BROKER_URL, decode_responses=True)
-except Exception:
-    _r_client = None
+_r_client = None
+if CELERY_BROKER_URL:
+    try:
+        import redis
+        _r_client = redis.from_url(CELERY_BROKER_URL, decode_responses=True)
+    except Exception:
+        _r_client = None
 
 _LOCAL_STOP_FLAGS = set()
 
