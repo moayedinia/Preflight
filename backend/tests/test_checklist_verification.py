@@ -184,7 +184,7 @@ No critical code review blockers or defects detected during static heuristic ana
     def test_v2_no_key_scan_refuses_callout(self):
         """Checklist v2 Item 4: With no API key, call_llm refuses to call out and leaks no code."""
         from app.core.llm import call_llm
-        with patch.dict(os.environ, {"TESTING": "0", "MOCK_LLM": "0", "LLM_API_KEY": "", "VULTR_API_KEY": "", "OPENAI_API_KEY": ""}), \
+        with patch.dict(os.environ, {"TESTING": "0", "MOCK_LLM": "0", "VULTR_INFERENCE_API_KEY": "", "LLM_API_KEY": "", "VULTR_API_KEY": "", "OPENAI_API_KEY": ""}), \
              patch("app.core.llm.get_llm_config", return_value={"api_key": "", "base_url": "https://api.vultrinference.com/v1"}):
             with self.assertRaises(ValueError) as ctx:
                 call_llm("test prompt", "system prompt")

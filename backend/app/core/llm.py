@@ -67,7 +67,7 @@ def get_llm_config() -> dict:
                 if not cfg.get("model"):
                     cfg["model"] = (os.getenv("LLM_MODEL") or "").strip() or DEFAULT_LLM_MODEL
                 if not cfg.get("api_key"):
-                    cfg["api_key"] = (os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+                    cfg["api_key"] = (os.getenv("VULTR_INFERENCE_API_KEY") or os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
                 # Auto-sanitize if 20128 was mistakenly placed in http_proxy instead of base_url
                 if "20128" in (cfg.get("http_proxy") or ""):
                     if "20128" not in (cfg.get("base_url") or ""):
@@ -94,7 +94,7 @@ def get_llm_config() -> dict:
     return {
         "base_url": clean_env_base,
         "model": (os.getenv("LLM_MODEL") or "").strip() or DEFAULT_LLM_MODEL,
-        "api_key": (os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip(),
+        "api_key": (os.getenv("VULTR_INFERENCE_API_KEY") or os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip(),
         "http_proxy": env_proxy
     }
 
@@ -363,7 +363,7 @@ def verify_llm_connection(timeout: float = 60.0, model: Optional[str] = None, us
         return False, f"Cannot connect to AI endpoint: {str(e)}"
 
 def _extract_content_from_response(response: requests.Response) -> str:
-    """Robustly extracts message content from standard JSON or SSE event stream (data: ...)."""
+    """Robustly extracts message content from standard JSON or SSE event stream (data: ...), stripping any reasoning tags."""
     text = (response.text or "").strip()
     if not text:
         raise ValueError("LLM endpoint returned an empty response body.")
@@ -386,10 +386,8 @@ def _extract_content_from_response(response: requests.Response) -> str:
                     delta = c0.get("delta") or {}
                     if "content" in delta and delta["content"]:
                         content_parts.append(str(delta["content"]))
-                    elif "reasoning_content" in delta and delta["reasoning_content"]:
-                        content_parts.append(str(delta["reasoning_content"]))
                     elif "message" in c0 and isinstance(c0["message"], dict):
-                        m_content = c0["message"].get("content") or c0["message"].get("reasoning_content")
+                        m_content = c0["message"].get("content")
                         if m_content:
                             content_parts.append(str(m_content))
                     elif "text" in c0 and c0["text"]:
@@ -398,6 +396,8 @@ def _extract_content_from_response(response: requests.Response) -> str:
                 continue
         if content_parts:
             res_sse = "".join(content_parts).strip()
+            # Strip reasoning / think tags so the user NEVER sees the model's internal reasoning
+            res_sse = re.sub(r'<think>[\s\S]*?</think>', '', res_sse, flags=re.IGNORECASE).strip()
             if res_sse:
                 return res_sse
 
@@ -411,20 +411,20 @@ def _extract_content_from_response(response: requests.Response) -> str:
                     msg = c0["message"]
                     content = msg.get("content")
                     if content is not None and str(content).strip():
-                        return str(content).strip()
-                    reasoning = msg.get("reasoning_content") or msg.get("reasoning") or msg.get("thought")
-                    if reasoning is not None and str(reasoning).strip():
-                        return str(reasoning).strip()
+                        clean_c = re.sub(r'<think>[\s\S]*?</think>', '', str(content), flags=re.IGNORECASE).strip()
+                        if clean_c:
+                            return clean_c
                 if "delta" in c0 and isinstance(c0["delta"], dict):
                     delta = c0["delta"]
                     content = delta.get("content")
                     if content is not None and str(content).strip():
-                        return str(content).strip()
-                    reasoning = delta.get("reasoning_content") or delta.get("reasoning")
-                    if reasoning is not None and str(reasoning).strip():
-                        return str(reasoning).strip()
+                        clean_c = re.sub(r'<think>[\s\S]*?</think>', '', str(content), flags=re.IGNORECASE).strip()
+                        if clean_c:
+                            return clean_c
                 if "text" in c0 and c0["text"] is not None and str(c0["text"]).strip():
-                    return str(c0["text"]).strip()
+                    clean_c = re.sub(r'<think>[\s\S]*?</think>', '', str(c0["text"]), flags=re.IGNORECASE).strip()
+                    if clean_c:
+                        return clean_c
             if "error" in data:
                 err = data["error"]
                 msg = err.get("message") if isinstance(err, dict) else str(err)
@@ -435,54 +435,118 @@ def _extract_content_from_response(response: requests.Response) -> str:
 
     # 3. Plain text fallback if not JSON or HTML
     if not text.startswith("{") and not text.startswith("<"):
-        if text.strip():
-            return text.strip()
+        clean_t = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.IGNORECASE).strip()
+        if clean_t:
+            return clean_t
 
     preview = text[:300].replace("\n", " ")
     raise ValueError(f"Invalid or empty LLM response format: {preview}")
 
 
 def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_tokens: Optional[int] = None) -> str:
-    """Calls any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, Ollama, vLLM) with auto-fallbacks."""
+    """
+    Calls any OpenAI-compatible endpoint (Vultr Serverless Inference, OpenAI, OpenRouter, Groq, Ollama)
+    using the official OpenAI client SDK format:
+        client = OpenAI(base_url=..., api_key=...)
+        reply = client.chat.completions.create(...)
+        reply.choices[0].message.content
+    Strictly returns the actual message content with reasoning (<think>...</think>) completely stripped.
+    """
     if os.getenv("TESTING") == "1" or os.getenv("MOCK_LLM") == "1":
         return '{"is_defect": false, "confidence": 0.95, "plain_english_explanation": "Test mode clean.", "business_consequence": "None.", "repair_prompt": "None."}'
 
     config = get_llm_config()
-    headers = {"Content-Type": "application/json"}
-    api_key = (config.get("api_key") or os.getenv("VULTR_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+    api_key = (
+        config.get("api_key")
+        or os.getenv("VULTR_INFERENCE_API_KEY")
+        or os.getenv("VULTR_API_KEY")
+        or os.getenv("LLM_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or ""
+    ).strip()
     if not api_key:
         raise ValueError("No AI API key configured. Remote inference call refused for security.")
-    if api_key:
-        clean_key = re.sub(r'^(?:Bearer\s+|["\'])', '', api_key, flags=re.IGNORECASE)
-        clean_key = re.sub(r'["\']$', '', clean_key).strip()
-        headers["Authorization"] = f"Bearer {clean_key}"
-        headers["api-key"] = clean_key
-        headers["x-api-key"] = clean_key
-        headers["X-API-KEY"] = clean_key
 
+    clean_key = re.sub(r'^(?:Bearer\s+|["\'])', '', api_key, flags=re.IGNORECASE)
+    clean_key = re.sub(r'["\']$', '', clean_key).strip()
+
+    base_url = config.get("base_url", "") or os.getenv("VULTR_INFERENCE_BASE_URL") or DEFAULT_LLM_BASE_URL
+    norm_base = normalize_llm_base_url(base_url)
+    model = config.get("model", "") or DEFAULT_LLM_MODEL
+
+    call_timeout = float(timeout)
+    if os.getenv("TESTING") != "1" and call_timeout < 45:
+        call_timeout = 60.0
+
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    # 1. Primary path: Official OpenAI SDK format
+    try:
+        from openai import OpenAI
+        import httpx
+
+        http_proxy = (config.get("http_proxy") or os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or "").strip()
+        is_local_target = any(host in norm_base.lower() for host in ["host.docker.internal", "localhost", "127.0.0.1", "::1"])
+
+        client_kwargs = {
+            "base_url": norm_base,
+            "api_key": clean_key,
+            "timeout": call_timeout
+        }
+
+        if http_proxy and not is_local_target:
+            resolved_proxy = resolve_docker_target_url(http_proxy)
+            try:
+                client_kwargs["http_client"] = httpx.Client(proxy=resolved_proxy, timeout=call_timeout)
+            except Exception as pe:
+                logger.warning(f"Could not initialize httpx proxy: {pe}")
+
+        client = OpenAI(**client_kwargs)
+        create_kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.0,
+        }
+        if max_tokens:
+            create_kwargs["max_tokens"] = max_tokens
+
+        reply = client.chat.completions.create(**create_kwargs)
+        if reply.choices and len(reply.choices) > 0:
+            raw_content = reply.choices[0].message.content or ""
+            # Strip reasoning / think tags so the user NEVER sees reasoning tokens
+            clean_content = re.sub(r'<think>[\s\S]*?</think>', '', raw_content, flags=re.IGNORECASE).strip()
+            if clean_content:
+                return clean_content
+
+    except Exception as sdk_err:
+        logger.warning(f"OpenAI SDK call failed: {sdk_err}. Trying direct HTTP execution...")
+        if "No AI API key" in str(sdk_err):
+            raise
+
+    # 2. Fallback path: Direct HTTP execution with robust error mapping
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {clean_key}",
+        "api-key": clean_key,
+        "x-api-key": clean_key,
+        "X-API-KEY": clean_key
+    }
     payload = {
-        "model": config.get("model", "") or DEFAULT_LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
+        "model": model,
+        "messages": messages,
         "temperature": 0.0,
         "stream": False
     }
     if max_tokens:
         payload["max_tokens"] = max_tokens
 
-    base_url = config.get("base_url", "") or DEFAULT_LLM_BASE_URL
-    norm_base = normalize_llm_base_url(base_url)
     url = _clean_slashes(f"{norm_base}/chat/completions")
 
-    # Ensure a reasonable minimum timeout for complex LLM reasoning and remote endpoints
-    call_timeout = timeout
-    if os.getenv("TESTING") != "1" and call_timeout < 45:
-        call_timeout = 60
-
     try:
-        response = execute_llm_http("post", url, headers=headers, json=payload, timeout=call_timeout)
+        response = execute_llm_http("post", url, headers=headers, json=payload, timeout=int(call_timeout))
         response.raise_for_status()
         return _extract_content_from_response(response)
     except requests.exceptions.HTTPError as e:
@@ -490,7 +554,7 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
             alt_url = _clean_slashes(url.replace("/v1/chat/completions", "/chat/completions"))
             if alt_url != url:
                 try:
-                    alt_resp = execute_llm_http("post", alt_url, headers=headers, json=payload, timeout=call_timeout)
+                    alt_resp = execute_llm_http("post", alt_url, headers=headers, json=payload, timeout=int(call_timeout))
                     if alt_resp.ok:
                         return _extract_content_from_response(alt_resp)
                 except Exception:
