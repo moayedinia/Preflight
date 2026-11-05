@@ -101,6 +101,12 @@ class TestSandboxEngine(unittest.TestCase):
         resp_stop = self.client.post("/api/v1/sandbox/stop", json={"repo_name": "test_repo"})
         self.assertEqual(resp_stop.status_code, 200)
 
+        resp_exec = self.client.post("/api/v1/sandbox/exec", json={"repo_name": "test_repo", "command": "python -c \"print('sandbox exec test ok')\""})
+        self.assertEqual(resp_exec.status_code, 200)
+        data_exec = resp_exec.json()
+        self.assertEqual(data_exec["status"], "success")
+        self.assertIn("sandbox exec test ok", data_exec["output"])
+
     @patch("app.core.sandbox.call_llm")
     @patch("app.core.security.ALLOW_UNAUTHENTICATED", True)
     def test_preflight_code_review_and_download(self, mock_llm):

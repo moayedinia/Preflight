@@ -1195,6 +1195,112 @@ def get_sandbox_session_status(repo_name: Optional[str] = None) -> Dict[str, Any
         return session.to_dict()
 
 
+def execute_sandbox_command(repo_name: Optional[str] = None, command: str = "") -> Dict[str, Any]:
+    """
+    Executes a shell command (e.g. package installation like pip install, npm install, dotnet restore)
+    inside the repository sandbox workspace and streams output to terminal logs.
+    """
+    cmd = (command or "").strip()
+    if not cmd:
+        raise HTTPException(status_code=400, detail="Command cannot be empty.")
+
+    clean_repo = sanitize_name(repo_name) if repo_name else None
+    plan = discover_project_launch_plan(clean_repo)
+    repo_dir = Path(plan["working_dir"])
+
+    if not repo_dir.exists() and clean_repo and ALLOWED_REPO_DIR.exists():
+        for child in ALLOWED_REPO_DIR.iterdir():
+            if child.is_dir() and child.name.lower() == clean_repo.lower():
+                repo_dir = child
+                break
+
+    if not repo_dir.exists() and ALLOWED_REPO_DIR.exists():
+        subdirs = [p for p in ALLOWED_REPO_DIR.iterdir() if p.is_dir() and not p.name.startswith(".")]
+        if subdirs:
+            repo_dir = subdirs[0]
+
+    key = clean_repo or repo_dir.name
+
+    # 1. Forward to remote sandbox runner if configured
+    if SANDBOX_RUNNER_URL:
+        try:
+            res = _runner_request(
+                "POST",
+                "/sessions/exec",
+                json={
+                    "repo_name": clean_repo or plan["repo_name"],
+                    "command": cmd
+                },
+                timeout=180
+            )
+            return res
+        except Exception as exc:
+            logger.warning(f"Remote runner exec failed ({exc}). Using host-process execution.")
+
+    # 2. Host-process / local execution fallback
+    with _SANDBOX_LOCK:
+        session = _ACTIVE_SANDBOXES.get(key)
+        if not session:
+            session = SandboxSession(
+                repo_name=key,
+                command=plan.get("command", ""),
+                port=plan.get("assigned_port", 9100),
+                working_dir=repo_dir
+            )
+            _ACTIVE_SANDBOXES[key] = session
+
+    session.log(f"$ {cmd}")
+    safe_keys = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "HOME"}
+    env = {k: os.environ[k] for k in safe_keys if k in os.environ}
+    env["PYTHONUNBUFFERED"] = "1"
+    env["CI"] = "true"
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            shell=True,
+            cwd=str(repo_dir),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=180
+        )
+        out = proc.stdout or ""
+        for line in out.splitlines():
+            session.log(line)
+        if proc.returncode == 0:
+            session.log("✅ Command completed successfully (exit code 0)")
+        else:
+            session.log(f"❌ Command exited with code {proc.returncode}")
+
+        return {
+            "status": "success" if proc.returncode == 0 else "failed",
+            "repo_name": key,
+            "command": cmd,
+            "exit_code": proc.returncode,
+            "output": out
+        }
+    except subprocess.TimeoutExpired:
+        session.log("⏱️ Command timed out after 180 seconds.")
+        return {
+            "status": "timeout",
+            "repo_name": key,
+            "command": cmd,
+            "exit_code": -1,
+            "output": "Command timed out after 180 seconds."
+        }
+    except Exception as e:
+        session.log(f"❌ Execution error: {e}")
+        return {
+            "status": "error",
+            "repo_name": key,
+            "command": cmd,
+            "exit_code": 1,
+            "output": str(e)
+        }
+
+
 async def proxy_sandbox_http_request(repo_name: Optional[str], subpath: str, request: Any) -> Any:
     """
     Reverse proxies browser HTTP traffic from host through FastAPI into the isolated sandbox process.

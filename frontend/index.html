@@ -1261,6 +1261,27 @@
         </div>
 
         <pre id="sandbox-terminal" class="flex-1 overflow-y-auto text-[11px] leading-relaxed text-emerald-400 whitespace-pre-wrap select-text font-mono space-y-0.5">Initializing sandbox...</pre>
+
+        <!-- Interactive Terminal Command Input (Run / Install packages) -->
+        <div class="pt-2.5 border-t border-slate-800/90 mt-2 flex flex-col gap-1.5 font-sans">
+          <div class="flex items-center gap-2">
+            <div class="relative flex-1 flex items-center">
+              <span class="absolute left-3 text-emerald-400 font-mono text-xs select-none pointer-events-none">$</span>
+              <input type="text" id="sandbox-terminal-input" onkeydown="if(event.key==='Enter') executeSandboxTerminalCommand()" placeholder="Enter command to run inside sandbox (e.g. npm install, pip install requests, dotnet restore)..." class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl pl-7 pr-3 py-1.5 text-xs text-slate-100 font-mono outline-none shadow-inner" />
+            </div>
+            <button type="button" onclick="executeSandboxTerminalCommand()" id="btn-terminal-exec" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 shrink-0" title="Run command in sandbox workspace">
+              <i data-lucide="play" class="w-3.5 h-3.5 fill-white"></i>
+              <span id="btn-terminal-exec-text">Run</span>
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-500 flex-wrap">
+            <span class="font-sans text-slate-400">Quick Commands:</span>
+            <button type="button" onclick="setTerminalCommand('npm install')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono border border-slate-800 transition-colors">npm install</button>
+            <button type="button" onclick="setTerminalCommand('pip install -r requirements.txt')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono border border-slate-800 transition-colors">pip install -r requirements.txt</button>
+            <button type="button" onclick="setTerminalCommand('dotnet restore')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono border border-slate-800 transition-colors">dotnet restore</button>
+            <button type="button" onclick="setTerminalCommand('ls -la')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono border border-slate-800 transition-colors">ls -la</button>
+          </div>
+        </div>
       </div>
 
       <!-- Embedded Live App Preview -->
@@ -4138,6 +4159,81 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         }
       }
       if (window.lucide) lucide.createIcons();
+    }
+
+    function setTerminalCommand(cmd) {
+      const input = document.getElementById('sandbox-terminal-input');
+      if (input) {
+        input.value = cmd;
+        input.focus();
+      }
+    }
+
+    async function executeSandboxTerminalCommand() {
+      const input = document.getElementById('sandbox-terminal-input');
+      const btn = document.getElementById('btn-terminal-exec');
+      const btnText = document.getElementById('btn-terminal-exec-text');
+      const term = document.getElementById('sandbox-terminal');
+      const autoscroll = document.getElementById('sandbox-autoscroll')?.checked ?? true;
+
+      const cmd = (input?.value || '').trim();
+      if (!cmd) return;
+
+      if (btn) btn.disabled = true;
+      if (btnText) btnText.innerText = 'Running...';
+      if (term) {
+        term.innerText += `\n\n$ ${cmd}\n[Executing in workspace...]`;
+        if (autoscroll) term.scrollTop = term.scrollHeight;
+      }
+
+      try {
+        if (!currentRepo) {
+          const sel = document.getElementById('repo-select');
+          if (sel && sel.value) currentRepo = sel.value;
+        }
+
+        const res = await fetch(`${API_BASE}/api/v1/sandbox/exec`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo_name: currentRepo,
+            command: cmd
+          })
+        });
+
+        if (!res.ok) {
+          const errorMsg = await readApiError(res, `HTTP ${res.status} error occurred`);
+          throw new Error(errorMsg);
+        }
+
+        const data = await res.json();
+        if (term && data.output) {
+          term.innerText += `\n${data.output}`;
+        }
+        if (term) {
+          if (data.status === 'success') {
+            term.innerText += `\n✅ Command completed successfully (exit code ${data.exit_code ?? 0})`;
+          } else {
+            term.innerText += `\n❌ Command exited with code ${data.exit_code ?? 1}`;
+          }
+        }
+
+        if (data.status === 'success') {
+          showToast(`Executed: ${cmd.split(' ')[0]}`);
+          if (input) input.value = '';
+        } else {
+          showToast(`Command finished with exit code ${data.exit_code}`, true);
+        }
+      } catch (err) {
+        console.error('Terminal command failed:', err);
+        if (term) term.innerText += `\n❌ Execution error: ${err.message}`;
+        showToast(`Failed: ${err.message}`, true);
+      } finally {
+        if (btn) btn.disabled = false;
+        if (btnText) btnText.innerText = 'Run';
+        if (autoscroll && term) term.scrollTop = term.scrollHeight;
+        if (window.lucide) lucide.createIcons();
+      }
     }
 
     async function triggerStartSandbox() {

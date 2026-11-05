@@ -91,6 +91,11 @@ class StopRequest(BaseModel):
     repo_name: str
 
 
+class ExecRequest(BaseModel):
+    repo_name: str
+    command: str = Field(min_length=1, max_length=4096)
+
+
 class Session:
     def __init__(self, name: str, container: Any, volume: Any, port: int, command: str):
         self.name = name
@@ -330,6 +335,42 @@ def stop(payload: StopRequest):
         previous = session.status() if session else {"repo_name": name}
         remove_session(name)
     return {**previous, "status": "stopped", "pid": None}
+
+
+@app.post("/sessions/exec", dependencies=[Depends(authorize)])
+def exec_in_session(payload: ExecRequest):
+    cli = get_docker_client()
+    if cli is None:
+        raise HTTPException(status_code=503, detail="Docker daemon unavailable on this host.")
+    name = clean_name(payload.repo_name)
+    with lock:
+        session = sessions.get(name)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Sandbox container '{name}' is not currently running. Please start the sandbox first.")
+        try:
+            session.logs.append(f"$ {payload.command}")
+            exec_res = session.container.exec_run(
+                cmd=["sh", "-lc", payload.command],
+                workdir="/workspace",
+                environment={"CI": "true", "PYTHONUNBUFFERED": "1", "PORT": str(session.port)}
+            )
+            raw = exec_res.output or b""
+            out_str = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+            for line in out_str.splitlines():
+                session.logs.append(line)
+            if exec_res.exit_code == 0:
+                session.logs.append("✅ Command completed successfully (exit code 0)")
+            else:
+                session.logs.append(f"❌ Command exited with code {exec_res.exit_code}")
+            return {
+                "status": "success" if exec_res.exit_code == 0 else "failed",
+                "repo_name": name,
+                "command": payload.command,
+                "exit_code": exec_res.exit_code,
+                "output": out_str
+            }
+        except DockerException as exc:
+            raise HTTPException(status_code=502, detail=f"Docker exec error: {exc}")
 
 
 @app.get("/sessions/{repo_name}/status", dependencies=[Depends(authorize)])

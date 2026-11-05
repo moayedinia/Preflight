@@ -1018,6 +1018,11 @@ class SandboxStartRequest(BaseModel):
     command: Optional[str] = Field(None, max_length=500)
     port: Optional[int] = Field(None, ge=1024, le=65535)
 
+class SandboxExecRequest(BaseModel):
+    repo_name: Optional[str] = Field(None, max_length=100)
+    command: str = Field(..., min_length=1, max_length=4096)
+
+
 class SandboxStopRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
 
@@ -1056,6 +1061,17 @@ def get_sandbox_status_endpoint(repo_name: Optional[str] = None):
     from app.core.sandbox import get_sandbox_session_status
     clean_repo = sanitize_name(repo_name) if repo_name else None
     return get_sandbox_session_status(repo_name=clean_repo)
+
+
+@app.post("/api/v1/sandbox/exec", dependencies=[Depends(verify_api_key)])
+def exec_sandbox_command_endpoint(payload: SandboxExecRequest):
+    """Executes a terminal command (e.g. package installation, script run) inside the sandbox workspace."""
+    from app.core.sandbox import execute_sandbox_command
+    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    return execute_sandbox_command(
+        repo_name=clean_repo,
+        command=payload.command
+    )
 
 
 @app.get("/api/v1/sandbox/capabilities")
