@@ -368,7 +368,7 @@ def _extract_content_from_response(response: requests.Response) -> str:
     if not text:
         raise ValueError("LLM endpoint returned an empty response body.")
 
-    # 1. Parse SSE stream if present (data: { ... }\n\n)
+    # 1. Parse SSE stream if present (data: { ... })
     if "data:" in text:
         content_parts = []
         for line in text.splitlines():
@@ -386,8 +386,10 @@ def _extract_content_from_response(response: requests.Response) -> str:
                     delta = c0.get("delta") or {}
                     if "content" in delta and delta["content"]:
                         content_parts.append(str(delta["content"]))
+                    elif "reasoning_content" in delta and delta["reasoning_content"]:
+                        content_parts.append(str(delta["reasoning_content"]))
                     elif "message" in c0 and isinstance(c0["message"], dict):
-                        m_content = c0["message"].get("content")
+                        m_content = c0["message"].get("content") or c0["message"].get("reasoning_content")
                         if m_content:
                             content_parts.append(str(m_content))
                     elif "text" in c0 and c0["text"]:
@@ -395,7 +397,9 @@ def _extract_content_from_response(response: requests.Response) -> str:
             except Exception:
                 continue
         if content_parts:
-            return "".join(content_parts).strip()
+            res_sse = "".join(content_parts).strip()
+            if res_sse:
+                return res_sse
 
     # 2. Parse standard JSON response
     try:
@@ -403,11 +407,23 @@ def _extract_content_from_response(response: requests.Response) -> str:
         if isinstance(data, dict):
             if "choices" in data and len(data["choices"]) > 0:
                 c0 = data["choices"][0]
-                if "message" in c0 and isinstance(c0["message"], dict) and c0["message"].get("content") is not None:
-                    return str(c0["message"]["content"]).strip()
-                if "delta" in c0 and isinstance(c0["delta"], dict) and c0["delta"].get("content") is not None:
-                    return str(c0["delta"]["content"]).strip()
-                if "text" in c0 and c0["text"] is not None:
+                if "message" in c0 and isinstance(c0["message"], dict):
+                    msg = c0["message"]
+                    content = msg.get("content")
+                    if content is not None and str(content).strip():
+                        return str(content).strip()
+                    reasoning = msg.get("reasoning_content") or msg.get("reasoning") or msg.get("thought")
+                    if reasoning is not None and str(reasoning).strip():
+                        return str(reasoning).strip()
+                if "delta" in c0 and isinstance(c0["delta"], dict):
+                    delta = c0["delta"]
+                    content = delta.get("content")
+                    if content is not None and str(content).strip():
+                        return str(content).strip()
+                    reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                    if reasoning is not None and str(reasoning).strip():
+                        return str(reasoning).strip()
+                if "text" in c0 and c0["text"] is not None and str(c0["text"]).strip():
                     return str(c0["text"]).strip()
             if "error" in data:
                 err = data["error"]
@@ -419,10 +435,12 @@ def _extract_content_from_response(response: requests.Response) -> str:
 
     # 3. Plain text fallback if not JSON or HTML
     if not text.startswith("{") and not text.startswith("<"):
-        return text.strip()
+        if text.strip():
+            return text.strip()
 
     preview = text[:300].replace("\n", " ")
-    raise ValueError(f"Invalid LLM response format: {preview}")
+    raise ValueError(f"Invalid or empty LLM response format: {preview}")
+
 
 def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_tokens: Optional[int] = None) -> str:
     """Calls any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, Ollama, vLLM) with auto-fallbacks."""

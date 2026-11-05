@@ -1104,12 +1104,13 @@ def run_sandbox_preflight_review_endpoint(payload: Optional[SandboxPreflightRevi
         repo = payload.repo_name if payload else None
         clean_repo = sanitize_name(repo) if repo else None
         res = run_preflight_code_review(clean_repo)
-        try:
-            from app.core.supabase_client import sync_report_to_supabase
-            if res.get("report_md"):
-                res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"preflight-code-review-{clean_repo or 'project'}.md", res["report_md"])
-        except Exception:
-            pass
+        report_content = res.get("markdown_report") or res.get("report_md")
+        if report_content:
+            try:
+                from app.core.supabase_client import sync_report_to_supabase
+                res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"preflight-code-review-{clean_repo or 'project'}.md", report_content)
+            except Exception:
+                pass
         return res
 
 

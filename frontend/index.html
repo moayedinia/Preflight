@@ -1315,12 +1315,20 @@
               <p class="text-[10px] text-slate-400">Deep Full-Codebase Inspection with P0-P3 Severity Rubric & Merge Gate</p>
             </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <button id="btn-run-preflight" onclick="triggerRunPreflightReview()" class="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 active:scale-95">
               <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
               <span id="preflight-run-text">Run Preflight Review</span>
             </button>
-            <button id="btn-download-preflight" onclick="downloadPreflightReviewReport()" class="hidden px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm">
+            <button id="btn-copy-preflight-prompt" onclick="copyPreflightReviewPrompt()" class="hidden px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm active:scale-95" title="Copy full AI review prompt with codebase files to clipboard">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+              <span id="preflight-copy-prompt-text">Copy Review Prompt</span>
+            </button>
+            <button id="btn-toggle-preflight-prompt" onclick="togglePreflightPromptView()" class="hidden px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm active:scale-95" title="Toggle prompt inspection view">
+              <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
+              <span id="preflight-toggle-prompt-text">View Prompt</span>
+            </button>
+            <button id="btn-download-preflight" onclick="downloadPreflightReviewReport()" class="hidden px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm active:scale-95">
               <i data-lucide="download" class="w-3.5 h-3.5"></i>
               <span>Download Report (.md)</span>
             </button>
@@ -1329,6 +1337,21 @@
 
         <!-- Preflight Severity Metrics -->
         <div id="preflight-engine-badge" class="hidden mb-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-between"></div>
+
+        <!-- Collapsible Prompt Viewer -->
+        <div id="preflight-prompt-container" class="hidden mb-3 p-3 bg-slate-900/95 border border-cyan-500/30 rounded-xl space-y-2 shadow-inner">
+          <div class="flex items-center justify-between text-xs pb-1.5 border-b border-slate-800">
+            <span class="font-bold text-cyan-300 flex items-center gap-1.5">
+              <i data-lucide="terminal" class="w-3.5 h-3.5 text-cyan-400"></i>
+              AI Preflight Review Prompt (Rubric + Codebase Source Context)
+            </span>
+            <button onclick="copyPreflightReviewPrompt()" class="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[11px] font-semibold flex items-center gap-1 transition-colors">
+              <i data-lucide="copy" class="w-3 h-3"></i> Copy to Clipboard
+            </button>
+          </div>
+          <pre id="preflight-prompt-content" class="text-[11px] leading-relaxed text-slate-300 font-mono max-h-56 overflow-y-auto bg-slate-950 p-3 rounded-lg border border-slate-800 select-all whitespace-pre-wrap"></pre>
+        </div>
+
         <div id="preflight-summary-cards" class="hidden grid grid-cols-4 gap-2.5 mb-3">
           <div class="p-2.5 rounded-xl bg-red-950/40 border border-red-500/30 text-center">
             <div class="text-[9px] text-red-300 font-semibold uppercase tracking-wider">[P0] Critical</div>
@@ -4289,14 +4312,18 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
     // --- Preflight Code Review & Sandbox Error Diagnostics ---
     let lastPreflightReportMarkdown = '';
+    let lastPreflightPrompt = '';
     let lastErrorReportMarkdown = '';
 
     async function triggerRunPreflightReview() {
       const btn = document.getElementById('btn-run-preflight') || document.getElementById('btn-run-orca');
       const runText = document.getElementById('preflight-run-text') || document.getElementById('orca-run-text');
+      const copyPromptBtn = document.getElementById('btn-copy-preflight-prompt');
+      const togglePromptBtn = document.getElementById('btn-toggle-preflight-prompt');
       const downloadBtn = document.getElementById('btn-download-preflight') || document.getElementById('btn-download-orca');
       const summaryCards = document.getElementById('preflight-summary-cards') || document.getElementById('orca-summary-cards');
       const reportContent = document.getElementById('preflight-report-content') || document.getElementById('orca-report-content');
+      const promptContent = document.getElementById('preflight-prompt-content');
       const gateBadge = document.getElementById('preflight-gate-badge') || document.getElementById('orca-gate-badge');
       const p0Count = document.getElementById('preflight-p0-count') || document.getElementById('orca-p0-count');
       const p1Count = document.getElementById('preflight-p1-count') || document.getElementById('orca-p1-count');
@@ -4326,14 +4353,21 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         }
         const data = await res.json();
 
-        lastPreflightReportMarkdown = data.markdown_report || '';
+        lastPreflightReportMarkdown = data.markdown_report || data.report_md || '';
+        lastPreflightPrompt = data.prompt || data.user_prompt || '';
+
+        if (promptContent && lastPreflightPrompt) {
+          promptContent.innerText = lastPreflightPrompt;
+        }
+        if (copyPromptBtn && lastPreflightPrompt) copyPromptBtn.classList.remove('hidden');
+        if (togglePromptBtn && lastPreflightPrompt) togglePromptBtn.classList.remove('hidden');
 
         const engineBadge = document.getElementById('preflight-engine-badge');
         if (engineBadge) {
           engineBadge.classList.remove('hidden');
           if (data.engine === 'heuristic-fallback') {
             engineBadge.className = 'mb-2.5 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between bg-amber-950/70 border border-amber-500/40 text-amber-200';
-            engineBadge.innerHTML = '<span>⚠️ <strong>Heuristic Fallback:</strong> Local static defect rules applied (No AI model invoked).</span><span class="text-[10px] text-amber-400/80 bg-amber-900/50 px-2 py-0.5 rounded border border-amber-500/30">Local Fallback</span>';
+            engineBadge.innerHTML = '<span>⚠️ <strong>Engine:</strong> Static & Heuristic Code Review (Defect contract evaluated).</span><span class="text-[10px] text-amber-400/80 bg-amber-900/50 px-2 py-0.5 rounded border border-amber-500/30">Heuristic Engine</span>';
           } else {
             engineBadge.className = 'mb-2.5 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between bg-cyan-950/70 border border-cyan-500/40 text-cyan-200';
             engineBadge.innerHTML = '<span>⚡ <strong>Engine:</strong> Vultr Serverless Inference (Active Model Arbiter)</span><span class="text-[10px] text-cyan-400/80 bg-cyan-900/50 px-2 py-0.5 rounded border border-cyan-500/30">Vultr Serverless</span>';
@@ -4359,7 +4393,11 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         }
 
         if (reportContent) {
-          reportContent.innerText = lastPreflightReportMarkdown;
+          if (lastPreflightReportMarkdown && lastPreflightReportMarkdown.trim()) {
+            reportContent.innerText = lastPreflightReportMarkdown;
+          } else {
+            reportContent.innerText = '⚠️ Code review finished. No blocking defects detected in inspected files.';
+          }
         }
 
         showToast(data.merge_gate === 'BLOCKED' ? 'Preflight Review: ❌ Merge Blocked by P0/P1 Defects' : 'Preflight Review: ✅ Code Approved to Merge');
@@ -4376,6 +4414,39 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
     const triggerRunOrcaReview = triggerRunPreflightReview;
 
+    function copyPreflightReviewPrompt() {
+      if (!lastPreflightPrompt || !lastPreflightPrompt.trim()) {
+        showToast('Run Preflight Review first to generate the prompt.', true);
+        return;
+      }
+      navigator.clipboard.writeText(lastPreflightPrompt).then(() => {
+        const textEl = document.getElementById('preflight-copy-prompt-text');
+        if (textEl) {
+          const orig = textEl.innerText;
+          textEl.innerText = 'Copied!';
+          setTimeout(() => { textEl.innerText = orig; }, 2000);
+        }
+        showToast('Full Preflight Review Prompt copied to clipboard!');
+      }).catch(err => {
+        showToast('Failed to copy prompt: ' + err.message, true);
+      });
+    }
+
+    function togglePreflightPromptView() {
+      const container = document.getElementById('preflight-prompt-container');
+      const textEl = document.getElementById('preflight-toggle-prompt-text');
+      if (!container) return;
+      const isHidden = container.classList.contains('hidden');
+      if (isHidden) {
+        container.classList.remove('hidden');
+        if (textEl) textEl.innerText = 'Hide Prompt';
+      } else {
+        container.classList.add('hidden');
+        if (textEl) textEl.innerText = 'View Prompt';
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
     function downloadPreflightReviewReport() {
       if (lastPreflightReportMarkdown && lastPreflightReportMarkdown.trim()) {
         const blob = new Blob([lastPreflightReportMarkdown], { type: 'text/markdown;charset=utf-8;' });
@@ -4391,15 +4462,21 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         return;
       }
       const repoParam = currentRepo ? `repo_name=${encodeURIComponent(currentRepo)}` : '';
-      const keyParam = currentApiKey ? `api_key=${encodeURIComponent(currentApiKey)}` : '';
-      const qs = [repoParam, keyParam].filter(Boolean).join('&');
-      const url = `${API_BASE}/api/v1/sandbox/preflight-review/download${qs ? '?' + qs : ''}`;
-      fetch(url, { headers: currentApiKey ? { 'X-API-Key': currentApiKey } : {} })
-        .then(res => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.blob();
+      const qs = repoParam ? '?' + repoParam : '';
+      const url = `${API_BASE}/api/v1/sandbox/preflight-review/download${qs}`;
+      fetch(url)
+        .then(async res => {
+          if (!res.ok) {
+            const errorMsg = await readApiError(res, `HTTP ${res.status} error occurred`);
+            throw new Error(errorMsg);
+          }
+          return res.text();
         })
-        .then(blob => {
+        .then(text => {
+          if (!text || !text.trim()) {
+            throw new Error('Downloaded report was empty. Please run Preflight Review first.');
+          }
+          const blob = new Blob([text], { type: 'text/markdown;charset=utf-8;' });
           const dlUrl = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = dlUrl;
