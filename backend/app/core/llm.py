@@ -365,10 +365,11 @@ def verify_llm_connection(timeout: float = 60.0, model: Optional[str] = None, us
 def _extract_reasoning_fallback(reasoning_str: Optional[str]) -> Optional[str]:
     """
     When content is empty from a reasoning model (e.g. DeepSeek-R1 / V4.1 on Vultr Inference),
-    attempts to extract the actual answer or code block from the reasoning field.
+    attempts to extract the actual answer, report, or code block from the reasoning field.
     1. Extracts code blocks (```...```) if present.
     2. Extracts JSON objects ({...}) if present.
-    3. Strips <think>...</think> tags.
+    3. Extracts Markdown reports starting with # if present.
+    4. NEVER returns raw internal scratchpad monologues.
     """
     if not reasoning_str or not str(reasoning_str).strip():
         return None
@@ -391,7 +392,13 @@ def _extract_reasoning_fallback(reasoning_str: Optional[str]) -> Optional[str]:
         except Exception:
             pass
 
-    return clean
+    # Check for markdown report heading
+    md_match = re.search(r'(#+ (?:Preflight|Code Review|Executive Summary|Report)[\s\S]*)', clean, flags=re.IGNORECASE)
+    if md_match:
+        return md_match.group(1).strip()
+
+    # Never return raw scratchpad monologues
+    return None
 
 def _extract_content_from_response(response: requests.Response) -> str:
     """Robustly extracts message content from standard JSON or SSE event stream (data: ...), stripping any reasoning tags."""

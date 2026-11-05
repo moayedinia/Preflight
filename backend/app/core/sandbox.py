@@ -1869,12 +1869,18 @@ Perform a thorough review adhering strictly to the Preflight Code Review P0-P3 s
             engine = "heuristic-fallback"
         else:
             call_timeout = int(os.getenv("LLM_CODE_REVIEW_TIMEOUT", "60"))
-            max_tokens = int(os.getenv("LLM_CODE_REVIEW_MAX_TOKENS", "3500"))
+            max_tokens = int(os.getenv("LLM_CODE_REVIEW_MAX_TOKENS", "4000"))
             try:
-                raw_llm = call_llm(user_prompt, PREFLIGHT_REVIEW_SYSTEM_PROMPT, timeout=call_timeout, max_tokens=max_tokens)
-                if not raw_llm or len(raw_llm.strip()) < 50:
-                    raise ValueError("LLM returned an empty or insufficient review response.")
-                report_md = raw_llm
+                from app.core.multi_agent import CodeReviewAgent
+                report_md = CodeReviewAgent.execute_review(
+                    repo_name=key,
+                    user_prompt=user_prompt,
+                    system_prompt=PREFLIGHT_REVIEW_SYSTEM_PROMPT,
+                    timeout=call_timeout,
+                    max_tokens=max_tokens
+                )
+                if not report_md or len(report_md.strip()) < 50:
+                    raise ValueError("CodeReviewAgent returned an empty or insufficient review response.")
                 p0_count = len(re.findall(r'\[P0\]', report_md, re.IGNORECASE))
                 p1_count = len(re.findall(r'\[P1\]', report_md, re.IGNORECASE))
                 p2_count = len(re.findall(r'\[P2\]', report_md, re.IGNORECASE))
@@ -1995,141 +2001,6 @@ def _generate_heuristic_error_report(
 ## 4. Required Code Corrections & Action Steps
 {steps}
 """
-
-
-def run_preflight_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Executes a comprehensive Preflight Code Review on the repository according to the
-    P0-P3 severity rubric and merge gate arbitration standard.
-    """
-    clean_repo = sanitize_name(repo_name) if repo_name else None
-    plan = discover_project_launch_plan(clean_repo)
-    repo_dir = Path(plan["working_dir"])
-
-    if not repo_dir.exists() and clean_repo and ALLOWED_REPO_DIR.exists():
-        for child in ALLOWED_REPO_DIR.iterdir():
-            if child.is_dir() and child.name.lower() == clean_repo.lower():
-                repo_dir = child
-                break
-
-    if not repo_dir.exists() and ALLOWED_REPO_DIR.exists():
-        subdirs = [p for p in ALLOWED_REPO_DIR.iterdir() if p.is_dir() and not p.name.startswith(".")]
-        if subdirs:
-            repo_dir = subdirs[0]
-
-    if not repo_dir.exists():
-        raise HTTPException(status_code=404, detail=f"Repository directory '{repo_dir}' not found.")
-
-    key = clean_repo or repo_dir.name
-    code_context = collect_repo_code_context(repo_dir)
-    if not code_context.strip():
-        code_context = "# No source files found or empty repository."
-
-    user_prompt = f"""Please perform a Preflight Code Review on repository '{key}':
-
-Project Type: {plan.get('project_type', 'Unknown')}
-Launch Command: {plan.get('command', 'N/A')}
-
-Repository Source Files:
-{code_context}
-
-Perform a thorough review adhering strictly to the Preflight Code Review P0-P3 severity contract and return your findings."""
-
-    if os.getenv("TESTING") == "1" and not os.getenv("REAL_LLM"):
-        report_md = f"""# Preflight Code Review Report: {key}
-**Date:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-**Merge Gate:** 🟢 APPROVED
-
-## Executive Summary & Metrics Table
-| Severity | Level | Count | Action |
-| :--- | :--- | :--- | :--- |
-| **[P0]** | Critical Blocker | 0 | ❌ Blocks Deployment |
-| **[P1]** | High Blocker | 0 | ❌ Blocks Deployment |
-| **[P2]** | Medium Warning | 1 | 💬 Review Before Shipping |
-| **[P3]** | Low Nit | 2 | 💡 Optional Hygiene |
-
-## Detailed Findings
-### [P2] Missing Input Validation
-- **Path:** `main.py:12`
-- **Issue:** Function inputs are not bounded.
-- **Recommendation:** Add type hints and schema boundary checks.
-
-### [P3] Minor Code Hygiene
-- **Path:** `app.py:45`
-- **Issue:** Redundant console logging in production path.
-- **Recommendation:** Remove debug logs.
-
-## Actionable Remediation Plan
-1. Address [P2] validation on user inputs.
-2. Clean up [P3] debug logs before final release.
-"""
-        gate = "APPROVED"
-        counts = {"P0": 0, "P1": 0, "P2": 1, "P3": 2}
-        engine = "test-mock"
-    else:
-        from app.core.llm import verify_llm_connection
-        is_connected, probe_msg = verify_llm_connection(timeout=3.0)
-        if not is_connected:
-            if os.getenv("PREFLIGHT_REQUIRE_VULTR_INFERENCE") == "1":
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"Vultr Serverless Inference is required for Preflight Code Review ({probe_msg}). Heuristic fallback disabled by policy."
-                )
-            logger.info(f"AI endpoint offline/unreachable ({probe_msg}). Activating heuristic Preflight review disclosure.")
-            report_md, counts, gate = _generate_heuristic_review_report(key, repo_dir, probe_msg)
-            engine = "heuristic-fallback"
-        else:
-            call_timeout = int(os.getenv("LLM_CODE_REVIEW_TIMEOUT", "45"))
-            max_tokens = int(os.getenv("LLM_CODE_REVIEW_MAX_TOKENS", "2500"))
-            try:
-                raw_llm = call_llm(user_prompt, PREFLIGHT_REVIEW_SYSTEM_PROMPT, timeout=call_timeout, max_tokens=max_tokens)
-                report_md = raw_llm
-                p0_count = len(re.findall(r'\[P0\]', report_md, re.IGNORECASE))
-                p1_count = len(re.findall(r'\[P1\]', report_md, re.IGNORECASE))
-                p2_count = len(re.findall(r'\[P2\]', report_md, re.IGNORECASE))
-                p3_count = len(re.findall(r'\[P3\]', report_md, re.IGNORECASE))
-                gate = "BLOCKED" if (p0_count > 0 or p1_count > 0) else "APPROVED"
-                counts = {"P0": p0_count, "P1": p1_count, "P2": p2_count, "P3": p3_count}
-                engine = "vultr-inference"
-            except Exception as llm_err:
-                if os.getenv("PREFLIGHT_REQUIRE_VULTR_INFERENCE") == "1":
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"Vultr Serverless Inference call failed: {llm_err}. Heuristic fallback disabled by policy."
-                    )
-                logger.warning(f"Preflight Code Review LLM call failed ({llm_err}). Using heuristic disclosure.")
-                report_md, counts, gate = _generate_heuristic_review_report(key, repo_dir, str(llm_err))
-                engine = "heuristic-fallback"
-
-    _LAST_PREFLIGHT_REPORTS[key] = report_md
-
-    return {
-        "status": "success",
-        "repo_name": key,
-        "merge_gate": gate,
-        "counts": counts,
-        "markdown_report": report_md,
-        "engine": engine
-    }
-
-# Backward compatible alias
-run_orca_code_review = run_preflight_code_review
-
-
-def get_last_preflight_report(repo_name: Optional[str] = None) -> str:
-    """Returns the cached Preflight Code Review Markdown report for download."""
-    clean_repo = sanitize_name(repo_name) if repo_name else None
-    key = clean_repo or "default"
-    report = _LAST_PREFLIGHT_REPORTS.get(key)
-    if not report:
-        res = run_preflight_code_review(repo_name=clean_repo)
-        report = res.get("markdown_report", "")
-    if not report or not report.strip():
-        report = f"# Preflight Code Review Report: {key}\n\n_Codebase passed initial inspection with no blocking defects._\n"
-    return report
-
-# Backward compatible alias
-get_last_orca_report = get_last_preflight_report
 
 
 
