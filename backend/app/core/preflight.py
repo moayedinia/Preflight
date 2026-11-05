@@ -2595,9 +2595,21 @@ Return the corrected replacement inside one ```{file_ext} code block."""
     try:
         base_dir = next(base for base in candidates if target_file.is_relative_to(base.resolve()))
         actual_rel = target_file.relative_to(base_dir.resolve()).as_posix()
-        backup_path = base_dir / ".preflight-backups" / f"{actual_rel}.{os.getpid()}.{time.time_ns()}.bak"
-        backup_path.parent.mkdir(parents=True, exist_ok=True)
-        backup_path.write_text(original_code, encoding="utf-8")
+        backup_name = f"{actual_rel}.{os.getpid()}.{time.time_ns()}.bak"
+        backup_path = base_dir / ".preflight-backups" / backup_name
+        try:
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            backup_path.write_text(original_code, encoding="utf-8")
+        except PermissionError:
+            # Imported repositories can contain a backup folder written by a
+            # prior root-run sandbox.  Do not fail a valid patch merely because
+            # that stale folder is not writable by the API service account.
+            # /tmp is private to the API container and is still used for the
+            # rollback verification below.
+            safe_repo = re.sub(r"[^A-Za-z0-9_.-]", "_", clean_repo or "workspace")
+            backup_path = Path("/tmp/preflight-backups") / safe_repo / backup_name
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            backup_path.write_text(original_code, encoding="utf-8")
 
         temp_path = target_file.with_name(f".{target_file.name}.preflight-{os.getpid()}.tmp")
         temp_path.write_text(fixed_code, encoding="utf-8")

@@ -40,6 +40,8 @@ from app.tasks.ingestion import (
 )
 from app.core.celery import celery_app, CELERY_BROKER_URL
 from app.auth_routes import router as auth_router
+from app.core.auth import CurrentUser, require_user
+from app.core.repo_access import authorize_repo, list_user_repositories, register_repository, record_task, unregister_repository
 from app.core.database import init_db
 from app.core.security import (
     verify_api_key,
@@ -47,7 +49,8 @@ from app.core.security import (
     sanitize_name,
     ALLOWED_REPO_DIR
 )
-from app.core.cloner import clone_git_repo, extract_safe_zip
+from app.core.cloner import clone_git_repo, extract_safe_zip, infer_repo_name_from_url
+from urllib.parse import urlsplit, urlunsplit
 from app.core import analytics
 from app.core.analytics import (
     detect_circular_dependencies,
@@ -114,6 +117,15 @@ if _vendor_dir.exists():
     app.mount("/vendor", StaticFiles(directory=str(_vendor_dir)), name="vendor")
 
 app.include_router(auth_router)
+
+
+def _stored_git_url(value: str) -> str:
+    """Stores a canonical repository URL without query strings or credentials."""
+    raw = (value or "").strip()
+    if raw.startswith("git@"):
+        return raw
+    parsed = urlsplit(raw)
+    return urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
 
 @app.on_event("startup")
 def on_startup():
@@ -310,14 +322,17 @@ def read_root():
 
 # 1. Automated Git Clone & Ingest
 @app.post("/api/v1/ingest/git", dependencies=[Depends(verify_api_key)])
-def ingest_from_git(payload: GitIngestRequest, request: Request = None):
+def ingest_from_git(payload: GitIngestRequest, request: Request = None, user: CurrentUser = Depends(require_user)):
     """
     Automated Git Pipeline: Clones repository from URL (public or private with token),
     extracts AST, computes vector embeddings, and links knowledge graph in Neo4j.
     """
     client_ip = get_request_ip(request)
     with acquire_scan_slot(client_ip):
-        clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+        requested_name = sanitize_name(payload.repo_name) if payload.repo_name else infer_repo_name_from_url(payload.git_url)
+        clean_repo = register_repository(
+            user, requested_name, _stored_git_url(payload.git_url), "git", explicit_name=bool(payload.repo_name)
+        )
 
         if payload.is_async:
             task = async_clone_and_index.delay(
@@ -327,9 +342,11 @@ def ingest_from_git(payload: GitIngestRequest, request: Request = None):
                 token=payload.auth_token,
                 full_history=payload.full_history
             )
+            record_task(user, task.id, clean_repo)
             return {
                 "status": "queued",
                 "task_id": task.id,
+                "repo_name": clean_repo,
                 "message": "Automated Git cloning and indexing started in background worker."
             }
         else:
@@ -354,7 +371,8 @@ def ingest_from_git(payload: GitIngestRequest, request: Request = None):
 async def ingest_from_zip(
     file: UploadFile = File(...),
     repo_name: Optional[str] = Form(None),
-    is_async: Optional[bool] = Form(True)
+    is_async: Optional[bool] = Form(True),
+    user: CurrentUser = Depends(require_user),
 ):
     """
     Automated ZIP Upload Pipeline: Upload a project zip file, extracts safely
@@ -364,7 +382,7 @@ async def ingest_from_zip(
         raise HTTPException(status_code=400, detail="Only .zip archive files are supported.")
 
     derived_name = repo_name or file.filename.replace(".zip", "")
-    clean_repo = sanitize_name(derived_name)
+    clean_repo = register_repository(user, sanitize_name(derived_name), source_type="zip", explicit_name=bool(repo_name))
 
     # Save uploaded file to shared repository directory so worker container can access it
     uploads_dir = ALLOWED_REPO_DIR / ".uploads"
@@ -377,9 +395,11 @@ async def ingest_from_zip(
 
     if is_async:
         task = async_extract_and_index.delay(str(temp_zip_path), clean_repo)
+        record_task(user, task.id, clean_repo)
         return {
             "status": "queued",
             "task_id": task.id,
+            "repo_name": clean_repo,
             "message": "ZIP archive uploaded. Extraction and indexing running in background."
         }
     else:
@@ -697,16 +717,17 @@ def vector_db_node_vector(node_id: str):
 
 # 8. Multi-Repository Management
 @app.get("/api/v1/repos", dependencies=[Depends(verify_api_key)])
-def list_repositories():
+def list_repositories(user: CurrentUser = Depends(require_user)):
     """Returns all indexed repositories with file counts, classes, functions, and languages."""
     try:
-        return list_all_repositories()
+        owned = {record["repository_name"].casefold() for record in list_user_repositories(user.id)}
+        return [repo for repo in list_all_repositories() if str(repo.get("name", "")).casefold() in owned]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/repos/{repo_name}/download", dependencies=[Depends(verify_api_key)])
 @app.get("/api/v1/repos/download", dependencies=[Depends(verify_api_key)])
-def download_repository_zip(repo_name: Optional[str] = None, include_git: bool = False):
+def download_repository_zip(repo_name: Optional[str] = None, include_git: bool = False, user: CurrentUser = Depends(require_user)):
     """
     Packs the repository workspace into a downloadable ZIP archive.
     Enables users to download the full project codebase after running Preflight audits and fixes.
@@ -714,7 +735,7 @@ def download_repository_zip(repo_name: Optional[str] = None, include_git: bool =
     if not repo_name:
         raise HTTPException(status_code=400, detail="Repository name parameter is required.")
     
-    clean_repo = sanitize_name(repo_name)
+    clean_repo = authorize_repo(user, repo_name)
     repo_dir = ALLOWED_REPO_DIR / clean_repo
     if not repo_dir.exists() or not repo_dir.is_dir():
         raise HTTPException(
@@ -752,19 +773,22 @@ def download_repository_zip(repo_name: Optional[str] = None, include_git: bool =
 
 
 @app.get("/api/v1/repos/{repo_name}", dependencies=[Depends(verify_api_key)])
-def get_repository(repo_name: str):
+def get_repository(repo_name: str, user: CurrentUser = Depends(require_user)):
     """Returns summary statistics and languages for a specific repository."""
-    return get_repository_summary(repo_name)
+    return get_repository_summary(authorize_repo(user, repo_name))
 
 @app.delete("/api/v1/repos/{repo_name}", dependencies=[Depends(verify_api_key)])
-def remove_repository(repo_name: str):
+def remove_repository(repo_name: str, user: CurrentUser = Depends(require_user)):
     """Deletes repository, cascade deletes graph relationships and disk files."""
-    return delete_repository(repo_name)
+    clean_repo = authorize_repo(user, repo_name)
+    result = delete_repository(clean_repo)
+    unregister_repository(user, clean_repo)
+    return result
 
 @app.post("/api/v1/repos/{repo_name}/reindex", dependencies=[Depends(verify_api_key)])
-def reindex_repository(repo_name: str):
+def reindex_repository(repo_name: str, user: CurrentUser = Depends(require_user)):
     """Reindexes an existing repository on disk using the active embedding model and AST parser."""
-    clean_repo = sanitize_name(repo_name)
+    clean_repo = authorize_repo(user, repo_name)
     repo_dir = ALLOWED_REPO_DIR / clean_repo
     if not repo_dir.exists() or not repo_dir.is_dir():
         raise HTTPException(
@@ -946,7 +970,7 @@ def download_preflight_report(repo_name: Optional[str] = None):
     }
 
 @app.get("/api/v1/review/tier/{tier_name}", dependencies=[Depends(verify_api_key)])
-def audit_single_tier_get(tier_name: str, repo_name: Optional[str] = None):
+def audit_single_tier_get(tier_name: str, repo_name: Optional[str] = None, user: CurrentUser = Depends(require_user)):
     """Executes an on-demand, deep project scan for defects in the specified tier (red, orange, or yellow)."""
     from app.core.llm import verify_llm_connection
     is_connected, reason = verify_llm_connection()
@@ -958,11 +982,11 @@ def audit_single_tier_get(tier_name: str, repo_name: Optional[str] = None):
                 "message": reason
             }
         )
-    clean_repo = sanitize_name(repo_name) if repo_name else None
+    clean_repo = authorize_repo(user, repo_name)
     return audit_single_tier(tier=tier_name, repo_name=clean_repo)
 
 @app.post("/api/v1/review/tier/{tier_name}", dependencies=[Depends(verify_api_key)])
-def audit_single_tier_post(tier_name: str, payload: Optional[AutoDocRequest] = None):
+def audit_single_tier_post(tier_name: str, payload: Optional[AutoDocRequest] = None, user: CurrentUser = Depends(require_user)):
     """Executes an on-demand, deep project scan for defects in the specified tier (red, orange, or yellow)."""
     from app.core.llm import verify_llm_connection
     is_connected, reason = verify_llm_connection()
@@ -975,7 +999,7 @@ def audit_single_tier_post(tier_name: str, payload: Optional[AutoDocRequest] = N
             }
         )
     repo = payload.repo_name if payload else None
-    clean_repo = sanitize_name(repo) if repo else None
+    clean_repo = authorize_repo(user, repo)
     return audit_single_tier(tier=tier_name, repo_name=clean_repo)
 
 
@@ -991,7 +1015,7 @@ class PreflightFixBugRequest(BaseModel):
 
 
 @app.post("/api/v1/review/fix-bug", dependencies=[Depends(verify_api_key)])
-def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest):
+def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest, user: CurrentUser = Depends(require_user)):
     """
     Autonomously fixes a detected Preflight defect using the generated AI repair prompt,
     updates the source file on disk, and saves the changes.
@@ -1006,7 +1030,7 @@ def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest):
                 "message": reason
             }
         )
-    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    clean_repo = authorize_repo(user, payload.repo_name)
 
     # Sanitize line_number safely
     parsed_line = None
@@ -1045,18 +1069,18 @@ class SandboxStopRequest(BaseModel):
 
 
 @app.get("/api/v1/sandbox/plan", dependencies=[Depends(verify_api_key)])
-def get_sandbox_launch_plan_endpoint(repo_name: Optional[str] = None):
+def get_sandbox_launch_plan_endpoint(repo_name: Optional[str] = None, user: CurrentUser = Depends(require_user)):
     """Deeply inspects the repository and README to discover how to launch the project."""
     from app.core.sandbox import discover_project_launch_plan
-    clean_repo = sanitize_name(repo_name) if repo_name else None
+    clean_repo = authorize_repo(user, repo_name)
     return discover_project_launch_plan(clean_repo)
 
 
 @app.post("/api/v1/sandbox/start", dependencies=[Depends(verify_api_key)])
-def start_sandbox_endpoint(payload: SandboxStartRequest):
+def start_sandbox_endpoint(payload: SandboxStartRequest, user: CurrentUser = Depends(require_user)):
     """Launches the project in an isolated execution sandbox."""
     from app.core.sandbox import start_sandbox_session
-    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    clean_repo = authorize_repo(user, payload.repo_name)
     return start_sandbox_session(
         repo_name=clean_repo,
         custom_command=payload.command,
@@ -1065,26 +1089,26 @@ def start_sandbox_endpoint(payload: SandboxStartRequest):
 
 
 @app.post("/api/v1/sandbox/stop", dependencies=[Depends(verify_api_key)])
-def stop_sandbox_endpoint(payload: SandboxStopRequest):
+def stop_sandbox_endpoint(payload: SandboxStopRequest, user: CurrentUser = Depends(require_user)):
     """Terminates the running isolated sandbox session."""
     from app.core.sandbox import stop_sandbox_session
-    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    clean_repo = authorize_repo(user, payload.repo_name)
     return stop_sandbox_session(repo_name=clean_repo)
 
 
 @app.get("/api/v1/sandbox/status", dependencies=[Depends(verify_api_key)])
-def get_sandbox_status_endpoint(repo_name: Optional[str] = None):
+def get_sandbox_status_endpoint(repo_name: Optional[str] = None, user: CurrentUser = Depends(require_user)):
     """Retrieves live status, port, uptime, and terminal output of the sandbox."""
     from app.core.sandbox import get_sandbox_session_status
-    clean_repo = sanitize_name(repo_name) if repo_name else None
+    clean_repo = authorize_repo(user, repo_name)
     return get_sandbox_session_status(repo_name=clean_repo)
 
 
 @app.post("/api/v1/sandbox/exec", dependencies=[Depends(verify_api_key)])
-def exec_sandbox_command_endpoint(payload: SandboxExecRequest):
+def exec_sandbox_command_endpoint(payload: SandboxExecRequest, user: CurrentUser = Depends(require_user)):
     """Executes a terminal command (e.g. package installation, script run) inside the sandbox workspace."""
     from app.core.sandbox import execute_sandbox_command
-    clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    clean_repo = authorize_repo(user, payload.repo_name)
     return execute_sandbox_command(
         repo_name=clean_repo,
         command=payload.command

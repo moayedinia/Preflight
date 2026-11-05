@@ -149,26 +149,12 @@ class CodeReviewAgent:
                 return m_header.group(1).strip()
             return clean_content
 
-        # 3. If content was empty or lacked markdown headers (model put report in reasoning channel):
-        extra = getattr(choice.message, "model_extra", {}) or {}
-        reasoning_val = (
-            getattr(choice.message, "reasoning", None)
-            or getattr(choice.message, "reasoning_content", None)
-            or extra.get("reasoning")
-            or extra.get("reasoning_content")
-        )
-        if reasoning_val:
-            clean_reasoning = re.sub(r'<think>[\s\S]*?</think>', '', str(reasoning_val), flags=re.IGNORECASE).strip()
-            m_report = re.search(r'(#+ (?:Preflight|Code Review|Executive Summary)[\s\S]*)', clean_reasoning, flags=re.IGNORECASE)
-            if m_report:
-                report_extracted = m_report.group(1).strip()
-                if report_extracted:
-                    return report_extracted
-
         if clean_content:
             return clean_content
 
-        raise ValueError("CodeReviewAgent: AI endpoint returned an empty code review report.")
+        # Deliberately never expose a model's private reasoning channel.  Vultr's
+        # OpenAI-compatible API places the user-facing result in message.content.
+        raise ValueError("CodeReviewAgent: AI endpoint returned no final message.content.")
 
 
 # ==============================================================================
@@ -257,20 +243,7 @@ Instructions:
             if fixed != original_code:
                 return fixed
 
-        # 2. Check reasoning channel fallback if content produced no effective change
-        extra = getattr(choice.message, "model_extra", {}) or {}
-        reasoning_val = (
-            getattr(choice.message, "reasoning", None)
-            or getattr(choice.message, "reasoning_content", None)
-            or extra.get("reasoning")
-            or extra.get("reasoning_content")
-        )
-        if reasoning_val:
-            clean_reasoning = re.sub(r'<think>[\s\S]*?</think>', '', str(reasoning_val), flags=re.IGNORECASE).strip()
-            fixed = extract_code_block(clean_reasoning, original_code, snippet)
-            if fixed != original_code:
-                return fixed
-
+        # Reasoning tokens are not source code and must never be persisted.
         return clean_content or original_code
 
 
@@ -328,19 +301,6 @@ class DefectArbiterAgent:
                 res = extract_json_defect(clean_content, fallback_dict)
                 if res != fallback_dict:
                     return res
-
-            # Fallback to reasoning JSON if content was empty
-            extra = getattr(choice.message, "model_extra", {}) or {}
-            reasoning_val = (
-                getattr(choice.message, "reasoning", None)
-                or getattr(choice.message, "reasoning_content", None)
-                or extra.get("reasoning")
-                or extra.get("reasoning_content")
-            )
-            if reasoning_val:
-                clean_reasoning = re.sub(r'<think>[\s\S]*?</think>', '', str(reasoning_val), flags=re.IGNORECASE).strip()
-                res = extract_json_defect(clean_reasoning, fallback_dict)
-                return res
 
             return fallback_dict
         except Exception as e:
