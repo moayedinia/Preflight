@@ -1712,6 +1712,17 @@ def run_preflight_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]
     plan = discover_project_launch_plan(clean_repo)
     repo_dir = Path(plan["working_dir"])
 
+    if not repo_dir.exists() and clean_repo and ALLOWED_REPO_DIR.exists():
+        for child in ALLOWED_REPO_DIR.iterdir():
+            if child.is_dir() and child.name.lower() == clean_repo.lower():
+                repo_dir = child
+                break
+
+    if not repo_dir.exists() and ALLOWED_REPO_DIR.exists():
+        subdirs = [p for p in ALLOWED_REPO_DIR.iterdir() if p.is_dir() and not p.name.startswith(".")]
+        if subdirs:
+            repo_dir = subdirs[0]
+
     if not repo_dir.exists():
         raise HTTPException(status_code=404, detail=f"Repository directory '{repo_dir}' not found.")
 

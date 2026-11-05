@@ -67,27 +67,21 @@
       to { opacity: 1; transform: scale(1) translateY(0); }
     }
 
-    /* Consistent Button Base & Alignment */
-    button, .btn {
+    /* Button Base Resets */
+    button {
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .btn-action {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       text-align: center;
       vertical-align: middle;
-      user-select: none;
-      white-space: nowrap;
-      line-height: 1.25;
-      box-sizing: border-box;
-    }
-    button span, .btn span {
-      display: inline-flex;
-      align-items: center;
       line-height: 1.25;
     }
-    button i, .btn i, button svg, .btn svg {
+    .btn-action i, .btn-action svg {
       flex-shrink: 0;
-      vertical-align: middle;
-      display: inline-block;
     }
 
     /* Interactive Elevation & Glow */
@@ -860,7 +854,7 @@
         </div>
 
         <!-- Repositories Grid -->
-        <div id="repos-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div id="repos-grid" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           <div class="p-8 text-center text-slate-500 text-xs col-span-full">Loading repositories...</div>
         </div>
       </div>
@@ -984,28 +978,28 @@
       <div>
         <label class="block text-[11px] font-semibold text-slate-400 mb-1.5">Quick Provider Presets (Auto-fill URL & Model)</label>
         <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
-          <button type="button" onclick="applyProviderPreset('vultr')" class="p-2 rounded-xl border border-cyan-500/40 hover:border-cyan-400 bg-cyan-950/30 hover:bg-cyan-900/40 text-left transition-all group">
-            <div class="text-xs font-bold text-cyan-300 flex items-center gap-1">
+          <button type="button" onclick="applyProviderPreset('vultr')" class="p-2.5 rounded-xl border border-cyan-500/40 hover:border-cyan-400 bg-cyan-950/30 hover:bg-cyan-900/40 text-left transition-all group flex flex-col justify-center min-w-0 overflow-hidden">
+            <div class="text-xs font-bold text-cyan-300 flex items-center gap-1 truncate">
               <span>⚡ Vultr</span>
               <span class="text-[9px] px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-200">Serverless</span>
             </div>
-            <div class="text-[10px] text-cyan-400/80">deepseek-v4.1</div>
+            <div class="text-[10px] text-cyan-400/80 font-mono mt-0.5 truncate">deepseek-v4.1</div>
           </button>
-          <button type="button" onclick="applyProviderPreset('openai')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
-            <div class="text-xs font-bold text-white">OpenAI</div>
-            <div class="text-[10px] text-slate-400">gpt-4o-mini</div>
+          <button type="button" onclick="applyProviderPreset('openai')" class="p-2.5 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all flex flex-col justify-center min-w-0 overflow-hidden">
+            <div class="text-xs font-bold text-white truncate">OpenAI</div>
+            <div class="text-[10px] text-slate-400 font-mono mt-0.5 truncate">gpt-4o-mini</div>
           </button>
-          <button type="button" onclick="applyProviderPreset('openrouter')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
-            <div class="text-xs font-bold text-white">OpenRouter</div>
-            <div class="text-[10px] text-slate-400">openrouter.ai</div>
+          <button type="button" onclick="applyProviderPreset('openrouter')" class="p-2.5 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all flex flex-col justify-center min-w-0 overflow-hidden">
+            <div class="text-xs font-bold text-white truncate">OpenRouter</div>
+            <div class="text-[10px] text-slate-400 font-mono mt-0.5 truncate">openrouter.ai</div>
           </button>
-          <button type="button" onclick="applyProviderPreset('groq')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
-            <div class="text-xs font-bold text-white">Groq</div>
-            <div class="text-[10px] text-slate-400">llama-3.3-70b</div>
+          <button type="button" onclick="applyProviderPreset('groq')" class="p-2.5 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all flex flex-col justify-center min-w-0 overflow-hidden">
+            <div class="text-xs font-bold text-white truncate">Groq</div>
+            <div class="text-[10px] text-slate-400 font-mono mt-0.5 truncate">llama-3.3-70b</div>
           </button>
-          <button type="button" onclick="applyProviderPreset('ollama')" class="p-2 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all">
-            <div class="text-xs font-bold text-white">Ollama / Local</div>
-            <div class="text-[10px] text-slate-400">host.docker</div>
+          <button type="button" onclick="applyProviderPreset('ollama')" class="p-2.5 rounded-xl border border-slate-800 hover:border-emerald-500/50 bg-slate-950/70 hover:bg-slate-800 text-left transition-all flex flex-col justify-center min-w-0 overflow-hidden">
+            <div class="text-xs font-bold text-white truncate">Ollama / Local</div>
+            <div class="text-[10px] text-slate-400 font-mono mt-0.5 truncate">host.docker</div>
           </button>
         </div>
       </div>
@@ -2128,26 +2122,26 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
                 </div>
               </div>
             </div>
-            <div class="flex items-center justify-between pt-2 border-t border-slate-800/80" onclick="event.stopPropagation()">
-              <div class="flex items-center gap-2">
-                <button onclick="selectRepo('${escapeHtml(r.name)}', false)" class="px-3 py-1.5 ${isCurrent ? 'bg-emerald-500 text-slate-950 font-bold' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'} text-xs rounded-xl font-medium transition-all active:scale-95 flex items-center gap-1.5" title="Select project without running audit">
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-800/80" onclick="event.stopPropagation()">
+              <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+                <button onclick="selectRepo('${escapeHtml(r.name)}', false)" class="px-2.5 py-1 ${isCurrent ? 'bg-emerald-500 text-slate-950 font-bold' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'} text-xs rounded-lg font-medium transition-all active:scale-95 inline-flex items-center gap-1" title="Select project without running audit">
                   <i data-lucide="${isCurrent ? 'check-circle' : 'mouse-pointer'}" class="w-3.5 h-3.5"></i>
-                  ${isCurrent ? 'Selected' : 'Select'}
+                  <span>${isCurrent ? 'Selected' : 'Select'}</span>
                 </button>
-                <button onclick="selectRepo('${escapeHtml(r.name)}', true)" class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs rounded-xl font-medium transition-colors active:scale-95 flex items-center gap-1.5 border border-emerald-500/20" title="Select and run Preflight audit">
+                <button onclick="selectRepo('${escapeHtml(r.name)}', true)" class="px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs rounded-lg font-medium transition-colors active:scale-95 inline-flex items-center gap-1 border border-emerald-500/20" title="Select and run Preflight audit">
                   <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-                  Run Audit
+                  <span>Run Audit</span>
                 </button>
-                <button onclick="reindexRepo('${escapeHtml(r.name)}')" id="btn-reindex-${escapeHtml(r.name)}" class="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded-xl font-medium transition-colors active:scale-95 flex items-center gap-1.5 border border-blue-500/20" title="Re-index codebase with the latest active model">
+                <button onclick="reindexRepo('${escapeHtml(r.name)}')" id="btn-reindex-${escapeHtml(r.name)}" class="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded-lg font-medium transition-colors active:scale-95 inline-flex items-center gap-1 border border-blue-500/20" title="Re-index codebase with the latest active model">
                   <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-                  Reindex
+                  <span>Reindex</span>
                 </button>
-                <button onclick="downloadRepoZip('${escapeHtml(r.name)}')" class="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs rounded-xl font-medium transition-colors active:scale-95 flex items-center gap-1.5 border border-cyan-500/20" title="Download project codebase as a ZIP archive">
+                <button onclick="downloadRepoZip('${escapeHtml(r.name)}')" class="px-2.5 py-1 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs rounded-lg font-medium transition-colors active:scale-95 inline-flex items-center gap-1 border border-cyan-500/20" title="Download project codebase as a ZIP archive">
                   <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                  Download
+                  <span>Download</span>
                 </button>
               </div>
-              <button onclick="deleteRepo('${escapeHtml(r.name)}')" class="text-xs text-red-400 hover:text-red-300 p-2 transition-colors rounded-xl hover:bg-red-500/10 active:scale-95" title="Delete Repository">
+              <button onclick="deleteRepo('${escapeHtml(r.name)}')" class="text-xs text-red-400 hover:text-red-300 p-1.5 transition-colors rounded-lg hover:bg-red-500/10 active:scale-95 shrink-0" title="Delete Repository">
                 <i data-lucide="trash-2" class="w-4 h-4"></i>
               </button>
             </div>
@@ -4218,15 +4212,22 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       if (reportContent) reportContent.innerText = 'Scanning repository files and evaluating P0-P3 severity rules with Preflight Code Review engine...';
 
       try {
+        if (!currentRepo) {
+          const sel = document.getElementById('repo-select');
+          if (sel && sel.value) currentRepo = sel.value;
+        }
+
         const res = await fetch(`${API_BASE}/api/v1/sandbox/preflight-review`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            ...(currentApiKey ? { 'X-API-Key': currentApiKey } : {})
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ repo_name: currentRepo })
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          const errorMsg = await readApiError(res, `HTTP ${res.status} error occurred`);
+          throw new Error(errorMsg);
+        }
         const data = await res.json();
 
         lastPreflightReportMarkdown = data.markdown_report || '';
@@ -4328,15 +4329,22 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       if (window.lucide) lucide.createIcons();
 
       try {
+        if (!currentRepo) {
+          const sel = document.getElementById('repo-select');
+          if (sel && sel.value) currentRepo = sel.value;
+        }
+
         const res = await fetch(`${API_BASE}/api/v1/sandbox/diagnose-error`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            ...(currentApiKey ? { 'X-API-Key': currentApiKey } : {})
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ repo_name: currentRepo })
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          const errorMsg = await readApiError(res, `HTTP ${res.status} error occurred`);
+          throw new Error(errorMsg);
+        }
         const data = await res.json();
         lastErrorReportMarkdown = data.markdown_report || '';
 
