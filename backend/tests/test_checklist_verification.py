@@ -195,6 +195,43 @@ No critical code review blockers or defects detected during static heuristic ana
         self.assertTrue(Path("defects/registry.json").exists())
         self.assertTrue(Path("eval/run.mjs").exists())
 
+    def test_v2_dead_primary_action_never_false_positive_on_react_buttons(self):
+        """Checklist v2 Item 1.1: React buttons without onclick attribute must NOT be falsely marked dead."""
+        from app.core.preflight import _probe_dead_primary_action, confirm_candidates_in_sandbox
+
+        # React button with JSX onClick compiles to HTML without onclick attribute
+        react_candidate = {
+            "id": "RED-06",
+            "rule": "Dead buttons on the main flow",
+            "tier": "red",
+            "snippet": "<button className=\"btn-primary\">Pay Now</button>",
+            "detail": "Button Pay Now rendered in React page without HTML onclick attribute."
+        }
+
+        # When sandbox is stopped or cannot run live click, candidate must be UNCERTAIN (deducts 0 points)
+        with patch("app.core.sandbox.get_sandbox_session_status", return_value={"status": "stopped"}):
+            is_confirmed = _probe_dead_primary_action(react_candidate, "test-repo")
+            self.assertFalse(is_confirmed, "Static HTML regex must never falsely confirm React buttons as dead")
+
+            confirmed, uncertain = confirm_candidates_in_sandbox([react_candidate], "test-repo")
+            self.assertEqual(len(confirmed), 0)
+            self.assertEqual(len(uncertain), 1)
+            self.assertTrue(uncertain[0]["unconfirmed"])
+
+    def test_v2_playwright_probe_logic(self):
+        """Checklist v2 Item 1.1: Playwright click probe confirms dead button only when requests==0 and DOM unchanged."""
+        from app.core.preflight import _probe_dead_primary_action_with_playwright
+
+        # Dead button (requests == 0, dom unchanged)
+        dead_result = _probe_dead_primary_action_with_playwright("data:text/html,<button>Pay</button>", ["Pay"])
+        if dead_result is not None:
+            self.assertTrue(dead_result)
+
+        # Working button (updates title / DOM on click)
+        live_result = _probe_dead_primary_action_with_playwright("data:text/html,<button onclick=\"document.title='Updated'\">Pay</button>", ["Pay"])
+        if live_result is not None:
+            self.assertFalse(live_result)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1562,6 +1562,117 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
     }
 
 
+def _probe_dead_primary_action_with_playwright(url: str, primary_labels: List[str]) -> Optional[bool]:
+    """
+    Executes actual Playwright browser interaction (Checklist v2 Item 1.1):
+    1. Launches headless browser.
+    2. Navigates to running sandbox page.
+    3. Finds element by visible label (Pay, Checkout, Buy, Subscribe, Submit, Confirm).
+    4. Computes DOM hash before click.
+    5. Clicks the button.
+    6. Waits 2 seconds while counting network requests.
+    7. Computes DOM hash after click.
+    8. Confirmed (True) ONLY if requests == 0 AND dom_before == dom_after AND element is enabled.
+    9. In every other case (requests > 0, DOM changed, or element not found), returns False (Uncertain).
+    Returns None if Playwright is not available or browser cannot launch.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+
+    try:
+        with sync_playwright() as p:
+            browser = None
+            for launch_kwargs in [
+                {"headless": True, "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]},
+                {"headless": True, "channel": "chrome", "args": ["--no-sandbox", "--disable-setuid-sandbox"]},
+                {"headless": True, "channel": "msedge", "args": ["--no-sandbox", "--disable-setuid-sandbox"]},
+                {"headless": True, "channel": "chromium", "args": ["--no-sandbox", "--disable-setuid-sandbox"]}
+            ]:
+                try:
+                    browser = p.chromium.launch(**launch_kwargs)
+                    break
+                except Exception:
+                    continue
+
+            if not browser:
+                return None
+
+            try:
+                context = browser.new_context(ignore_https_errors=True)
+                page = context.new_page()
+
+                network_requests = 0
+                def on_request(req):
+                    nonlocal network_requests
+                    network_requests += 1
+
+                page.on("request", on_request)
+
+                try:
+                    page.goto(url, timeout=5000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(800)  # Brief wait for client-side React/Vue hydration
+                except Exception:
+                    return False
+
+                # Find element by visible label
+                target_el = None
+                for lbl in primary_labels:
+                    # 1. Look for button by visible name
+                    try:
+                        loc = page.get_by_role("button", name=re.compile(r"\b" + re.escape(lbl) + r"\b", re.IGNORECASE))
+                        if loc.count() > 0 and loc.first.is_visible():
+                            target_el = loc.first
+                            break
+                    except Exception:
+                        pass
+
+                    # 2. Look for button, link or submit input containing label text
+                    try:
+                        loc = page.locator(f"button:has-text('{lbl}'), a:has-text('{lbl}'), input[type='submit'][value*='{lbl}' i]")
+                        if loc.count() > 0 and loc.first.is_visible():
+                            target_el = loc.first
+                            break
+                    except Exception:
+                        pass
+
+                if not target_el or not target_el.is_visible():
+                    # Item 1.1: "Uncertain in every other case, including when the element cannot be found"
+                    return False
+
+                if not target_el.is_enabled():
+                    return False
+
+                # Capture DOM hash before click
+                dom_before = hashlib.sha256(page.content().encode("utf-8")).hexdigest()
+
+                # Reset request counter before click
+                network_requests = 0
+
+                try:
+                    target_el.click(timeout=2000)
+                except Exception:
+                    return False
+
+                # Count network requests in next 2 seconds
+                page.wait_for_timeout(2000)
+
+                # Capture DOM hash after click
+                dom_after = hashlib.sha256(page.content().encode("utf-8")).hexdigest()
+
+                # Confirmed when requests == 0 AND DOM hash unchanged AND element enabled
+                return bool(network_requests == 0 and dom_before == dom_after)
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.debug(f"Playwright dead primary action probe error: {exc}")
+        return None
+
+
 def _probe_dead_primary_action(candidate: Dict[str, Any], repo_name: Optional[str]) -> bool:
     """
     Checklist v2 Item 1.1: Dead primary action
@@ -1569,6 +1680,11 @@ def _probe_dead_primary_action(candidate: Dict[str, Any], repo_name: Optional[st
     Click it. Count network requests in next 2 seconds. Capture DOM hash before and after.
     Confirmed when requests == 0 AND DOM hash unchanged AND element enabled.
     Uncertain in every other case, including when element cannot be found.
+
+    NOTE: React/v0/Lovable buttons never have an HTML 'onclick' attribute.
+    Therefore, static regex checks on raw HTML are strictly prohibited to avoid false-positive
+    confirmations. If Playwright is not available or the sandbox is stopped, the candidate
+    remains UNCERTAIN (unconfirmed: True) and is dropped from score deduction.
     """
     rule = str(candidate.get("rule", "")).lower()
     id_str = str(candidate.get("id") or candidate.get("defect_id") or "").upper()
@@ -1584,58 +1700,27 @@ def _probe_dead_primary_action(candidate: Dict[str, Any], repo_name: Optional[st
     if not is_target_rule:
         return False
 
-    page_html = ""
-    # Try reading from running sandbox session first
+    primary_labels = ["Pay", "Checkout", "Buy", "Subscribe", "Submit", "Confirm"]
+
+    # 1. Attempt live Playwright browser click in running sandbox
     try:
         from app.core.sandbox import get_sandbox_session_status
         session_status = get_sandbox_session_status(repo_name)
         port = session_status.get("port")
-        if port and session_status.get("status") == "running":
-            r = requests.get(f"http://localhost:{port}/", timeout=2)
-            if r.status_code == 200:
-                page_html = r.text
-    except Exception:
-        pass
+        if port and session_status.get("status") in ("running", "starting"):
+            pw_result = _probe_dead_primary_action_with_playwright(f"http://localhost:{port}/", primary_labels)
+            if pw_result is not None:
+                return pw_result
+    except Exception as exc:
+        logger.debug(f"Could not probe dead button with running sandbox: {exc}")
 
-    # Fallback to inspecting static HTML files in repo directory
-    if not page_html:
-        try:
-            dirs = get_candidate_directories(repo_name)
-            for d in dirs:
-                candidates_files = list(d.glob("*.html")) + list(d.glob("public/*.html")) + list(d.glob("src/**/*.html"))
-                for h_file in candidates_files[:6]:
-                    try:
-                        page_html += h_file.read_text(encoding="utf-8", errors="ignore") + "\n"
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-    if not page_html and snippet:
-        page_html = snippet
-
-    if not page_html:
-        return False
-
-    # Check for primary action element
-    primary_labels = ["pay", "checkout", "buy", "subscribe", "submit", "confirm"]
-    btn_pattern = re.compile(
-        r'<button\b([^>]*)>(.*?)</button>|<a\b([^>]*)>(.*?)</a>|<input\b([^>]*type=submit[^>]*)>',
-        re.IGNORECASE | re.DOTALL
-    )
-    for m in btn_pattern.finditer(page_html):
-        attrs = (m.group(1) or m.group(3) or m.group(5) or "").lower()
-        body = (m.group(2) or m.group(4) or "").lower()
-        if any(lbl in body or lbl in attrs for lbl in primary_labels):
-            # Element was enabled
-            if "disabled" in attrs:
-                continue
-            # If element has no active onClick handler or href, action is dead (0 requests, DOM unchanged)
-            has_onclick = "onclick" in attrs and ("(" in attrs or "{" in attrs or "=>" in attrs)
-            has_href = "href" in attrs and not any(h in attrs for h in ['href="#"', "href='#'", 'href=""', "href=''"])
-            if not has_onclick and not has_href:
-                return True
-
+    # 2. When sandbox or Playwright is not running or cannot perform real browser click:
+    # Per Checklist v2 Item 1.1 & Auditor directive:
+    # "React buttons never have onclick, so it will mark every button in a Lovable or v0 app as dead.
+    # Can you make it actually click with Playwright, count requests for two seconds, and hash the DOM before and after?
+    # If that is not doable by Friday, tell me and we drop the dead button from the scored set."
+    # Never mark as confirmed via static HTML regex. Return False so it is marked unconfirmed: True
+    # (Uncertain, 0 points deducted, dropped from the scored set).
     return False
 
 
