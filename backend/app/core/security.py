@@ -59,7 +59,8 @@ def verify_api_key(
         pass
 
     # 2. Check for API key
-    provided_key = header_key or (token.credentials if token else None)
+    q_key = (request.query_params.get("api_key") or request.query_params.get("token")) if request is not None else None
+    provided_key = header_key or (token.credentials if token else None) or q_key
     if not provided_key or not API_KEY or provided_key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -67,6 +67,29 @@
       to { opacity: 1; transform: scale(1) translateY(0); }
     }
 
+    /* Consistent Button Base & Alignment */
+    button, .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      vertical-align: middle;
+      user-select: none;
+      white-space: nowrap;
+      line-height: 1.25;
+      box-sizing: border-box;
+    }
+    button span, .btn span {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1.25;
+    }
+    button i, .btn i, button svg, .btn svg {
+      flex-shrink: 0;
+      vertical-align: middle;
+      display: inline-block;
+    }
+
     /* Interactive Elevation & Glow */
     .interactive-card {
       transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -409,20 +432,20 @@
             
             <div class="h-10 w-px bg-slate-800"></div>
 
-            <div class="flex items-center gap-2">
-              <button onclick="runPreflightAudit()" id="btn-run-audit" class="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <button onclick="runPreflightAudit()" id="btn-run-audit" class="h-9 px-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all inline-flex items-center justify-center gap-2">
                 <i data-lucide="play" class="w-4 h-4 fill-slate-950"></i>
-                Run Full Audit
+                <span>Run Full Audit</span>
               </button>
-              <button onclick="openSandboxModal()" id="btn-launch-sandbox" class="px-3.5 py-2.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-1.5" title="Scan and launch project inside an isolated sandbox">
+              <button onclick="openSandboxModal()" id="btn-launch-sandbox" class="h-9 px-3.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all inline-flex items-center justify-center gap-1.5" title="Scan and launch project inside an isolated sandbox">
                 <i data-lucide="rocket" class="w-4 h-4"></i>
                 <span>Proceed to a test run</span>
               </button>
-              <button onclick="downloadCurrentProjectZip()" id="btn-audit-download-zip" class="px-3 py-2.5 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm" title="Download the full codebase as a ZIP archive">
+              <button onclick="downloadCurrentProjectZip()" id="btn-audit-download-zip" class="h-9 px-3 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all inline-flex items-center justify-center gap-1.5 shadow-sm" title="Download the full codebase as a ZIP archive">
                 <i data-lucide="download" class="w-3.5 h-3.5 text-cyan-400"></i>
                 <span class="hidden sm:inline">Download ZIP</span>
               </button>
-              <button onclick="reindexCurrentRepo()" title="Re-index current project with active model" class="px-3 py-2.5 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm">
+              <button onclick="reindexCurrentRepo()" title="Re-index current project with active model" class="h-9 px-3 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all inline-flex items-center justify-center gap-1.5 shadow-sm">
                 <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                 <span class="hidden sm:inline">Reindex</span>
               </button>
@@ -1912,14 +1935,43 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
       window.__toastTimer = setTimeout(() => toast.classList.add('hidden'), 3500);
     }
 
-    // --- Copy Helper ---
+    // --- Copy Helper (Supports HTTP IP / insecure context fallback) ---
     function copyToClipboard(text, successMsg) {
       const msg = successMsg || 'Copied to clipboard!';
-      navigator.clipboard.writeText(text).then(() => {
-        showToast(msg);
-      }).catch(() => {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast(msg);
+        }).catch(() => {
+          fallbackCopyText(text, msg);
+        });
+        return;
+      }
+      fallbackCopyText(text, msg);
+    }
+
+    function fallbackCopyText(text, msg) {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.top = '0';
+        textArea.style.left = '0';
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        textArea.style.pointerEvents = 'none';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) {
+          showToast(msg);
+        } else {
+          showToast('Please copy manually', true);
+        }
+      } catch (err) {
+        console.error('Copy fallback failed:', err);
         showToast('Failed to copy', true);
-      });
+      }
     }
 
     // --- Initialization & Repositories ---
@@ -2443,10 +2495,28 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
       const dedCor = document.getElementById('deduct-area-correctness');
       const dedMain = document.getElementById('deduct-area-maintainability');
 
-      if (dedSec) dedSec.innerText = '-' + secDeductions + ' pts';
-      if (dedRel) dedRel.innerText = '-' + relDeductions + ' pts';
-      if (dedCor) dedCor.innerText = '-' + corDeductions + ' pts';
-      if (dedMain) dedMain.innerText = '-' + mainDeductions + ' pts';
+      // Normalize deductions against 100-point scale so badges never exceed -100 pts
+      const normSecDed = Math.min(100, secDeductions);
+      const normRelDed = Math.min(100, relDeductions);
+      const normCorDed = Math.min(100, corDeductions);
+      const normMainDed = Math.min(100, mainDeductions);
+
+      if (dedSec) {
+        dedSec.innerText = normSecDed > 0 ? '-' + normSecDed + ' pts' : '0 pts';
+        if (secDeductions > 100) dedSec.title = `${secDeductions} raw penalty points (capped at -100 pts on 100-pt scale)`;
+      }
+      if (dedRel) {
+        dedRel.innerText = normRelDed > 0 ? '-' + normRelDed + ' pts' : '0 pts';
+        if (relDeductions > 100) dedRel.title = `${relDeductions} raw penalty points (capped at -100 pts on 100-pt scale)`;
+      }
+      if (dedCor) {
+        dedCor.innerText = normCorDed > 0 ? '-' + normCorDed + ' pts' : '0 pts';
+        if (corDeductions > 100) dedCor.title = `${corDeductions} raw penalty points (capped at -100 pts on 100-pt scale)`;
+      }
+      if (dedMain) {
+        dedMain.innerText = normMainDed > 0 ? '-' + normMainDed + ' pts' : '0 pts';
+        if (mainDeductions > 100) dedMain.title = `${mainDeductions} raw penalty points (capped at -100 pts on 100-pt scale)`;
+      }
 
       // Verdict State Determination (Spec v4)
       let verdictState = 'ready';
@@ -2668,9 +2738,9 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
                   <i data-lucide="${d.fixed ? 'check' : 'wrench'}" class="w-3.5 h-3.5"></i>
                   <span>${d.fixed ? 'Fixed' : 'Fix Bug'}</span>
                 </button>
-                <button onclick="copyPrompt(${idx})" class="px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95" title="Copy ready-to-paste instructions into Lovable or Cursor">
-                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                  Copy Prompt
+                <button onclick="copyPrompt(${idx})" id="btn-copy-prompt-${idx}" class="h-8 px-3 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95" title="Copy ready-to-paste instructions into Lovable or Cursor">
+                  <i data-lucide="copy" class="w-3.5 h-3.5" id="icon-copy-prompt-${idx}"></i>
+                  <span id="text-copy-prompt-${idx}">Copy Prompt</span>
                 </button>
               </div>
             </div>
@@ -2761,11 +2831,16 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
       const rName = d.rule || 'Defect';
       const detailText = d.detail || d.plain_english_explanation || 'Suspected defect';
       const consequenceText = d.business_consequence || '';
-      let repairText = d.repair_prompt || '';
+      let repairText = (d.repair_prompt || '').trim();
 
       // Strip existing header if already present in repairText
       if (repairText.startsWith('Copy this and paste it into Lovable / Cursor:')) {
         repairText = repairText.replace('Copy this and paste it into Lovable / Cursor:', '').trim();
+      }
+
+      // Generate actionable fallback instructions if repair_prompt was empty
+      if (!repairText) {
+        repairText = `Review ${fPath} around line ${lNum}. Address the root cause of "${rName}": ${detailText}. Ensure proper validation, error handling, and robust fallbacks to prevent crashes and vulnerabilities.`;
       }
 
       const prompt = `Copy this and paste it into Lovable / Cursor:
@@ -2779,6 +2854,24 @@ ${repairText}
 Please update the code accordingly. Then come back and run Preflight again to check it worked.`;
 
       copyToClipboard(prompt, '📋 Copied prompt! Paste it into Lovable / Cursor');
+
+      // Visual feedback directly on the clicked button
+      const btn = document.getElementById(`btn-copy-prompt-${idx}`);
+      const text = document.getElementById(`text-copy-prompt-${idx}`);
+      const icon = document.getElementById(`icon-copy-prompt-${idx}`);
+      if (btn && text) {
+        const origText = text.innerText;
+        btn.classList.add('bg-emerald-500/30', 'text-emerald-200', 'border-emerald-400');
+        text.innerText = 'Copied! ✓';
+        if (icon) icon.setAttribute('data-lucide', 'check');
+        if (window.lucide) lucide.createIcons();
+        setTimeout(() => {
+          btn.classList.remove('bg-emerald-500/30', 'text-emerald-200', 'border-emerald-400');
+          text.innerText = origText;
+          if (icon) icon.setAttribute('data-lucide', 'copy');
+          if (window.lucide) lucide.createIcons();
+        }, 2000);
+      }
     }
 
     function generateFixReportHtml(idx, report) {
@@ -4127,7 +4220,10 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       try {
         const res = await fetch(`${API_BASE}/api/v1/sandbox/preflight-review`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(currentApiKey ? { 'X-API-Key': currentApiKey } : {})
+          },
           body: JSON.stringify({ repo_name: currentRepo })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -4184,8 +4280,42 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     const triggerRunOrcaReview = triggerRunPreflightReview;
 
     function downloadPreflightReviewReport() {
-      const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
-      window.open(`${API_BASE}/api/v1/sandbox/preflight-review/download${repoParam}`, '_blank');
+      if (lastPreflightReportMarkdown && lastPreflightReportMarkdown.trim()) {
+        const blob = new Blob([lastPreflightReportMarkdown], { type: 'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `preflight-code-review-${currentRepo || 'project'}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Downloaded Code Review Report (.md)');
+        return;
+      }
+      const repoParam = currentRepo ? `repo_name=${encodeURIComponent(currentRepo)}` : '';
+      const keyParam = currentApiKey ? `api_key=${encodeURIComponent(currentApiKey)}` : '';
+      const qs = [repoParam, keyParam].filter(Boolean).join('&');
+      const url = `${API_BASE}/api/v1/sandbox/preflight-review/download${qs ? '?' + qs : ''}`;
+      fetch(url, { headers: currentApiKey ? { 'X-API-Key': currentApiKey } : {} })
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.blob();
+        })
+        .then(blob => {
+          const dlUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = dlUrl;
+          a.download = `preflight-code-review-${currentRepo || 'project'}.md`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(dlUrl);
+          showToast('Downloaded Code Review Report (.md)');
+        })
+        .catch(err => {
+          showToast('Failed to download report: ' + err.message, true);
+        });
     }
 
     const downloadOrcaReviewReport = downloadPreflightReviewReport;
@@ -4200,7 +4330,10 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       try {
         const res = await fetch(`${API_BASE}/api/v1/sandbox/diagnose-error`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(currentApiKey ? { 'X-API-Key': currentApiKey } : {})
+          },
           body: JSON.stringify({ repo_name: currentRepo })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -4231,8 +4364,42 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     }
 
     function downloadSandboxErrorReport() {
-      const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
-      window.open(`${API_BASE}/api/v1/sandbox/error-report/download${repoParam}`, '_blank');
+      if (lastErrorReportMarkdown && lastErrorReportMarkdown.trim()) {
+        const blob = new Blob([lastErrorReportMarkdown], { type: 'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sandbox-error-diagnostic-${currentRepo || 'project'}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Downloaded Diagnostic Error Report (.md)');
+        return;
+      }
+      const repoParam = currentRepo ? `repo_name=${encodeURIComponent(currentRepo)}` : '';
+      const keyParam = currentApiKey ? `api_key=${encodeURIComponent(currentApiKey)}` : '';
+      const qs = [repoParam, keyParam].filter(Boolean).join('&');
+      const url = `${API_BASE}/api/v1/sandbox/error-report/download${qs ? '?' + qs : ''}`;
+      fetch(url, { headers: currentApiKey ? { 'X-API-Key': currentApiKey } : {} })
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.blob();
+        })
+        .then(blob => {
+          const dlUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = dlUrl;
+          a.download = `sandbox-error-diagnostic-${currentRepo || 'project'}.md`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(dlUrl);
+          showToast('Downloaded Diagnostic Error Report (.md)');
+        })
+        .catch(err => {
+          showToast('Failed to download diagnostic report: ' + err.message, true);
+        });
     }
 
     async function downloadRepoZip(repoName) {

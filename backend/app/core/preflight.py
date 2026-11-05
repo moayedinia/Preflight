@@ -368,28 +368,32 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
                 "title": "Can someone hurt you",
                 "weight": 0.35,
                 "score": sec_score,
-                "deductions": sec_deductions
+                "deductions": min(100, sec_deductions),
+                "raw_deductions": sec_deductions
             },
             "reliability": {
                 "name": "Reliability",
                 "title": "Does it break",
                 "weight": 0.30,
                 "score": rel_score,
-                "deductions": rel_deductions
+                "deductions": min(100, rel_deductions),
+                "raw_deductions": rel_deductions
             },
             "correctness": {
                 "name": "Correctness",
                 "title": "Does it behave properly",
                 "weight": 0.20,
                 "score": cor_score,
-                "deductions": cor_deductions
+                "deductions": min(100, cor_deductions),
+                "raw_deductions": cor_deductions
             },
             "maintainability": {
                 "name": "Maintainability",
                 "title": "Can a developer work on it",
                 "weight": 0.15,
                 "score": main_score,
-                "deductions": main_deductions
+                "deductions": min(100, main_deductions),
+                "raw_deductions": main_deductions
             }
         },
         "counts": {
