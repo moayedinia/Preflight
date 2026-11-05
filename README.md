@@ -73,16 +73,16 @@ Unlike static regex probes that falsely flag modern React, Vue, or Svelte button
 Preflight complies with strict container isolation standards to safely execute and preview untrusted AI-generated repositories. You can inspect active containment parameters in real-time via `GET /api/v1/sandbox/verifiable-flags`:
 
 - **`read_only: true`** — Root filesystem is strictly read-only; no process can overwrite system binaries or inject persistent malware.
-- **`user: "1000:1000"`** — Non-root system user inside the sandbox container.
+- **Disposable workspace** — The sandbox process may use root only inside a throwaway Docker volume so package managers can write `node_modules` and lockfiles. It still has no Linux capabilities, cannot gain privileges, and cannot write to the host repository.
 - **`cap_drop: ["ALL"]`** — Every Linux kernel capability dropped (`CAP_SYS_ADMIN`, `CAP_NET_RAW`, etc.).
 - **`security_opt: ["no-new-privileges:true"]`** — Disallows privilege escalation via setuid binaries.
 - **`tmpfs mounts`** — Writable temporary scratch space constrained to `/tmp` (`size=64m,noexec,nosuid`) and `/run` (`size=16m,noexec,nosuid`).
 - **Strict Resource Quotas:**
-  - Memory: `256MB` (`mem_limit="256m"`)
-  - CPU: `0.5 CPU` (`nano_cpus=500000000`)
-  - Processes: `64 PIDs` (`pids_limit=64` to prevent fork bombs)
-  - Auto-Teardown: `120s` maximum lifetime (`SANDBOX_MAX_LIFETIME=120`).
-- **Network Isolation:** Runs on dedicated internal bridge `preflight_sandbox_net` without external access.
+  - Memory: `512MB` (`mem_limit="512m"`)
+  - CPU: `1 CPU` (`nano_cpus=1000000000`)
+  - Processes: `128 PIDs` (`pids_limit=128` to prevent fork bombs)
+  - Auto-Teardown: `900s` maximum lifetime (`SANDBOX_MAX_LIFETIME=900`).
+- **Network Isolation:** Runs on a dedicated bridge without published ports. It has outbound access only so trusted package registries can serve `npm install`, `pip install`, and restore commands.
 
 ---
 
@@ -251,10 +251,10 @@ Registry: defects/registry.json
 | `LLM_API_KEY` | *(empty)* | API key for Vultr Serverless Inference. |
 | `ALLOWED_REPO_DIR` | `/app/repos` | Sandboxed root directory for user repositories. |
 | `PREFLIGHT_DB_PATH` | `/app/data/preflight.db` | SQLite database path with automatic fallback to `/tmp`. |
-| `SANDBOX_MEMORY_LIMIT`| `256m` | Maximum RAM quota for ephemeral sandbox container. |
-| `SANDBOX_NANO_CPUS` | `500000000` | CPU allocation quota (0.5 core = 500ms per 1s). |
-| `SANDBOX_PIDS_LIMIT` | `64` | Maximum active process count inside sandbox. |
-| `SANDBOX_MAX_LIFETIME`| `120` | Maximum container lifetime in seconds before automatic termination. |
+| `SANDBOX_MEMORY_LIMIT`| `512m` | Maximum RAM quota for ephemeral sandbox container. |
+| `SANDBOX_NANO_CPUS` | `1000000000` | CPU allocation quota (1 core). |
+| `SANDBOX_PIDS_LIMIT` | `128` | Maximum active process count inside sandbox. |
+| `SANDBOX_MAX_LIFETIME`| `900` | Maximum container lifetime in seconds before automatic termination. |
 | `SANDBOX_DOCKER_NETWORK`| `preflight_sandbox_net` | Dedicated internal Docker network for sandboxes. |
 | `WEB_PORT` | `8001` | Exposed web dashboard HTTP port. |
 

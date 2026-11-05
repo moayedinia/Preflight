@@ -204,7 +204,7 @@ class BugFixAgent:
         client, model, _ = get_openai_client(timeout=timeout)
         is_reasoning_model = any(k in (model or "").lower() for k in ["deepseek", "r1", "reasoning"])
 
-        user_prompt = f"""You are a senior software engineer fixing a defect in production source code.
+        user_prompt = f"""You are a senior software engineer following the Bug Fix Protocol for a production defect.
 
 Defect Details:
 - Defect Rule: {rule or 'Suspected Defect'}
@@ -224,9 +224,11 @@ Original Source Code of '{display_rel}':
 ```
 
 Instructions:
-1. Apply the exact bug fix requested in the repair instructions.
-2. Maintain documentation integrity and preserve existing comments, imports, and unaffected functions.
-3. Return the complete updated source code inside a single markdown code block:
+1. Reproduce the reported failure from the supplied source, line, and snippet before deciding on a patch. If the evidence does not support the report, keep the source unchanged.
+2. Find the underlying decision or missing guard that caused the failure; do not merely hide the symptom or widen a catch/except block.
+3. Apply the smallest targeted fix. Preserve existing comments, imports, public behaviour, and unrelated functions.
+4. Make the edit suitable for a regression test: preserve or add a clear error/fallback path rather than silently swallowing failures.
+5. Return the complete updated source code inside a single markdown code block, with no analysis or prose:
 ```{file_ext}
 [complete updated code here]
 ```"""

@@ -1,7 +1,7 @@
 # ==============================================================================
 # Vultr Coolify Marketplace Production Stack - Preflight
 # Optimized for 1-Click Deployment on Vultr Cloud Compute with Coolify
-# Architecture: 2 Services (API & Dashboard)
+# Architecture: API, Dashboard, and a private Docker-backed sandbox runner
 # Native Vultr Serverless Inference & Hardened Containment Sandboxes
 # ==============================================================================
 
@@ -17,7 +17,6 @@ services:
     volumes:
       - repo_coolify_data:/app/repos
       - auth_coolify_data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONPATH=/app
       - PYTHONDONTWRITEBYTECODE=1
@@ -32,11 +31,11 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       # Hardened Sandboxing on Vultr Cloud Compute
       - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
-      - SANDBOX_MEMORY_LIMIT=256m
-      - SANDBOX_NANO_CPUS=500000000
-      - SANDBOX_PIDS_LIMIT=64
-      - SANDBOX_MAX_LIFETIME=120
-      - SANDBOX_RUNNER_URL=http://localhost:8000/runner
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-128}
+      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-900}
+      - SANDBOX_RUNNER_URL=http://sandbox_runner:8010
       - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-vultr-sandbox-coolify-token}
       - TRUST_PROXY_HEADERS=true
     healthcheck:
@@ -47,6 +46,34 @@ services:
     networks:
       - coolify_preflight_net
       - preflight_sandbox_net
+    restart: unless-stopped
+
+  sandbox_runner:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: coolify_preflight_sandbox_runner
+    user: root
+    command: uvicorn app.sandbox_runner:app --host 0.0.0.0 --port 8010
+    volumes:
+      - repo_coolify_data:/app/repos:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONPATH=/app
+      - ALLOWED_REPO_DIR=/app/repos
+      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-vultr-sandbox-coolify-token}
+      - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-128}
+      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-900}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
+    networks:
+      preflight_sandbox_net:
+        aliases:
+          - sandbox_runner
     restart: unless-stopped
 
   frontend:

@@ -2,7 +2,7 @@ version: "3.8"
 
 # ==============================================================================
 # Preflight - Launch Readiness for Apps Built with AI
-# Architecture: 2 Services (API & Dashboard)
+# Architecture: API, Dashboard, and a private Docker-backed sandbox runner
 # Blast Radius Zero: Hardened Sandboxes on preflight_sandbox_net
 # Engine: Native Vultr Serverless Inference
 # ==============================================================================
@@ -18,14 +18,12 @@ services:
         - PYPI_MIRROR=${PYPI_MIRROR:-}
         - PYPI_HOST=${PYPI_HOST:-}
     container_name: preflight_api
-    user: root
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend:/app
       - ./backend/data:/app/data
       - ./repos:/app/repos
       - ./frontend:/app/frontend:ro
-      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"
     extra_hosts:
@@ -44,11 +42,11 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-v4.1-flash-1017}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
-      - SANDBOX_MEMORY_LIMIT=256m
-      - SANDBOX_NANO_CPUS=500000000
-      - SANDBOX_PIDS_LIMIT=64
-      - SANDBOX_MAX_LIFETIME=120
-      - SANDBOX_RUNNER_URL=http://localhost:8000/runner
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-128}
+      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-900}
+      - SANDBOX_RUNNER_URL=http://sandbox_runner:8010
       - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-change-me-in-production}
       - TRUST_PROXY_HEADERS=true
     healthcheck:
@@ -62,6 +60,34 @@ services:
           - api
           - preflight_api
       preflight_sandbox_net: {}
+    restart: unless-stopped
+
+  sandbox_runner:
+    build:
+      context: ./backend
+    container_name: preflight_sandbox_runner
+    user: root
+    command: uvicorn app.sandbox_runner:app --host 0.0.0.0 --port 8010
+    volumes:
+      - ./backend:/app
+      - ./repos:/app/repos:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONPATH=/app
+      - ALLOWED_REPO_DIR=/app/repos
+      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-change-me-in-production}
+      - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-128}
+      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-900}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
+    networks:
+      preflight_sandbox_net:
+        aliases:
+          - sandbox_runner
     restart: unless-stopped
 
   frontend:

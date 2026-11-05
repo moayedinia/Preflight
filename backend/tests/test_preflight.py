@@ -165,6 +165,70 @@ class TestPreflightEvaluation(unittest.TestCase):
         four_fences = "````python\nprint('safe')\n````"
         self.assertEqual(extract_code_block(four_fences, "fallback"), "print('safe')")
 
+    def test_extract_code_block_applies_surgical_snippet_replacement(self):
+        original = """async function loadData() {
+  try {
+    return await request();
+  } catch (error) {
+  }
+}
+// Keep this unrelated footer so the source is not treated as a tiny file.
+"""
+        snippet = "catch (error) {\n  }"
+        reply = """```javascript
+catch (error) {
+  console.error(error);
+  return null;
+}
+```"""
+        fixed = extract_code_block(reply, original, snippet)
+        self.assertNotIn(snippet, fixed)
+        self.assertIn("console.error(error)", fixed)
+        self.assertIn("async function loadData", fixed)
+
+    @patch("app.core.preflight.call_llm")
+    @patch("app.core.multi_agent.BugFixAgent.execute_bug_fix")
+    def test_bug_fix_retries_with_surgical_replacement_when_initial_patch_keeps_snippet(self, mock_agent, mock_llm):
+        """A 422-worthy first response gets one safe, targeted retry before failing."""
+        from app.core.security import ALLOWED_REPO_DIR
+        repo = ALLOWED_REPO_DIR / "surgical_retry_repo"
+        repo.mkdir(exist_ok=True)
+        source = repo / "LoanTab.jsx"
+        original = """async function loadLoan() {
+  try {
+    return await fetchLoan();
+  } catch (error) {
+  }
+}
+// Keep the file long enough to exercise full-file safeguards.\n"""
+        source.write_text(original, encoding="utf-8")
+        snippet = "catch (error) {\n  }"
+        mock_agent.return_value = original + "// unrelated model edit\n"
+        mock_llm.return_value = """```javascript
+catch (error) {
+  console.error(error);
+  return null;
+}
+```"""
+
+        try:
+            with patch.dict(os.environ, {"TESTING": "0"}, clear=False):
+                result = apply_preflight_bug_fix(
+                    repo_name="surgical_retry_repo",
+                    file_path="LoanTab.jsx",
+                    repair_prompt="Log errors and return fallback state instead of an empty catch block.",
+                    rule="Crashes on unexpected input",
+                    snippet=snippet,
+                    line_number=4,
+                )
+            self.assertEqual(result["status"], "success")
+            updated = source.read_text(encoding="utf-8")
+            self.assertNotIn(snippet, updated)
+            self.assertIn("console.error(error)", updated)
+            mock_llm.assert_called_once()
+        finally:
+            shutil.rmtree(repo, ignore_errors=True)
+
     def test_extract_json_defect_malformed_uses_fallback(self):
         sample = "Here is some non-json text without curly braces."
         fallback = {

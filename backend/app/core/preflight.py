@@ -2481,11 +2481,12 @@ def apply_preflight_bug_fix(
     if not clean_repair:
         clean_repair = f"Fix the defect '{rule or 'reported issue'}' at line {line_number or 'N/A'}. Details: {detail or 'Repair the issue and ensure production safety.'}"
 
-    # System prompt strictly instructing autonomous code repair
-    fix_system_prompt = f"""You are a senior software engineer fixing a bug in production code.
-Apply the requested fix for '{rule or 'reported defect'}' in '{display_rel}'.
-Preserve all existing code structure, comments, and unaffected functions.
-Return the complete updated file inside a markdown code block:
+    # The repair workflow follows the Bug Fix Protocol: establish the failing
+    # behaviour from the supplied evidence, find the cause, make the smallest
+    # safe repair, and preserve a regression-proof verification path.
+    fix_system_prompt = f"""You are a senior software engineer applying the Bug Fix Protocol to production code.
+Use the supplied source and offending snippet as the evidence for the defect. Diagnose the root cause, not just the visible symptom. Make the smallest safe change that fixes '{rule or 'reported defect'}' in '{display_rel}', preserves unrelated behaviour, and does not hide errors by widening a catch/except block.
+Return only the requested source code inside a markdown code block:
 ```{file_ext}
 [complete updated code here]
 ```"""
@@ -2518,11 +2519,60 @@ Please apply the fix and return the complete updated code inside a ```{file_ext}
     else:
         try:
             call_timeout = int(os.getenv("LLM_BUG_FIX_TIMEOUT", "90"))
-            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=call_timeout, max_tokens=8192)
-            if not raw_llm or not raw_llm.strip():
-                raise ValueError("AI endpoint returned an empty code fix response.")
-            fixed_code = extract_code_block(raw_llm, original_code, snippet)
+            # The agent reads both normal and reasoning response channels.  Some
+            # reasoning models put the patch in reasoning_content and leave the
+            # normal response as prose, which used to result in a 422 here.
+            from app.core.multi_agent import BugFixAgent
+            fixed_code = BugFixAgent.execute_bug_fix(
+                repo_name=clean_repo,
+                file_path=clean_path,
+                original_code=original_code,
+                clean_repair=clean_repair,
+                rule=rule,
+                detail=detail,
+                snippet=snippet,
+                line_number=line_number,
+                file_ext=file_ext,
+                display_rel=display_rel,
+                timeout=call_timeout,
+            )
+
+            # If the first reply changed unrelated code or echoed the reported
+            # snippet, make one bounded, surgical retry.  Asking for a snippet
+            # replacement is much more reliable for small defects such as an
+            # empty catch block than asking the model to reproduce a whole file.
+            try:
+                _validate_fixed_source(original_code, fixed_code, target_file.suffix, snippet)
+            except HTTPException as validation_error:
+                detail_payload = validation_error.detail if isinstance(validation_error.detail, dict) else {}
+                error_code = detail_payload.get("error_code")
+                if error_code not in {"NO_EFFECTIVE_CHANGE", "SNIPPET_UNCHANGED"} or not (snippet or "").strip():
+                    raise
+
+                surgical_prompt = f"""Apply the Bug Fix Protocol to this exact snippet in `{display_rel}`: identify the root cause from the supplied evidence and return the smallest replacement that prevents the same regression.
+Do not repeat the original snippet, suppress the error, or explain the fix. Preserve the surrounding file.
+
+Defect: {rule or 'reported defect'}
+Repair instructions: {clean_repair}
+
+Original snippet:
+```{file_ext}
+{snippet}
+```
+
+Return the corrected replacement inside one ```{file_ext} code block."""
+                surgical_reply = call_llm(
+                    surgical_prompt,
+                    "You generate a precise source-code replacement. Output code only.",
+                    timeout=call_timeout,
+                    max_tokens=4096,
+                )
+                if not surgical_reply or not surgical_reply.strip():
+                    raise ValueError("AI endpoint returned an empty surgical fix response.")
+                fixed_code = extract_code_block(surgical_reply, original_code, snippet)
         except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
             err_msg = str(e)
             if "Read timed out" in err_msg or "timeout" in err_msg.lower():
                 user_friendly = "The AI endpoint timed out while generating the code fix (network or proxy delay)."

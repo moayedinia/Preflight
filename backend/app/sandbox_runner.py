@@ -60,10 +60,10 @@ def _resolve_repos_dir() -> Path:
 REPOS_DIR = _resolve_repos_dir()
 RUNNER_TOKEN = os.getenv("SANDBOX_RUNNER_TOKEN", "")
 DOCKER_NETWORK = os.getenv("SANDBOX_DOCKER_NETWORK", "preflight_sandbox_net")
-MEMORY_LIMIT = os.getenv("SANDBOX_MEMORY_LIMIT", "256m")
-CPU_LIMIT = int(os.getenv("SANDBOX_NANO_CPUS", "500000000"))  # 0.5 CPU
-PIDS_LIMIT = int(os.getenv("SANDBOX_PIDS_LIMIT", "64"))
-MAX_LIFETIME_SECONDS = int(os.getenv("SANDBOX_MAX_LIFETIME", "120"))
+MEMORY_LIMIT = os.getenv("SANDBOX_MEMORY_LIMIT", "512m")
+CPU_LIMIT = int(os.getenv("SANDBOX_NANO_CPUS", "1000000000"))  # 1 CPU
+PIDS_LIMIT = int(os.getenv("SANDBOX_PIDS_LIMIT", "128"))
+MAX_LIFETIME_SECONDS = int(os.getenv("SANDBOX_MAX_LIFETIME", "900"))
 MAX_LOG_LINES = int(os.getenv("SANDBOX_MAX_LOG_LINES", "500"))
 
 RUNTIME_IMAGES = {
@@ -291,13 +291,21 @@ def start(payload: StartRequest):
                 command=["sh", "-lc", shell_command],
                 working_dir="/workspace",
                 read_only=True,
-                user="1000:1000",
+                # The copied, disposable workspace is owned by root.  Running
+                # package managers as UID 1000 made `npm install` fail with
+                # EACCES before it could create node_modules/package-lock.json.
+                # Root has no Linux capabilities, cannot gain privileges, and
+                # can write only to the disposable workspace volume and tmpfs.
+                user="0:0",
                 environment={
                     "PORT": str(payload.port), "HOST": "0.0.0.0",
                     "ASPNETCORE_URLS": f"http://0.0.0.0:{payload.port}",
                     "SERVER_PORT": str(payload.port),
                     "FLASK_RUN_HOST": "0.0.0.0", "FLASK_RUN_PORT": str(payload.port),
                     "CI": "true", "PYTHONUNBUFFERED": "1",
+                    "NPM_CONFIG_CACHE": "/tmp/npm-cache",
+                    "npm_config_cache": "/tmp/npm-cache",
+                    **{key: os.environ[key] for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy") if os.environ.get(key)},
                 },
                 volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
                 network=DOCKER_NETWORK,
@@ -309,7 +317,8 @@ def start(payload: StartRequest):
                 tmpfs={
                     "/tmp": "rw,noexec,nosuid,size=128m",
                     "/root/.cache": "rw,size=64m",
-                    "/home/node/.npm": "rw,size=64m"
+                    "/home/node/.npm": "rw,size=64m",
+                    "/root/.npm": "rw,size=64m"
                 },
                 labels={"preflight.sandbox": "true", "preflight.repo": name},
                 detach=True,
@@ -352,7 +361,13 @@ def exec_in_session(payload: ExecRequest):
             exec_res = session.container.exec_run(
                 cmd=["sh", "-lc", payload.command],
                 workdir="/workspace",
-                environment={"CI": "true", "PYTHONUNBUFFERED": "1", "PORT": str(session.port)}
+                user="0:0",
+                environment={
+                    "CI": "true", "PYTHONUNBUFFERED": "1", "PORT": str(session.port),
+                    "NPM_CONFIG_CACHE": "/tmp/npm-cache",
+                    "npm_config_cache": "/tmp/npm-cache",
+                    **{key: os.environ[key] for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy") if os.environ.get(key)},
+                }
             )
             raw = exec_res.output or b""
             out_str = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
