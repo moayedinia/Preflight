@@ -24,6 +24,12 @@ from app.core.llm import call_llm, get_llm_config
 # Excluded from scope: Colour contrast, accessibility, spelling (Design review).
 # ==============================================================================
 
+PREFLIGHT_IGNORED_DIRS = {
+    ".git", "node_modules", "venv", ".venv", "env", "__pycache__",
+    ".idea", ".vscode", "dist", "build", ".gemini", ".system_generated",
+    ".cache", "tmp", "logs", ".preflight-backups"
+}
+
 RED_RULES = [
     "Leaked API keys: Your secret key is visible to anyone who opens your site. They can spend your money.",
     "Unprotected admin routes: Your admin page is hidden, not protected. Anyone who guesses the address can delete your data.",
@@ -479,7 +485,7 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
             }
             found_files = []
             for root, dirs, files in os.walk(repo_dir):
-                dirs[:] = sorted([d for d in dirs if d not in ignored_dirs and not d.startswith(".")])
+                dirs[:] = sorted([d for d in dirs if d not in PREFLIGHT_IGNORED_DIRS and not d.startswith(".")])
                 for f in sorted(files):
                     ext = Path(f).suffix.lower()
                     if ext in allowed_exts and not f.startswith("."):
@@ -713,11 +719,7 @@ def get_repo_state_hash(repo_name: Optional[str] = None) -> str:
     remains completely unchanged.
     """
     candidates = get_candidate_directories(repo_name)
-    ignored_dirs = {
-        ".git", "node_modules", "venv", ".venv", "env", "__pycache__",
-        ".idea", ".vscode", "dist", "build", ".gemini", ".system_generated",
-        ".cache", "tmp", "logs", ".preflight-backups"
-    }
+    ignored_dirs = PREFLIGHT_IGNORED_DIRS
     file_records = []
     for d in candidates:
         if not d.exists():
@@ -947,12 +949,7 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
     if cache_key in _TIER_AUDIT_CACHE:
         return copy.deepcopy(_TIER_AUDIT_CACHE[cache_key])
     directories = get_candidate_directories(clean_repo)
-
-    ignored_dirs = {
-        ".git", "node_modules", "venv", ".venv", "env", "__pycache__",
-        ".idea", ".vscode", "dist", "build", ".gemini", ".system_generated",
-        ".cache", "tmp", "logs"
-    }
+    ignored_dirs = PREFLIGHT_IGNORED_DIRS
 
     code_exts = {
         ".cs", ".csx", ".razor", ".py", ".js", ".jsx", ".ts", ".tsx",
