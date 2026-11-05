@@ -310,9 +310,15 @@
       </button>
 
       <!-- Import Project Button -->
-      <button onclick="openModal('modal-import')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-all shadow-md shadow-emerald-900/30 flex items-center gap-1.5 shrink-0">
+      <button onclick="openModal('modal-import')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-all shadow-md shadow-emerald-900/30 flex items-center gap-1.5 shrink-0" title="Import a new Git repository or ZIP archive">
         <i data-lucide="plus" class="w-3.5 h-3.5"></i>
         <span class="hidden sm:inline">Import Project</span>
+      </button>
+
+      <!-- Download Project Button -->
+      <button onclick="downloadCurrentProjectZip()" id="topbar-download-btn" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 border border-slate-700 hover:border-slate-600 text-slate-200 hover:text-white rounded-lg text-xs font-medium transition-all shadow-md flex items-center gap-1.5 shrink-0" title="Download active project codebase as a ZIP archive">
+        <i data-lucide="download" class="w-3.5 h-3.5 text-cyan-400"></i>
+        <span class="hidden sm:inline">Download Project</span>
       </button>
 
       <!-- Settings Button -->
@@ -411,6 +417,10 @@
               <button onclick="openSandboxModal()" id="btn-launch-sandbox" class="px-3.5 py-2.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-1.5" title="Scan and launch project inside an isolated sandbox">
                 <i data-lucide="rocket" class="w-4 h-4"></i>
                 <span>Proceed to a test run</span>
+              </button>
+              <button onclick="downloadCurrentProjectZip()" id="btn-audit-download-zip" class="px-3 py-2.5 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm" title="Download the full codebase as a ZIP archive">
+                <i data-lucide="download" class="w-3.5 h-3.5 text-cyan-400"></i>
+                <span class="hidden sm:inline">Download ZIP</span>
               </button>
               <button onclick="reindexCurrentRepo()" title="Re-index current project with active model" class="px-3 py-2.5 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm">
                 <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
@@ -2079,6 +2089,10 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
                 <button onclick="reindexRepo('${escapeHtml(r.name)}')" id="btn-reindex-${escapeHtml(r.name)}" class="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded-xl font-medium transition-colors active:scale-95 flex items-center gap-1.5 border border-blue-500/20" title="Re-index codebase with the latest active model">
                   <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                   Reindex
+                </button>
+                <button onclick="downloadRepoZip('${escapeHtml(r.name)}')" class="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs rounded-xl font-medium transition-colors active:scale-95 flex items-center gap-1.5 border border-cyan-500/20" title="Download project codebase as a ZIP archive">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                  Download
                 </button>
               </div>
               <button onclick="deleteRepo('${escapeHtml(r.name)}')" class="text-xs text-red-400 hover:text-red-300 p-2 transition-colors rounded-xl hover:bg-red-500/10 active:scale-95" title="Delete Repository">
@@ -4219,6 +4233,62 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     function downloadSandboxErrorReport() {
       const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
       window.open(`${API_BASE}/api/v1/sandbox/error-report/download${repoParam}`, '_blank');
+    }
+
+    async function downloadRepoZip(repoName) {
+      const target = repoName || currentRepo || (document.getElementById('repo-select') ? document.getElementById('repo-select').value : '');
+      if (!target) {
+        showToast('Please select or import a project first.', true);
+        return;
+      }
+      const topBtn = document.getElementById('topbar-download-btn');
+      const auditBtn = document.getElementById('btn-audit-download-zip');
+      const originalTopHtml = topBtn ? topBtn.innerHTML : '';
+      const originalAuditHtml = auditBtn ? auditBtn.innerHTML : '';
+
+      if (topBtn) {
+        topBtn.disabled = true;
+        topBtn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin text-cyan-400"></i> <span class="hidden sm:inline">Archiving...</span>';
+      }
+      if (auditBtn) {
+        auditBtn.disabled = true;
+        auditBtn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin text-cyan-400"></i> <span class="hidden sm:inline">Archiving...</span>';
+      }
+      if (window.lucide) lucide.createIcons();
+
+      showToast(`Preparing ZIP archive for ${target}...`, false);
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/repos/${encodeURIComponent(target)}/download`);
+        if (!res.ok) {
+          throw new Error(await readApiError(res, 'Failed to download project archive.'));
+        }
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${target}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showToast(`Downloaded ${target}.zip successfully!`, false);
+      } catch (err) {
+        showToast(err.message, true);
+      } finally {
+        if (topBtn) {
+          topBtn.disabled = false;
+          topBtn.innerHTML = originalTopHtml;
+        }
+        if (auditBtn) {
+          auditBtn.disabled = false;
+          auditBtn.innerHTML = originalAuditHtml;
+        }
+        if (window.lucide) lucide.createIcons();
+      }
+    }
+
+    function downloadCurrentProjectZip() {
+      return downloadRepoZip(currentRepo);
     }
 
   </script>

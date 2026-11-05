@@ -1,3 +1,5 @@
+import io
+import zipfile
 import time
 import threading
 from contextlib import contextmanager
@@ -87,7 +89,7 @@ allowed_origins = [orig.strip() for orig in allowed_origins_env.split(",") if or
 if "*" in allowed_origins or not allowed_origins:
     allowed_origins = ["*"]
 
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 app.add_middleware(
@@ -685,6 +687,53 @@ def list_repositories():
         return list_all_repositories()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/repos/{repo_name}/download", dependencies=[Depends(verify_api_key)])
+@app.get("/api/v1/repos/download", dependencies=[Depends(verify_api_key)])
+def download_repository_zip(repo_name: Optional[str] = None, include_git: bool = False):
+    """
+    Packs the repository workspace into a downloadable ZIP archive.
+    Enables users to download the full project codebase after running Preflight audits and fixes.
+    """
+    if not repo_name:
+        raise HTTPException(status_code=400, detail="Repository name parameter is required.")
+    
+    clean_repo = sanitize_name(repo_name)
+    repo_dir = ALLOWED_REPO_DIR / clean_repo
+    if not repo_dir.exists() or not repo_dir.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repository '{clean_repo}' not found on disk at {repo_dir}."
+        )
+
+    # Pack files into an in-memory zip archive
+    zip_buffer = io.BytesIO()
+    excluded_dirs = {".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"} if not include_git else {"__pycache__", ".pytest_cache"}
+    excluded_files = {".ds_store", "thumbs.db"}
+
+    total_files = 0
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(repo_dir):
+            dirs[:] = [d for d in dirs if d not in excluded_dirs]
+            for file in files:
+                if file.lower() in excluded_files or file.endswith(".pyc"):
+                    continue
+                file_path = Path(root) / file
+                arcname = file_path.relative_to(repo_dir).as_posix()
+                zf.write(file_path, arcname)
+                total_files += 1
+
+    zip_buffer.seek(0)
+    filename = f"{clean_repo}.zip"
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Total-Files": str(total_files)
+        }
+    )
+
 
 @app.get("/api/v1/repos/{repo_name}", dependencies=[Depends(verify_api_key)])
 def get_repository(repo_name: str):
