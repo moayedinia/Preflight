@@ -3045,10 +3045,15 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       if (window.lucide) lucide.createIcons();
 
       try {
+        let num = 1;
+        if (d.line_number != null) num = parseInt(d.line_number, 10);
+        else if (d.line != null) num = parseInt(d.line, 10);
+        if (isNaN(num) || num < 1) num = 1;
+
         const payload = {
           repo_name: currentRepo || null,
           file_path: fPath,
-          line_number: d.line_number || d.line || 1,
+          line_number: num,
           rule: d.rule,
           detail: d.detail || d.plain_english_explanation,
           business_consequence: d.business_consequence,

@@ -980,14 +980,14 @@ def audit_single_tier_post(tier_name: str, payload: Optional[AutoDocRequest] = N
 
 
 class PreflightFixBugRequest(BaseModel):
-    repo_name: Optional[str] = Field(None, max_length=100)
-    file_path: str = Field(..., max_length=500)
-    repair_prompt: Optional[str] = Field(None, max_length=10_000)
-    rule: Optional[str] = Field(None, max_length=200)
-    detail: Optional[str] = Field(None, max_length=1000)
-    business_consequence: Optional[str] = Field(None, max_length=1000)
-    snippet: Optional[str] = Field(None, max_length=5000)
-    line_number: Optional[int] = Field(None, ge=1)
+    repo_name: Optional[str] = Field(None, max_length=200)
+    file_path: str = Field(..., max_length=1000)
+    repair_prompt: Optional[str] = Field(None, max_length=50_000)
+    rule: Optional[str] = Field(None, max_length=1000)
+    detail: Optional[str] = Field(None, max_length=50_000)
+    business_consequence: Optional[str] = Field(None, max_length=50_000)
+    snippet: Optional[str] = Field(None, max_length=100_000)
+    line_number: Optional[Any] = Field(None)
 
 
 @app.post("/api/v1/review/fix-bug", dependencies=[Depends(verify_api_key)])
@@ -1007,6 +1007,16 @@ def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest):
             }
         )
     clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+
+    # Sanitize line_number safely
+    parsed_line = None
+    if payload.line_number is not None:
+        try:
+            parsed_val = int(payload.line_number)
+            parsed_line = max(1, parsed_val)
+        except (ValueError, TypeError):
+            parsed_line = None
+
     return apply_preflight_bug_fix(
         repo_name=clean_repo,
         file_path=payload.file_path,
@@ -1015,7 +1025,7 @@ def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest):
         detail=payload.detail,
         business_consequence=payload.business_consequence,
         snippet=payload.snippet,
-        line_number=payload.line_number
+        line_number=parsed_line
     )
 
 

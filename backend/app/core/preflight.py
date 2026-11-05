@@ -2225,14 +2225,13 @@ def extract_code_block(llm_output: str, fallback_code: str, snippet: Optional[st
     # 1. Strip reasoning/thinking tags emitted by models like DeepSeek-R1 / Qwen
     cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned, flags=re.IGNORECASE).strip()
 
-    # 2. Normalize quadruple or more backticks
-    cleaned = re.sub(r'^`{4,}', '```', cleaned)
-    cleaned = re.sub(r'`{4,}$', '```', cleaned)
+    # 2. Normalize quadruple or more backticks anywhere
+    cleaned = re.sub(r'`{4,}', '```', cleaned)
 
-    # 3. Extract all code fences
+    # 3. Extract all code fences (including unclosed fences at end of text)
     fences = re.findall(r'```(?:[^\n]*)\n([\s\S]*?)\n```', cleaned)
     if not fences:
-        fences = re.findall(r'```(?:[^\n]*)\s*([\s\S]*?)```', cleaned)
+        fences = re.findall(r'```(?:[^\n]*)\s*([\s\S]*?)(?:```|$)', cleaned)
 
     # Clean candidate fences
     candidates = []
@@ -2250,19 +2249,19 @@ def extract_code_block(llm_output: str, fallback_code: str, snippet: Optional[st
         candidates.sort(key=len, reverse=True)
         fallback_len = len(fallback_code)
         
-        # Priority A: A candidate that looks like the full file (at least 35% of original length, or larger)
+        # Priority A: Check if any candidate is a full-file replacement that actually changed the code
         for cand in candidates:
-            if fallback_len <= 150 or len(cand) >= fallback_len * 0.35:
+            if cand != fallback_code and (fallback_len <= 150 or len(cand) >= fallback_len * 0.35):
                 return cand
 
-        # Priority B: If all candidates are small snippets, try applying as a replacement for the offending snippet
+        # Priority B: If candidate is a snippet, try applying as a replacement for the offending snippet
         clean_snip = (snippet or "").strip()
         if clean_snip and len(clean_snip) >= 6:
             for cand in candidates:
-                if cand != clean_snip:
+                if cand != clean_snip and cand != fallback_code:
                     if clean_snip in fallback_code:
                         patched = fallback_code.replace(clean_snip, cand)
-                        if patched != fallback_code and clean_snip not in patched:
+                        if patched != fallback_code:
                             logger.info("Successfully applied snippet-level replacement from AI code block.")
                             return patched
                     else:
@@ -2283,6 +2282,20 @@ def extract_code_block(llm_output: str, fallback_code: str, snippet: Optional[st
                                         if patched != fallback_code:
                                             logger.info("Successfully applied line-slice snippet replacement.")
                                             return patched
+
+        # Priority C: Function or method replacement by signature matching
+        for cand in candidates:
+            if cand != fallback_code:
+                fn_match = re.search(r'(?:def|function|async\s+def|async\s+function|public\s+(?:async\s+)?\w+[\w<>\[\]]*\s+)(\w+)\s*\(', cand)
+                if fn_match:
+                    fn_name = fn_match.group(1)
+                    pattern = rf'((?:[ \t]*(?:def|function|async\s+def|async\s+function|public\s+(?:async\s+)?[\w<>\[\]]+\s+){fn_name}\s*\([\s\S]*?)(?=\n[ \t]*(?:def|function|async\s+def|async\s+function|public\s+|class\s+|\Z)))'
+                    m_orig = re.search(pattern, fallback_code)
+                    if m_orig:
+                        patched = fallback_code[:m_orig.start()] + cand + fallback_code[m_orig.end():]
+                        if patched != fallback_code:
+                            logger.info(f"Successfully applied function-level replacement for '{fn_name}'.")
+                            return patched
 
     # 4. If raw code without fences and not conversational prose
     if len(cleaned) >= 20 and not cleaned.startswith("{") and not cleaned.startswith("I apologize") and not cleaned.startswith("Sorry") and not cleaned.startswith("```"):
@@ -2459,19 +2472,13 @@ def apply_preflight_bug_fix(
         clean_repair = f"Fix the defect '{rule or 'reported issue'}' at line {line_number or 'N/A'}. Details: {detail or 'Repair the issue and ensure production safety.'}"
 
     # System prompt strictly instructing autonomous code repair
-    fix_system_prompt = """You are an autonomous senior software engineer and production code repair arbiter.
-Your task is to fix the reported defect in the provided source code according to the repair instructions.
-
-Instructions:
-1. Apply the exact bug fix requested in the repair instructions.
-2. Maintain documentation integrity and preserve all existing comments, docstrings, imports, and unaffected functions/classes.
-3. Keep the exact same coding style, indentation, and structure.
-4. Output MUST be ONLY the complete, production-ready, updated source code of the entire file.
-5. Enclose the updated code inside a single markdown code fence with the file language, e.g.:
-```{language}
-[complete updated source code]
-```
-Do not output any conversational explanations, notes, or preamble outside the code block."""
+    fix_system_prompt = f"""You are a senior software engineer fixing a bug in production code.
+Apply the requested fix for '{rule or 'reported defect'}' in '{display_rel}'.
+Preserve all existing code structure, comments, and unaffected functions.
+Return the complete updated file inside a markdown code block:
+```{file_ext}
+[complete updated code here]
+```"""
 
     user_prompt = f"""Please fix the following defect in '{display_rel}':
 
@@ -2479,21 +2486,20 @@ Defect Rule: {rule or 'Suspected Defect'}
 Line Number: {line_number or 'N/A'}
 Problem Explanation: {detail or 'Suspected issue identified in code inspection'}
 Consequence: {business_consequence or 'N/A'}
-Offending Snippet:
-```
+Offending Snippet to Fix:
+```{file_ext}
 {snippet or 'N/A'}
 ```
 
 Repair Instructions:
 {clean_repair}
 
-Current Full File Content:
+Original Source Code of '{display_rel}':
 ```{file_ext}
 {original_code}
 ```
 
-Apply the fix directly and return the full updated file in a markdown code fence.
-CRITICAL: You MUST output the complete code in a markdown code block so it can be extracted and applied directly."""
+Please apply the fix and return the complete updated code inside a ```{file_ext} ... ``` code block."""
 
     # Handle testing environment without real LLM endpoint
     if os.getenv("TESTING") == "1" and not os.getenv("REAL_LLM"):

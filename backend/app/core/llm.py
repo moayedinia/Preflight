@@ -519,10 +519,20 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
     if os.getenv("TESTING") != "1" and call_timeout < 45:
         call_timeout = 60.0
 
+    model_name = (model or "").lower()
+    is_reasoning_model = any(k in model_name for k in ["deepseek", "r1", "reasoning"])
+
     messages = []
     if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
+        if is_reasoning_model:
+            # DeepSeek-R1 and reasoning models perform best with instructions at top of user prompt
+            combined_prompt = f"{system_prompt.strip()}\n\n---\n\n{prompt.strip()}"
+            messages.append({"role": "user", "content": combined_prompt})
+        else:
+            messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+    else:
+        messages.append({"role": "user", "content": prompt})
 
     # 1. Primary path: Official OpenAI SDK format
     try:
@@ -549,8 +559,11 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
         create_kwargs = {
             "model": model,
             "messages": messages,
-            "temperature": 0.0,
         }
+        if not is_reasoning_model:
+            create_kwargs["temperature"] = 0.0
+        else:
+            create_kwargs["temperature"] = 0.6
         if max_tokens:
             create_kwargs["max_tokens"] = max_tokens
 
@@ -593,9 +606,12 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.0,
         "stream": False
     }
+    if not is_reasoning_model:
+        payload["temperature"] = 0.0
+    else:
+        payload["temperature"] = 0.6
     if max_tokens:
         payload["max_tokens"] = max_tokens
 
