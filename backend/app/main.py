@@ -63,7 +63,13 @@ from app.core.repo_manager import (
     delete_repository
 )
 from app.core.reviewer import generate_architectural_code_review
-from app.core.preflight import run_3tier_preflight_evaluation, compile_pure_english_markdown_report, audit_single_tier, apply_preflight_bug_fix
+from app.core.preflight import (
+    run_3tier_preflight_evaluation,
+    compile_pure_english_markdown_report,
+    audit_single_tier,
+    apply_preflight_bug_fix,
+    clear_preflight_audit_cache
+)
 
 
 try:
@@ -337,6 +343,7 @@ def ingest_from_git(payload: GitIngestRequest, request: Request = None):
                 )
                 actual_name = clean_repo or cloned_dir.name
                 result = scan_and_ingest_directory(str(cloned_dir), actual_name)
+                clear_preflight_audit_cache(actual_name)
                 return {"status": "success", "result": result}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
@@ -380,9 +387,11 @@ async def ingest_from_zip(
             extracted_dir = extract_safe_zip(temp_zip_path, clean_repo)
             result = scan_and_ingest_directory(str(extracted_dir), clean_repo)
             temp_zip_path.unlink(missing_ok=True)
+            clear_preflight_audit_cache(clean_repo)
             return {"status": "success", "result": result}
         except Exception as e:
             temp_zip_path.unlink(missing_ok=True)
+            clear_preflight_audit_cache(clean_repo)
             raise HTTPException(status_code=500, detail=str(e))
 
 # 3. Single Snippet Analysis

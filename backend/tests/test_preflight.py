@@ -33,6 +33,7 @@ from app.core.preflight import (
     run_3tier_preflight_evaluation,
     compile_pure_english_markdown_report,
     audit_single_tier,
+    clear_preflight_audit_cache,
     compute_preflight_scoring,
     extract_code_review_defects,
     get_code_review_findings_for_audit,
@@ -46,6 +47,9 @@ from app.core.preflight import (
 
 
 class TestPreflightEvaluation(unittest.TestCase):
+
+    def setUp(self):
+        clear_preflight_audit_cache()
 
     def test_preflight_rules_count(self):
         """Validates that exactly 13 defects are covered across the 3 tiers (6 Red, 4 Orange, 3 Yellow)."""

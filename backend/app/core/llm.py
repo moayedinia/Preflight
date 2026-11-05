@@ -448,7 +448,7 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.1,
+        "temperature": 0.0,
         "stream": False
     }
     if max_tokens:

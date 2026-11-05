@@ -2,6 +2,7 @@ import os
 import re
 import json
 import ast
+import copy
 import hashlib
 import time
 import logging
@@ -44,6 +45,28 @@ YELLOW_RULES = [
     "Debug code and no documentation: Leftover test code and an empty README. Looks unfinished to anyone technical.",
     "Outdated methods: Some code uses methods browsers have deprecated."
 ]
+
+CANONICAL_TIER_RULES: Dict[str, List[str]] = {
+    "red": [
+        "Leaked API keys",
+        "Unprotected admin routes",
+        "Database injection",
+        "Crashes on unexpected input",
+        "Infinite loops",
+        "Dead buttons on the main flow"
+    ],
+    "orange": [
+        "No loading state, double submission",
+        "No limits on what people can type",
+        "Search and sort are wrong",
+        "Slow pages and heavy images"
+    ],
+    "yellow": [
+        "Over-complex files",
+        "Debug code and no documentation",
+        "Outdated methods"
+    ]
+}
 
 RED_SYSTEM_PROMPT = """You are the Preflight Autonomous Security & Crash Arbiter for web applications built with vibe-coding tools (Lovable, Cursor, Bolt, v0, Replit).
 Your job is to evaluate suspected 🔴 RED (Fix before anyone uses this) blocker defects strictly according to the Preflight Detection Spec v4.
@@ -674,12 +697,66 @@ def _validate_llm_defect_evidence(
     return None
 
 
-_AUDIT_CODE_REVIEW_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_TIER_AUDIT_CACHE: Dict[str, Dict[str, Any]] = {}
+_AUDIT_CODE_REVIEW_CACHE: Dict[str, Tuple[str, List[Dict[str, Any]]]] = {}
+
+
+def get_repo_state_hash(repo_name: Optional[str] = None) -> str:
+    """
+    Computes a deterministic hash of the target repository state based on
+    file paths, sizes, and mtimes. If files on disk do not change, this hash
+    remains completely unchanged.
+    """
+    candidates = get_candidate_directories(repo_name)
+    ignored_dirs = {
+        ".git", "node_modules", "venv", ".venv", "env", "__pycache__",
+        ".idea", ".vscode", "dist", "build", ".gemini", ".system_generated",
+        ".cache", "tmp", "logs", ".preflight-backups"
+    }
+    file_records = []
+    for d in candidates:
+        if not d.exists():
+            continue
+        for root, dirs, files in os.walk(d):
+            dirs[:] = [sub for sub in dirs if sub not in ignored_dirs and not sub.startswith(".")]
+            for f in sorted(files):
+                if f.startswith("."):
+                    continue
+                fp = Path(root) / f
+                try:
+                    st = fp.stat()
+                    rel_p = fp.relative_to(d).as_posix()
+                    file_records.append(f"{rel_p}:{st.st_size}:{st.st_mtime_ns}")
+                except (OSError, ValueError):
+                    continue
+    file_records.sort()
+    raw_sig = "\n".join(file_records).encode("utf-8")
+    return hashlib.sha256(raw_sig).hexdigest()
+
+
+def clear_preflight_audit_cache(repo_name: Optional[str] = None):
+    """
+    Clears all cached preflight tier audits and code review findings.
+    If repo_name is provided, invalidates entries belonging to that repository.
+    """
+    global _AUDIT_CODE_REVIEW_CACHE, _TIER_AUDIT_CACHE
+    if repo_name:
+        clean = sanitize_name(repo_name)
+        _AUDIT_CODE_REVIEW_CACHE = {
+            k: v for k, v in _AUDIT_CODE_REVIEW_CACHE.items()
+            if not (k.startswith(f"{clean}:") or k == clean or f":{clean}:" in k)
+        }
+        _TIER_AUDIT_CACHE = {
+            k: v for k, v in _TIER_AUDIT_CACHE.items()
+            if not (k.startswith(f"{clean}:") or f":{clean}:" in k)
+        }
+    else:
+        _AUDIT_CODE_REVIEW_CACHE.clear()
+        _TIER_AUDIT_CACHE.clear()
 
 
 def clear_code_review_audit_cache():
-    global _AUDIT_CODE_REVIEW_CACHE
-    _AUDIT_CODE_REVIEW_CACHE.clear()
+    clear_preflight_audit_cache()
 
 
 def extract_code_review_defects(report_md: str) -> List[Dict[str, Any]]:
@@ -825,24 +902,25 @@ def get_code_review_findings_for_audit(repo_name: Optional[str] = None) -> List[
     """
     Retrieves Preflight Code Review findings for a repository and returns
     structured defects mapped into Red (P0), Orange (P1), and Yellow (P2/P3) tiers.
-    Cached per repo for 60 seconds to avoid duplicate LLM invocations across tier queries.
+    Cached per repository state hash to avoid non-deterministic variations when
+    the repository has not changed on disk.
     """
     clean_repo = sanitize_name(repo_name) if repo_name else None
-    cache_key = clean_repo or "default"
-    now = time.time()
+    state_hash = get_repo_state_hash(clean_repo)
+    cache_key = f"{clean_repo or 'default'}:{state_hash}"
 
     if cache_key in _AUDIT_CODE_REVIEW_CACHE:
-        cached_time, cached_defects = _AUDIT_CODE_REVIEW_CACHE[cache_key]
-        if now - cached_time < 60:
-            return cached_defects
+        cached_hash, cached_defects = _AUDIT_CODE_REVIEW_CACHE[cache_key]
+        if cached_hash == state_hash:
+            return copy.deepcopy(cached_defects)
 
     try:
         from app.core.sandbox import run_preflight_code_review
         res = run_preflight_code_review(repo_name=clean_repo)
         report_md = res.get("markdown_report", "")
         defects = extract_code_review_defects(report_md)
-        _AUDIT_CODE_REVIEW_CACHE[cache_key] = (now, defects)
-        return defects
+        _AUDIT_CODE_REVIEW_CACHE[cache_key] = (state_hash, defects)
+        return copy.deepcopy(defects)
     except Exception as e:
         print(f"[Preflight Audit] Code Review Skill Note ({cache_key}): {e}")
         return []
@@ -857,6 +935,12 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
     tier_lower = (tier or "red").strip().lower()
     tier_upper = tier_lower.upper()
     clean_repo = sanitize_name(repo_name) if repo_name else None
+
+    # Check repository state cache for deterministic instant responses
+    state_hash = get_repo_state_hash(clean_repo)
+    cache_key = f"{tier_lower}:{clean_repo or 'default'}:{state_hash}"
+    if cache_key in _TIER_AUDIT_CACHE:
+        return copy.deepcopy(_TIER_AUDIT_CACHE[cache_key])
     directories = get_candidate_directories(clean_repo)
 
     ignored_dirs = {
@@ -1452,6 +1536,30 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
         except Exception as llm_err:
             print(f"[Preflight Tier Audit] LLM Note ({tier_lower}): {llm_err}")
 
+    # Deduplicate defects deterministically by (file, line, rule, snippet)
+    seen_defect_keys = set()
+    deduped_defects = []
+    for d in all_defects:
+        f_norm = (d.get("file") or d.get("file_path") or "").strip().replace("\\", "/")
+        l_norm = int(d.get("line") or d.get("line_number") or 1)
+        r_norm = (d.get("rule") or "").strip()
+        s_norm = (d.get("snippet") or d.get("code_snippet") or "").strip()[:80]
+        dedup_key = (f_norm, l_norm, r_norm, s_norm)
+        if dedup_key in seen_defect_keys:
+            continue
+        seen_defect_keys.add(dedup_key)
+        deduped_defects.append(d)
+    all_defects = deduped_defects
+
+    all_defects.sort(key=lambda d: (
+        0 if d.get("source") == "code_review" or d.get("p_level") else 1,
+        str(d.get("file", "")),
+        int(d.get("line") or d.get("line_number") or 1),
+        str(d.get("rule", ""))
+    ))
+    defect_count = len(all_defects)
+    is_defect = defect_count > 0
+
     # Compute scoring & verdict for this audit pass
     scoring = compute_preflight_scoring(all_defects)
 
@@ -1540,7 +1648,7 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
             ed_item["source"] = d["source"]
         enriched_defects.append(ed_item)
 
-    return {
+    res_data = {
         "tier": tier_lower,
         "title": tier_title,
         "status": "DEFECT DETECTED" if is_defect else "PASS",
@@ -1560,6 +1668,8 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
         "markdown_report": markdown_report,
         "engine": engine
     }
+    _TIER_AUDIT_CACHE[cache_key] = copy.deepcopy(res_data)
+    return res_data
 
 
 def _probe_dead_primary_action_with_playwright(url: str, primary_labels: List[str]) -> Optional[bool]:
@@ -2411,6 +2521,8 @@ Apply the fix directly and return the full updated file in a code block."""
                 "suggested_action": "Check write permissions for target file on disk."
             }
         )
+
+    clear_preflight_audit_cache(clean_repo)
 
     return {
         "status": "success",
