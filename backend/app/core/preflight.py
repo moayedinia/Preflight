@@ -478,8 +478,9 @@ def collect_repo_code_samples(repo_name: Optional[str] = None, max_total_chars: 
                 ".cpp", ".c", ".h", ".swift", ".kt"
             }
             found_files = []
-            for root, _, files in os.walk(repo_dir):
-                for f in files:
+            for root, dirs, files in os.walk(repo_dir):
+                dirs[:] = sorted([d for d in dirs if d not in ignored_dirs and not d.startswith(".")])
+                for f in sorted(files):
                     ext = Path(f).suffix.lower()
                     if ext in allowed_exts and not f.startswith("."):
                         found_files.append(Path(root) / f)
@@ -1011,9 +1012,9 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
 
     for base_dir in directories:
         for root, dirs, files in os.walk(base_dir):
-            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+            dirs[:] = sorted([d for d in dirs if d not in ignored_dirs and not d.startswith(".")])
 
-            for fname in files:
+            for fname in sorted(files):
                 file_path = Path(root) / fname
                 try:
                     rel_path = file_path.relative_to(base_dir).as_posix()
@@ -1396,6 +1397,9 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
         all_defects = unmatched_cr + all_defects
     except Exception as cr_err:
         print(f"[audit_single_tier] Code review merge error ({tier_lower}): {cr_err}")
+
+    # Deterministically sort static defects so LLM prompt and reports are 100% reproducible
+    all_defects.sort(key=lambda d: (str(d.get("file", "")), int(d.get("line") or 0), str(d.get("rule", ""))))
 
     rules_map = {
         "red": RED_RULES,
