@@ -1,6 +1,8 @@
 import os
 import re
 import json
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 from app.core.embedder import get_embedding
 from app.core.graph import vector_search, expand_graph_context
 
@@ -120,18 +122,204 @@ def serialize_graph_topology(hits: list[dict], relational_context: list[dict], i
 
     return "\n".join(lines).strip()
 
+def collect_rag_repo_context(repo_name: Optional[str] = None, query: str = "", max_chars: int = 14000) -> str:
+    """
+    Collects rich, query-grounded codebase context for AI Copilot and GraphRAG:
+    1. Resolves repository directory on disk (falling back to first indexed repo if unspecified).
+    2. Constructs a concise project file tree (showing file hierarchy and tech stack).
+    3. Excerpts key project manifests (package.json, requirements.txt, .csproj, etc.).
+    4. Dynamically scores and excerpts the source files most relevant to the user's query.
+    """
+    from app.core.security import ALLOWED_REPO_DIR, sanitize_name
+    from app.core.preflight import PREFLIGHT_IGNORED_DIRS
+
+    target_dir = None
+    target_repo_name = None
+
+    if repo_name:
+        clean = sanitize_name(repo_name)
+        candidate = ALLOWED_REPO_DIR / clean
+        if candidate.exists() and candidate.is_dir():
+            target_dir = candidate
+            target_repo_name = clean
+        elif ALLOWED_REPO_DIR.exists():
+            for p in ALLOWED_REPO_DIR.iterdir():
+                if p.is_dir() and p.name.lower() == clean.lower():
+                    target_dir = p
+                    target_repo_name = p.name
+                    break
+
+    if not target_dir and ALLOWED_REPO_DIR.exists():
+        available = [
+            p for p in ALLOWED_REPO_DIR.iterdir()
+            if p.is_dir() and not p.name.startswith(".") and p.name not in PREFLIGHT_IGNORED_DIRS
+        ]
+        if available:
+            target_dir = available[0]
+            target_repo_name = target_dir.name
+
+    if not target_dir:
+        return (
+            f"=== Project Context ===\n"
+            f"Repository: {repo_name or 'Not specified'}\n"
+            "(No local repository files found on disk. Relying on indexed Knowledge Graph topology.)"
+        )
+
+    code_extensions = {
+        ".py", ".ts", ".tsx", ".js", ".jsx", ".cs", ".razor", ".go", ".java",
+        ".rs", ".rb", ".php", ".c", ".cpp", ".h", ".swift", ".kt", ".vue",
+        ".html", ".css", ".scss", ".json", ".yaml", ".yml", ".toml", ".sql", ".sh"
+    }
+
+    all_files = []
+    for root, dirs, files in os.walk(target_dir):
+        dirs[:] = sorted([d for d in dirs if d not in PREFLIGHT_IGNORED_DIRS and not d.startswith(".")])
+        for f in sorted(files):
+            if f.startswith("."):
+                continue
+            ext = Path(f).suffix.lower()
+            if ext in code_extensions or f in ("Dockerfile", "Makefile", "Procfile"):
+                rel_p = Path(root).relative_to(target_dir) / f
+                all_files.append(rel_p)
+
+    # 1. Project File Tree
+    file_tree_lines = [f"- {p.as_posix()}" for p in all_files[:70]]
+    if len(all_files) > 70:
+        file_tree_lines.append(f"- ... ({len(all_files) - 70} more files)")
+    file_tree_str = "\n".join(file_tree_lines)
+    chars_used = len(file_tree_str)
+
+    # 2. Manifests & Configs (Framework & dependency discovery)
+    manifest_names = {
+        "package.json", "requirements.txt", "pyproject.toml", "cargo.toml",
+        "go.mod", "pom.xml", "docker-compose.yml", "dockerfile", "readme.md"
+    }
+    manifest_samples = []
+
+    for p in all_files:
+        if p.name.lower() in manifest_names or p.name.lower().endswith(".csproj"):
+            file_abs = target_dir / p
+            try:
+                txt = file_abs.read_text(encoding="utf-8", errors="ignore").strip()
+                if txt:
+                    sample = f"=== Config / Manifest: {p.as_posix()} ===\n{txt[:1200]}\n"
+                    manifest_samples.append(sample)
+                    chars_used += len(sample)
+                    if len(manifest_samples) >= 3:
+                        break
+            except Exception:
+                continue
+
+    # 3. Query Relevance Scoring
+    q_lower = (query or "").lower()
+    raw_tokens = set(re.findall(r'[a-zA-Z0-9_]{3,}', q_lower))
+    stop_words = {
+        "how", "does", "work", "here", "this", "that", "what", "where",
+        "when", "with", "from", "show", "tell", "explain", "code", "file",
+        "files", "project", "system", "please", "help"
+    }
+    query_tokens = raw_tokens - stop_words
+
+    synonym_map = {
+        "auth": ["auth", "login", "jwt", "token", "session", "user", "password", "oauth", "guard", "cookie", "security", "identity", "credential"],
+        "authentication": ["auth", "login", "jwt", "token", "session", "user", "password", "oauth", "guard", "cookie", "security", "identity", "credential"],
+        "login": ["auth", "login", "session", "token", "user", "password"],
+        "user": ["user", "account", "profile", "member", "auth"],
+        "database": ["db", "database", "sql", "model", "schema", "entity", "migration", "repository", "dbcontext", "prisma"],
+        "db": ["db", "database", "sql", "model", "schema", "entity", "repository", "dbcontext"],
+        "api": ["api", "route", "router", "endpoint", "controller", "handler", "service"],
+        "route": ["route", "router", "endpoint", "controller", "handler", "url", "path"],
+        "proxy": ["proxy", "v2ray", "node", "server", "subscription", "traffic", "ping", "speed"],
+        "payment": ["pay", "payment", "checkout", "stripe", "billing", "invoice"]
+    }
+    expanded_tokens = set(query_tokens)
+    for tok in list(query_tokens):
+        if tok in synonym_map:
+            expanded_tokens.update(synonym_map[tok])
+
+    entrypoint_names = {"program.cs", "startup.cs", "main.py", "app.py", "index.ts", "index.js", "app.tsx", "server.js", "app.jsx", "main.go"}
+
+    scored_files = []
+    for p in all_files:
+        posix = p.as_posix().lower()
+        score = 0
+        for tok in expanded_tokens:
+            if tok in posix:
+                score += 15
+        if p.name.lower() in entrypoint_names:
+            score += 5
+        if p.name.lower() in manifest_names or p.name.lower().endswith(".csproj"):
+            continue
+
+        if score > 0 or len(scored_files) < 10:
+            file_abs = target_dir / p
+            try:
+                with open(file_abs, "r", encoding="utf-8", errors="ignore") as f_obj:
+                    snippet = f_obj.read(25000)
+                content_lower = snippet.lower()
+                for tok in expanded_tokens:
+                    if tok in content_lower:
+                        score += 8
+            except Exception:
+                pass
+
+        if score > 0:
+            scored_files.append((score, p))
+
+    scored_files.sort(key=lambda x: x[0], reverse=True)
+
+    top_candidates = [p for _, p in scored_files[:6]]
+    if not top_candidates:
+        for p in all_files:
+            if p.name.lower() in entrypoint_names or "service" in p.name.lower() or "controller" in p.name.lower():
+                top_candidates.append(p)
+                if len(top_candidates) >= 4:
+                    break
+        if not top_candidates and all_files:
+            top_candidates = all_files[:4]
+
+    source_snippets = []
+    for p in top_candidates:
+        file_abs = target_dir / p
+        try:
+            txt = file_abs.read_text(encoding="utf-8", errors="ignore").strip()
+            if txt:
+                clipped = txt[:2200]
+                sample = f"=== File: {p.as_posix()} ===\n{clipped}\n"
+                if chars_used + len(sample) > max_chars:
+                    break
+                source_snippets.append(sample)
+                chars_used += len(sample)
+        except Exception:
+            continue
+
+    context_blocks = [
+        f"### Target Project: `{target_repo_name}`\n",
+        f"#### Project File Tree:\n```\n{file_tree_str}\n```\n"
+    ]
+    if manifest_samples:
+        context_blocks.append("#### Project Configurations & Dependencies:\n" + "\n".join(manifest_samples))
+    if source_snippets:
+        context_blocks.append("#### Relevant Code Snippets & Implementations:\n" + "\n".join(source_snippets))
+
+    return "\n\n".join(context_blocks)
+
 def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) -> dict:
     """
-    Executes an ultra-efficient GraphRAG query over the code knowledge graph:
-    1. Embeds the user query and retrieves top semantic focal points.
-    2. Traverses 1-2 hops of relational graph context (Callers, Callees, Classes, Files).
-    3. Serializes context into compact Call Graph Paths and AST Contracts (Code-less / AST Sliced).
-    4. Synthesizes a high-precision architectural response using minimal tokens (< 300 tokens).
+    Executes a high-precision GraphRAG query grounded in real codebase files and topology:
+    1. Collects grounded codebase context (file tree, manifests, relevant source code).
+    2. Embeds the user query and retrieves top semantic focal points.
+    3. Traverses 1-2 hops of relational graph context (Callers, Callees, Classes, Files).
+    4. Serializes context into compact Call Graph Paths and AST Contracts.
+    5. Synthesizes a deep architectural and code-aware response.
     """
     # Text-to-Cypher (NL2Cypher) Shortcut
     if query.strip().startswith("/cypher "):
         actual_query = query.strip().replace("/cypher ", "").strip()
         return execute_nl2cypher_query(actual_query, repo_name)
+
+    # Gather grounded codebase context (file tree, manifests, relevant source code)
+    codebase_context = collect_rag_repo_context(repo_name=repo_name, query=query)
 
     # 1. Query Embedding & Vector Search (with automatic symbolic fallback)
     hits = []
@@ -146,15 +334,25 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
             print(f"[GraphRAG] Symbolic fallback error: {fallback_err}")
             hits = []
 
-    # If no nodes retrieved from graph, fallback to direct synthesis
+    # If no nodes retrieved from graph, synthesize using grounded codebase context
     if not hits:
         from app.core.llm import call_llm
         system_prompt = (
-            "You are CodeGraph Brain AI Assistant, an expert software architect. "
-            "Provide clean, well-structured, and practical answers in English."
+            f"You are CodeGraph Brain AI Assistant, an expert software engineer and enterprise architect.\n"
+            f"You have direct access to the codebase '{repo_name or 'current repository'}'.\n"
+            "Use the provided Project File Tree, Configurations, and Source Code excerpts to directly, accurately, "
+            "and concretely answer the user's question about this codebase. Cite specific file paths, classes, and logic. "
+            "Never say you don't have access to the codebase or files."
         )
+        user_prompt = f"""Target Project: {repo_name or 'Active Codebase'}
+User Question:
+{query}
+
+{codebase_context}
+
+Please provide an accurate, clear, and comprehensive answer explaining the system architecture and code logic:"""
         try:
-            direct_answer = call_llm(query, system_prompt)
+            direct_answer = call_llm(user_prompt, system_prompt)
         except Exception as e:
             direct_answer = (
                 "⚠️ **CodeGraph Brain AI System:**\n\n"
@@ -176,15 +374,19 @@ def execute_graphrag_query(query: str, repo_name: str = None, top_k: int = 4) ->
     compact_graph_context = serialize_graph_topology(hits, relational_context, intent)
 
     system_prompt = (
-        "You are an expert Enterprise Software Architect and Code Reviewer. "
-        "Use the provided Knowledge Graph topology (call chains, symbol signatures, and relationships) "
-        "to answer the user's question accurately and concisely in English. "
-        "Rely strictly on the verified graph relationships and exact file paths."
+        f"You are CodeGraph Brain AI Assistant, an expert Enterprise Software Architect and Code Reviewer.\n"
+        f"You have full access to the codebase '{repo_name or 'current repository'}'.\n"
+        "Use the provided Knowledge Graph topology (call chains, AST signatures), Project File Tree, and Source Code excerpts "
+        "to answer the user's question accurately, deeply, and concisely in English.\n"
+        "Rely strictly on the verified file paths, code logic, and symbol relationships. "
+        "Never claim you lack access to the codebase."
     )
 
-    user_prompt = f"""
+    user_prompt = f"""Target Project: {repo_name or 'Active Codebase'}
 User Question:
 {query}
+
+{codebase_context}
 
 Code Knowledge Graph Topology:
 {compact_graph_context}
@@ -199,7 +401,7 @@ Please provide an accurate, structured response focusing on code relationships a
         print(f"[GraphRAG] Synthesis notice: {e}")
         try:
             fn_names = ", ".join([h.get("name", "") for h in hits if h.get("name")])
-            light_prompt = f"{query}\n\n(Relevant symbols in graph: {fn_names})"
+            light_prompt = f"{query}\n\n(Relevant symbols in graph: {fn_names})\n\n{codebase_context}"
             answer = call_llm(light_prompt, system_prompt)
         except Exception as e2:
             answer = f"⚠️ LLM communication error: {e2}\n\n{compact_graph_context}"

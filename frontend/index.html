@@ -3338,12 +3338,24 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       }
 
       try {
+        let targetRepo = currentRepo;
+        if (!targetRepo) {
+          const sel = document.getElementById('repo-select');
+          if (sel && sel.value) targetRepo = sel.value;
+        }
+        if (!targetRepo) {
+          targetRepo = localStorage.getItem('preflight_active_repo');
+        }
+        if (targetRepo && !currentRepo) {
+          currentRepo = targetRepo;
+        }
+
         const res = await fetch(`${API_BASE}/api/v1/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message: text,
-            repo_name: currentRepo,
+            repo_name: targetRepo || undefined,
             mode: 'graphrag'
           })
         });

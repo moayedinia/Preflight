@@ -550,6 +550,14 @@ def chat_rag_endpoint(payload: ChatRequest):
     - 'nl2cypher': Converts natural language to Neo4j Cypher and runs it.
     """
     clean_repo = sanitize_name(payload.repo_name) if payload.repo_name else None
+    if not clean_repo and ALLOWED_REPO_DIR.exists():
+        from app.core.preflight import PREFLIGHT_IGNORED_DIRS
+        available = [
+            p.name for p in ALLOWED_REPO_DIR.iterdir()
+            if p.is_dir() and not p.name.startswith(".") and p.name not in PREFLIGHT_IGNORED_DIRS
+        ]
+        if available:
+            clean_repo = available[0]
 
     # 1. Interactive Skills & Slash Command Dispatch
     try:
@@ -571,11 +579,10 @@ def chat_rag_endpoint(payload: ChatRequest):
         from app.core.llm import call_llm
         context_prefix = ""
         if clean_repo:
-            from app.core.preflight import collect_repo_code_samples
-            code_ctx = collect_repo_code_samples(repo_name=clean_repo, max_total_chars=6000)
+            from app.core.rag import collect_rag_repo_context
+            code_ctx = collect_rag_repo_context(repo_name=clean_repo, query=payload.message, max_chars=12000)
             context_prefix = (
-                f"\nYou are currently assisting the developer with the target codebase: '{clean_repo}'.\n"
-                f"Here are representative code and structure samples from '{clean_repo}':\n"
+                f"\nYou have direct access to the target codebase: '{clean_repo}'.\n"
                 f"{code_ctx}\n"
                 f"You MUST focus your answers, code reviews, and explanations specifically on this project '{clean_repo}'.\n"
             )

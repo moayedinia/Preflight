@@ -11,7 +11,13 @@ mock_modules = {
 }
 
 with patch.dict(sys.modules, mock_modules):
-    from app.core.rag import classify_query_intent, extract_signature, serialize_graph_topology
+    from app.core.rag import (
+        classify_query_intent,
+        extract_signature,
+        serialize_graph_topology,
+        collect_rag_repo_context,
+        execute_graphrag_query
+    )
 
 class GraphRagTests(unittest.TestCase):
     def test_intent_classification(self):
@@ -60,6 +66,27 @@ class GraphRagTests(unittest.TestCase):
         self.assertIn("Signature:", res)
         self.assertNotIn("Implementation Slice", res)
         self.assertLess(len(res), 1000)
+
+    def test_collect_rag_repo_context_builds_file_tree(self):
+        context = collect_rag_repo_context("v2ray-finder-dotnet", "how does proxy fetching work?")
+        self.assertIn("v2ray-finder-dotnet", context)
+        self.assertIn("Project File Tree:", context)
+        self.assertIn("Program.cs", context)
+
+    def test_execute_graphrag_query_injects_codebase_context(self):
+        captured_prompts = []
+        def mock_llm(user_prompt, system_prompt):
+            captured_prompts.append((user_prompt, system_prompt))
+            return "Analyzed architecture based on repo."
+
+        with patch("app.core.llm.call_llm", side_effect=mock_llm), \
+             patch("app.core.rag.vector_search", return_value=[]):
+            res = execute_graphrag_query("how does authentication work here?", "v2ray-finder-dotnet")
+            self.assertIn("Analyzed architecture", res["answer"])
+            self.assertTrue(len(captured_prompts) > 0)
+            user_p, sys_p = captured_prompts[0]
+            self.assertIn("v2ray-finder-dotnet", sys_p)
+            self.assertIn("Project File Tree", user_p)
 
 if __name__ == "__main__":
     unittest.main()
