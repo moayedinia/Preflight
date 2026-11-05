@@ -3,12 +3,15 @@ import re
 import shutil
 import zipfile
 import subprocess
+import logging
 from pathlib import Path
 from typing import Optional
 from fastapi import HTTPException
 from urllib.parse import urlparse, urlunparse
 
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
+
+logger = logging.getLogger("codegraph.cloner")
 
 MAX_REPO_SIZE_MB = int(os.getenv("MAX_REPO_SIZE_MB", "50"))
 MAX_REPO_FILE_COUNT = int(os.getenv("MAX_REPO_FILE_COUNT", "1000"))
@@ -98,9 +101,17 @@ def clone_git_repo(
     target_dir = ALLOWED_REPO_DIR / clean_name
     try:
         target_dir.parent.mkdir(parents=True, exist_ok=True)
-        # If repo already exists, remove it for a clean fresh clone
+        # Never silently delete an existing workspace.  Apart from losing user
+        # changes, a root-owned directory caused git to later emit the opaque
+        # exit-128 "destination exists" failure seen by the UI.
         if target_dir.exists():
-            shutil.rmtree(target_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Repository workspace '{clean_name}' already exists. "
+                    "Choose a different project name, or reindex the existing project instead of cloning over it."
+                ),
+            )
     except PermissionError as pe:
         raise HTTPException(
             status_code=500,
@@ -128,9 +139,15 @@ def clone_git_repo(
             check=True
         )
     except subprocess.CalledProcessError as e:
-        err_msg = e.stderr.replace(token, "***") if token else e.stderr
+        err_msg = (e.stderr or e.stdout or "git returned exit code 128").strip()
+        err_msg = err_msg.replace(token, "***") if token else err_msg
+        logger.error("Git clone failed for '%s': %s", clean_name, err_msg)
         if "permission denied" in err_msg.lower():
             err_msg += " -> Suggestion: Run 'chmod -R 777 ./repos' on your host machine to allow Docker write access."
+        elif "already exists" in err_msg.lower() or "not an empty directory" in err_msg.lower():
+            err_msg += " -> Choose a different project name or reindex the existing workspace."
+        elif any(marker in err_msg.lower() for marker in ("could not resolve host", "connection timed out", "failed to connect", "proxy")):
+            err_msg += " -> Check the container's HTTP_PROXY/HTTPS_PROXY configuration and GitHub network access."
         raise HTTPException(status_code=500, detail=f"Git clone failed: {err_msg}")
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Git clone timed out after 3 minutes.")

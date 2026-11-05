@@ -333,6 +333,14 @@ def ingest_from_git(payload: GitIngestRequest, request: Request = None, user: Cu
         clean_repo = register_repository(
             user, requested_name, _stored_git_url(payload.git_url), "git", explicit_name=bool(payload.repo_name)
         )
+        if (ALLOWED_REPO_DIR / clean_repo).exists():
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Repository '{clean_repo}' is already present in your workspace. "
+                    "Use Re-index for that project, or import under a new project name."
+                ),
+            )
 
         if payload.is_async:
             task = async_clone_and_index.delay(
