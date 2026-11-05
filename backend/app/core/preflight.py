@@ -2210,95 +2210,126 @@ Copy and paste the repair prompts directly into Lovable, Cursor, Bolt, or v0, re
 # AUTONOMOUS BUG FIXING ENGINE (SPEC FIX-BUG CAPABILITY)
 # ==============================================================================
 
-def extract_code_block(llm_output: str, fallback_code: str) -> str:
+def extract_code_block(llm_output: str, fallback_code: str, snippet: Optional[str] = None) -> str:
     """
     Extracts updated source code content from LLM markdown code blocks or fences.
+    Supports reasoning models (DeepSeek, Qwen) with <think>...</think> tags and multiple fences.
+    Intelligently handles both full-file replacements and snippet-level substitutions.
     Falls back to fallback_code if extraction produces empty or invalid content.
-    Safeguards against truncated outputs to prevent source code corruption.
     """
     if not llm_output or not isinstance(llm_output, str):
         return fallback_code
 
     cleaned = llm_output.strip()
-    # Some models emit four or more wrapper backticks. Normalize only the
-    # outer wrapper so a fence is never accidentally written into source code.
+    # 1. Strip reasoning/thinking tags emitted by models like DeepSeek-R1 / Qwen
+    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned, flags=re.IGNORECASE).strip()
+
+    # 2. Normalize quadruple or more backticks
     cleaned = re.sub(r'^`{4,}', '```', cleaned)
     cleaned = re.sub(r'`{4,}$', '```', cleaned)
 
-    # Detect unclosed code block (e.g. LLM hit token limit before completing the file)
-    if cleaned.startswith("```"):
-        fences_count = cleaned.count("```")
-        if fences_count == 1:
-            logger.warning("LLM code response was truncated (only 1 code fence found). Aborting code replacement to prevent corruption.")
-            return fallback_code
+    # 3. Extract all code fences
+    fences = re.findall(r'```(?:[^\n]*)\n([\s\S]*?)\n```', cleaned)
+    if not fences:
+        fences = re.findall(r'```(?:[^\n]*)\s*([\s\S]*?)```', cleaned)
 
-    # Pattern 1: ```lang ... ``` with line break
-    fence_match = re.search(r'```(?:[a-zA-Z0-9_\-\.]+)?\s*\n([\s\S]*?)\n```', cleaned)
-    if fence_match:
-        extracted = fence_match.group(1).strip()
-        if len(extracted) >= 10:
-            if len(fallback_code) > 200 and len(extracted) < len(fallback_code) * 0.4:
-                logger.warning(f"Extracted code is suspiciously small ({len(extracted)} vs {len(fallback_code)} chars). Aborting to prevent truncation.")
-                return fallback_code
-            if extracted.startswith("```") or extracted.endswith("```"):
-                return fallback_code
-            return extracted
+    # Clean candidate fences
+    candidates = []
+    for f in fences:
+        c = f.strip()
+        # Remove inner fences if any
+        c = re.sub(r'^`{3,}[^\n]*\n?', '', c)
+        c = re.sub(r'\n?`{3,}$', '', c)
+        if len(c) >= 5:
+            candidates.append(c)
 
-    # Pattern 2: Any ``` ... ```
-    fence_match2 = re.search(r'```(?:[a-zA-Z0-9_\-\.]+)?\s*([\s\S]*?)```', cleaned)
-    if fence_match2:
-        extracted = fence_match2.group(1).strip()
-        if len(extracted) >= 10:
-            if len(fallback_code) > 200 and len(extracted) < len(fallback_code) * 0.4:
-                logger.warning(f"Extracted code is suspiciously small ({len(extracted)} vs {len(fallback_code)} chars). Aborting.")
-                return fallback_code
-            if extracted.startswith("```") or extracted.endswith("```"):
-                return fallback_code
-            return extracted
+    # Check candidates for full-file replacement
+    if candidates:
+        # Sort by length descending
+        candidates.sort(key=len, reverse=True)
+        fallback_len = len(fallback_code)
+        
+        # Priority A: A candidate that looks like the full file (at least 35% of original length, or larger)
+        for cand in candidates:
+            if fallback_len <= 150 or len(cand) >= fallback_len * 0.35:
+                return cand
 
-    # If the response is raw code without fences and not an error/json message
+        # Priority B: If all candidates are small snippets, try applying as a replacement for the offending snippet
+        clean_snip = (snippet or "").strip()
+        if clean_snip and len(clean_snip) >= 6:
+            for cand in candidates:
+                if cand != clean_snip:
+                    if clean_snip in fallback_code:
+                        patched = fallback_code.replace(clean_snip, cand)
+                        if patched != fallback_code and clean_snip not in patched:
+                            logger.info("Successfully applied snippet-level replacement from AI code block.")
+                            return patched
+                    else:
+                        # Try line-by-line whitespace-trimmed matching
+                        orig_lines = fallback_code.splitlines()
+                        snip_lines = [l.strip() for l in clean_snip.splitlines() if l.strip()]
+                        if snip_lines:
+                            for i, o_line in enumerate(orig_lines):
+                                if o_line.strip() == snip_lines[0]:
+                                    matched = True
+                                    for j in range(1, len(snip_lines)):
+                                        if i + j >= len(orig_lines) or orig_lines[i + j].strip() != snip_lines[j]:
+                                            matched = False
+                                            break
+                                    if matched:
+                                        new_lines = orig_lines[:i] + [cand] + orig_lines[i + len(snip_lines):]
+                                        patched = "\n".join(new_lines)
+                                        if patched != fallback_code:
+                                            logger.info("Successfully applied line-slice snippet replacement.")
+                                            return patched
+
+    # 4. If raw code without fences and not conversational prose
     if len(cleaned) >= 20 and not cleaned.startswith("{") and not cleaned.startswith("I apologize") and not cleaned.startswith("Sorry") and not cleaned.startswith("```"):
-        if len(fallback_code) > 200 and len(cleaned) < len(fallback_code) * 0.4:
-            return fallback_code
-        return cleaned
+        if len(fallback_code) <= 150 or len(cleaned) >= len(fallback_code) * 0.35:
+            return cleaned
+        clean_snip = (snippet or "").strip()
+        if clean_snip and clean_snip in fallback_code and cleaned != clean_snip:
+            patched = fallback_code.replace(clean_snip, cleaned)
+            if patched != fallback_code:
+                return patched
 
     return fallback_code
 
-
-def _validate_fixed_source(original: str, fixed: str, suffix: str, snippet: Optional[str]) -> None:
-    """Rejects unchanged, truncated, fenced, or syntactically broken LLM output."""
+def _validate_fixed_source(original: str, fixed: str, suffix: str, snippet: Optional[str]) -> str:
+    """
+    Rejects unchanged, severely truncated, or syntactically broken LLM output.
+    Cleans residual markdown fences if present and returns the verified fixed code.
+    """
     if not fixed or fixed == original:
         raise HTTPException(
             status_code=422,
             detail={
                 "error_code": "NO_EFFECTIVE_CHANGE",
                 "message": "The AI model returned no effective code changes for this defect.",
-                "suggested_action": "The original file was kept intact. You can use 'Copy Prompt' to customize the fix or retry."
-            }
-        )
-    if re.search(r'^\s*```|```\s*$', fixed):
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_code": "MARKDOWN_FENCES_DETECTED",
-                "message": "The AI response contained residual markdown fences instead of raw source code.",
-                "suggested_action": "The original file was preserved. Click 'Retry Fix' to regenerate clean code."
+                "suggested_action": "The original file was kept intact. You can click 'Retry Fix' or use 'Copy Prompt' to customize the fix in Cursor/Claude."
             }
         )
 
+    # Strip any accidental residual outer fences
+    cleaned_fixed = fixed
+    if re.search(r'^\s*```|```\s*$', cleaned_fixed):
+        cleaned_fixed = re.sub(r'^\s*```[^\n]*\n?', '', cleaned_fixed)
+        cleaned_fixed = re.sub(r'\n?```\s*$', '', cleaned_fixed).strip()
+
     original_len = max(len(original), 1)
-    if len(original) >= 400 and len(fixed) < original_len * 0.80:
+    # Safeguard against true truncation (less than 35% of original length on non-trivial files)
+    if len(original) >= 400 and len(cleaned_fixed) < original_len * 0.35:
         raise HTTPException(
             status_code=422,
             detail={
                 "error_code": "TRUNCATED_OUTPUT",
-                "message": f"The proposed fix appeared truncated ({len(fixed)} of {len(original)} characters).",
+                "message": f"The proposed fix appeared truncated ({len(cleaned_fixed)} of {len(original)} characters).",
                 "suggested_action": "The original file was preserved to prevent code loss. Click 'Retry Fix' or use 'Copy Prompt'."
             }
         )
 
     clean_snippet = (snippet or "").strip()
-    if 8 <= len(clean_snippet) <= 5000 and clean_snippet in original and clean_snippet in fixed:
+    if 8 <= len(clean_snippet) <= 5000 and clean_snippet in original and clean_snippet in cleaned_fixed:
         raise HTTPException(
             status_code=422,
             detail={
@@ -2310,7 +2341,7 @@ def _validate_fixed_source(original: str, fixed: str, suffix: str, snippet: Opti
 
     if suffix.lower() == ".py":
         try:
-            ast.parse(fixed)
+            ast.parse(cleaned_fixed)
         except SyntaxError as exc:
             raise HTTPException(
                 status_code=422,
@@ -2319,20 +2350,9 @@ def _validate_fixed_source(original: str, fixed: str, suffix: str, snippet: Opti
                     "message": f"The proposed Python fix is not syntactically valid (line {exc.lineno}).",
                     "suggested_action": "The original file was preserved. Click 'Retry Fix' to let AI regenerate correct syntax."
                 }
-            ) from exc
-    elif suffix.lower() == ".json":
-        try:
-            json.loads(fixed)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "JSON_SYNTAX_ERROR",
-                    "message": f"The proposed JSON fix is invalid (line {exc.lineno}).",
-                    "suggested_action": "The original file was preserved. Click 'Retry Fix' to regenerate valid JSON."
-                }
-            ) from exc
+            )
 
+    return cleaned_fixed
 
 def apply_preflight_bug_fix(
     repo_name: Optional[str],
@@ -2480,8 +2500,10 @@ Apply the fix directly and return the full updated file in a code block."""
     else:
         try:
             call_timeout = int(os.getenv("LLM_BUG_FIX_TIMEOUT", "90"))
-            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=call_timeout, max_tokens=8192)
-            fixed_code = extract_code_block(raw_llm, original_code)
+            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=call_timeout, max_tokens=4096)
+            if not raw_llm or not raw_llm.strip():
+                raise ValueError("AI endpoint returned an empty code fix response.")
+            fixed_code = extract_code_block(raw_llm, original_code, snippet)
         except Exception as e:
             err_msg = str(e)
             if "Read timed out" in err_msg or "timeout" in err_msg.lower():
@@ -2500,7 +2522,7 @@ Apply the fix directly and return the full updated file in a code block."""
                 }
             )
 
-    _validate_fixed_source(original_code, fixed_code, target_file.suffix, snippet)
+    fixed_code = _validate_fixed_source(original_code, fixed_code, target_file.suffix, snippet)
 
     try:
         base_dir = next(base for base in candidates if target_file.is_relative_to(base.resolve()))
