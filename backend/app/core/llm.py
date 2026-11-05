@@ -362,6 +362,37 @@ def verify_llm_connection(timeout: float = 60.0, model: Optional[str] = None, us
     except Exception as e:
         return False, f"Cannot connect to AI endpoint: {str(e)}"
 
+def _extract_reasoning_fallback(reasoning_str: Optional[str]) -> Optional[str]:
+    """
+    When content is empty from a reasoning model (e.g. DeepSeek-R1 / V4.1 on Vultr Inference),
+    attempts to extract the actual answer or code block from the reasoning field.
+    1. Extracts code blocks (```...```) if present.
+    2. Extracts JSON objects ({...}) if present.
+    3. Strips <think>...</think> tags.
+    """
+    if not reasoning_str or not str(reasoning_str).strip():
+        return None
+    raw = str(reasoning_str).strip()
+    clean = re.sub(r'<think>[\s\S]*?</think>', '', raw, flags=re.IGNORECASE).strip()
+    if not clean:
+        return None
+
+    # Check for markdown code fences (triple or more backticks)
+    code_match = re.search(r'(`{3,}[^\n]*\n[\s\S]*?`{3,})', clean)
+    if code_match:
+        return code_match.group(1).strip()
+
+    # Check for complete JSON object/array
+    json_match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', clean)
+    if json_match:
+        try:
+            json.loads(json_match.group(1))
+            return json_match.group(1).strip()
+        except Exception:
+            pass
+
+    return clean
+
 def _extract_content_from_response(response: requests.Response) -> str:
     """Robustly extracts message content from standard JSON or SSE event stream (data: ...), stripping any reasoning tags."""
     text = (response.text or "").strip()
@@ -414,6 +445,12 @@ def _extract_content_from_response(response: requests.Response) -> str:
                         clean_c = re.sub(r'<think>[\s\S]*?</think>', '', str(content), flags=re.IGNORECASE).strip()
                         if clean_c:
                             return clean_c
+                    # Fallback to reasoning / reasoning_content if content is empty (DeepSeek on Vultr)
+                    reasoning_val = msg.get("reasoning") or msg.get("reasoning_content") or msg.get("thought")
+                    fallback_c = _extract_reasoning_fallback(reasoning_val)
+                    if fallback_c:
+                        return fallback_c
+
                 if "delta" in c0 and isinstance(c0["delta"], dict):
                     delta = c0["delta"]
                     content = delta.get("content")
@@ -421,6 +458,10 @@ def _extract_content_from_response(response: requests.Response) -> str:
                         clean_c = re.sub(r'<think>[\s\S]*?</think>', '', str(content), flags=re.IGNORECASE).strip()
                         if clean_c:
                             return clean_c
+                    reasoning_val = delta.get("reasoning") or delta.get("reasoning_content")
+                    fallback_c = _extract_reasoning_fallback(reasoning_val)
+                    if fallback_c:
+                        return fallback_c
                 if "text" in c0 and c0["text"] is not None and str(c0["text"]).strip():
                     clean_c = re.sub(r'<think>[\s\S]*?</think>', '', str(c0["text"]), flags=re.IGNORECASE).strip()
                     if clean_c:
@@ -515,11 +556,26 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
 
         reply = client.chat.completions.create(**create_kwargs)
         if reply.choices and len(reply.choices) > 0:
-            raw_content = reply.choices[0].message.content or ""
+            choice = reply.choices[0]
+            msg = choice.message
+            raw_content = getattr(msg, "content", None) or ""
             # Strip reasoning / think tags so the user NEVER sees reasoning tokens
             clean_content = re.sub(r'<think>[\s\S]*?</think>', '', raw_content, flags=re.IGNORECASE).strip()
             if clean_content:
                 return clean_content
+
+            # Fallback for reasoning models (e.g. DeepSeek-R1 / V4.1 on Vultr Serverless Inference)
+            # when content is returned empty and response is emitted in reasoning
+            extra = getattr(msg, "model_extra", {}) or {}
+            reasoning_val = (
+                getattr(msg, "reasoning", None)
+                or getattr(msg, "reasoning_content", None)
+                or extra.get("reasoning")
+                or extra.get("reasoning_content")
+            )
+            fallback_res = _extract_reasoning_fallback(reasoning_val)
+            if fallback_res:
+                return fallback_res
 
     except Exception as sdk_err:
         logger.warning(f"OpenAI SDK call failed: {sdk_err}. Trying direct HTTP execution...")

@@ -69,5 +69,47 @@ class LlmConfigurationTests(unittest.TestCase):
         self.assertIn("does not exist", msg)
 
 
+    def test_extract_content_when_content_empty_salvages_code_from_reasoning(self):
+        from app.core.llm import _extract_content_from_response
+        import requests
+
+        mock_resp = MagicMock(spec=requests.Response)
+        mock_resp.text = '''{"id":"chatcmpl-123","choices":[{"index":0,"message":{"role":"assistant","content":"","reasoning":"We need answer only code block. Need fix defect\n\n```python\ndef fixed():\n    return True\n```"}}}'''
+        mock_resp.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "reasoning": "We need answer only code block. Need fix defect\n\n```python\ndef fixed():\n    return True\n```"
+                    }
+                }
+            ]
+        }
+        extracted = _extract_content_from_response(mock_resp)
+        self.assertIn("def fixed():", extracted)
+        self.assertNotIn("We need answer only code block", extracted)
+
+    def test_extract_content_prefers_content_over_reasoning_when_content_present(self):
+        from app.core.llm import _extract_content_from_response
+        import requests
+
+        mock_resp = MagicMock(spec=requests.Response)
+        mock_resp.text = '''{"id":"chatcmpl-456","choices":[{"index":0,"message":{"role":"assistant","content":"<think>thinking</think>Actual answer here.","reasoning":"Internal reasoning"}}}'''
+        mock_resp.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "<think>thinking</think>Actual answer here.",
+                        "reasoning": "Internal reasoning"
+                    }
+                }
+            ]
+        }
+        extracted = _extract_content_from_response(mock_resp)
+        self.assertEqual(extracted, "Actual answer here.")
+        self.assertNotIn("Internal reasoning", extracted)
+
 if __name__ == "__main__":
     unittest.main()

@@ -2492,7 +2492,8 @@ Current Full File Content:
 {original_code}
 ```
 
-Apply the fix directly and return the full updated file in a code block."""
+Apply the fix directly and return the full updated file in a markdown code fence.
+CRITICAL: You MUST output the complete code in a markdown code block so it can be extracted and applied directly."""
 
     # Handle testing environment without real LLM endpoint
     if os.getenv("TESTING") == "1" and not os.getenv("REAL_LLM"):
@@ -2501,7 +2502,7 @@ Apply the fix directly and return the full updated file in a code block."""
     else:
         try:
             call_timeout = int(os.getenv("LLM_BUG_FIX_TIMEOUT", "90"))
-            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=call_timeout, max_tokens=4096)
+            raw_llm = call_llm(user_prompt, fix_system_prompt, timeout=call_timeout, max_tokens=8192)
             if not raw_llm or not raw_llm.strip():
                 raise ValueError("AI endpoint returned an empty code fix response.")
             fixed_code = extract_code_block(raw_llm, original_code, snippet)
