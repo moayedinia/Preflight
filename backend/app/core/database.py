@@ -117,7 +117,17 @@ def configure_db_path(path) -> None:
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), timeout=15, isolation_level=None)
+    global DB_PATH
+    try:
+        conn = sqlite3.connect(str(DB_PATH), timeout=15, isolation_level=None)
+    except (sqlite3.OperationalError, PermissionError):
+        fallback = Path("/tmp/preflight.db")
+        try:
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        DB_PATH = fallback
+        conn = sqlite3.connect(str(DB_PATH), timeout=15, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 15000")
@@ -126,11 +136,21 @@ def _connect() -> sqlite3.Connection:
 
 def init_db() -> None:
     """Creates the database file if needed and applies pending migrations."""
-    global _initialized_path
+    global _initialized_path, DB_PATH
     with _init_lock:
         if _initialized_path == DB_PATH:
             return
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        except (PermissionError, OSError) as perm_err:
+            fallback = Path("/tmp/preflight.db")
+            try:
+                fallback.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            print(f"[Database Notice] '{DB_PATH.parent}' is not writable ({perm_err}). Falling back to '{fallback}'.", flush=True)
+            DB_PATH = fallback
+
         conn = _connect()
         try:
             try:

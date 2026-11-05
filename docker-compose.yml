@@ -18,9 +18,11 @@ services:
         - PYPI_MIRROR=${PYPI_MIRROR:-}
         - PYPI_HOST=${PYPI_HOST:-}
     container_name: preflight_api
+    user: root
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend:/app
+      - ./backend/data:/app/data
       - ./repos:/app/repos
       - ./frontend:/app/frontend:ro
       - /var/run/docker.sock:/var/run/docker.sock
