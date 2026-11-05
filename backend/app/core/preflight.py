@@ -925,7 +925,17 @@ def get_code_review_findings_for_audit(repo_name: Optional[str] = None) -> List[
         from app.core.sandbox import run_preflight_code_review
         res = run_preflight_code_review(repo_name=clean_repo)
         report_md = res.get("markdown_report", "")
-        defects = extract_code_review_defects(report_md)
+        # A prose code-review response is never enough evidence by itself.  The
+        # reviewer can have seen an earlier version of the repository, while an
+        # automated fix may already have changed the file.  Retain only findings
+        # whose exact reported snippet still exists at their reported path now.
+        # This also makes a new audit reflect the code that was actually saved.
+        candidates = get_candidate_directories(clean_repo)
+        defects = []
+        for finding in extract_code_review_defects(report_md):
+            verified = _validate_llm_defect_evidence(finding, candidates, clean_repo)
+            if verified:
+                defects.append(verified)
         _AUDIT_CODE_REVIEW_CACHE[cache_key] = (state_hash, defects)
         return copy.deepcopy(defects)
     except Exception as e:

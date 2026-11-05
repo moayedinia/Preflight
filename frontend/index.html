@@ -3210,7 +3210,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       renderAuditResults();
 
       let completed = 0;
-      let failedItem = null;
+      const failedItems = [];
       for (const item of queue) {
         const ruleName = item.defect.rule || 'Issue';
         if (label) label.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Fixing ${completed + 1} of ${queue.length}`;
@@ -3219,20 +3219,27 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
         await fixBug(item.index, { quiet: true });
         if (!item.defect.fixed) {
-          failedItem = item;
-          break;
+          failedItems.push({ item, error: item.defect.fixReport?.error || 'The automated fix was not applied.' });
+          // A bad AI response, unavailable file, or a network failure for one defect
+          // must not prevent the remaining independent fixes from being attempted.
+          continue;
         }
         completed += 1;
       }
 
       isFixingAll = false;
       renderAuditResults();
-      if (failedItem) {
+      if (failedItems.length > 0) {
         if (progress) {
-          progress.className = 'mt-1.5 text-[10px] text-red-400 font-semibold';
-          progress.innerText = `Stopped after ${completed} fix(es). Retry: ${failedItem.defect.rule || 'failed issue'}`;
+          progress.className = 'mt-1.5 text-[10px] text-amber-300 font-semibold';
+          const failedRules = failedItems
+            .slice(0, 2)
+            .map(({ item }) => item.defect.rule || 'unnamed issue')
+            .join(', ');
+          const remainder = failedItems.length > 2 ? ` and ${failedItems.length - 2} more` : '';
+          progress.innerText = `${completed} fixed; ${failedItems.length} failed: ${failedRules}${remainder}.`;
         }
-        showToast(`Fix all stopped after ${completed} of ${queue.length}. Resolve the failed issue and retry.`, true);
+        showToast(`Completed all ${queue.length} fixes: ${completed} succeeded, ${failedItems.length} need retry.`, true);
       } else {
         if (progress) {
           progress.className = 'mt-1.5 text-[10px] text-emerald-400 font-semibold';

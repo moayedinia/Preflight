@@ -203,6 +203,22 @@ class TestPreflightEvaluation(unittest.TestCase):
             self.assertIsNotNone(verified)
             self.assertEqual(verified["file"], "app.py")
 
+    @patch("app.core.sandbox.run_preflight_code_review")
+    def test_code_review_findings_are_discarded_when_the_snippet_is_no_longer_on_disk(self, mock_review):
+        """A stale reviewer response must not resurrect an issue after its fix was saved."""
+        from app.core.security import ALLOWED_REPO_DIR
+        repo = ALLOWED_REPO_DIR / "stale_review_repo"
+        repo.mkdir(exist_ok=True)
+        source = repo / "app.py"
+        source.write_text("def handler():\n    return 'fixed'\n", encoding="utf-8")
+        mock_review.return_value = {
+            "markdown_report": """# Report\n## Detailed Findings\n### [P0] Stale finding\n- **Path:** `app.py:2`\n- **Issue:** Old source still vulnerable.\n```python\nreturn 'vulnerable'\n```\n"""
+        }
+        try:
+            self.assertEqual(get_code_review_findings_for_audit("stale_review_repo"), [])
+        finally:
+            shutil.rmtree(repo, ignore_errors=True)
+
     @patch("app.core.preflight.call_llm")
     def test_evaluate_red_family_mocked(self, mock_llm):
         mock_llm.return_value = '{"is_defect": true, "confidence": 0.99, "plain_english_explanation": "Database injection detected in search query.", "business_consequence": "Complete database compromise.", "repair_prompt": "Copy this and paste it into Lovable / Cursor:\\nUse parameterized queries."}'
