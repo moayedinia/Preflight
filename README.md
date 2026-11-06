@@ -126,6 +126,20 @@ Navigate to **`http://localhost:8001`** (or `http://localhost:3000`) in your bro
 
 ---
 
+## 🏁 Competition Tester Access
+
+Use this pre-created demo account to evaluate the complete Preflight workflow during the competition:
+
+| Field | Value |
+| :--- | :--- |
+| **Username** | `Judge` |
+| **Password** | `@pasword654321` |
+| **API key** | `6YFRKHIOA43LA667Q56ZTOT7UNXNNKV2JS6Q` |
+
+> **Demo environment only:** These credentials are provided exclusively for competition evaluation. Do not reuse them in a production deployment. For your own deployment, create a separate account and configure your own Vultr inference key in `.env`.
+
+---
+
 ## 📡 API Reference Overview
 
 ### Core Audit & Code Quality Endpoints
