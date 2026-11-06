@@ -3834,6 +3834,15 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       if (modal) modal.classList.add('hidden');
     }
 
+    let lastPreflightReportMarkdown = '';
+    let lastPreflightPrompt = '';
+
+    async function triggerRunPreflightReview() {
+      const btn = document.getElementById('btn-run-preflight') || document.getElementById('btn-run-orca');
+      const runText = document.getElementById('preflight-run-text') || document.getElementById('orca-run-text');
+      const copyPromptBtn = document.getElementById('btn-copy-preflight-prompt');
+      const togglePromptBtn = document.getElementById('btn-toggle-preflight-prompt');
+      const downloadBtn = document.getElementById('btn-download-preflight') || document.getElementById('btn-download-orca');
       const summaryCards = document.getElementById('preflight-summary-cards') || document.getElementById('orca-summary-cards');
       const reportContent = document.getElementById('preflight-report-content') || document.getElementById('orca-report-content');
       const promptContent = document.getElementById('preflight-prompt-content');
@@ -4007,6 +4016,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
     const downloadOrcaReviewReport = downloadPreflightReviewReport;
 
+    async function downloadRepoZip(repoName) {
       const target = repoName || currentRepo || (document.getElementById('repo-select') ? document.getElementById('repo-select').value : '');
       if (!target) {
         showToast('Please select or import a project first.', true);
