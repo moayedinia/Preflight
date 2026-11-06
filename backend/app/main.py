@@ -1305,8 +1305,8 @@ def clear_llm_status_cache():
 @app.post("/api/v1/config/llm", dependencies=[Depends(verify_api_key)])
 def update_llm_settings(payload: LLMConfigRequest):
     current = get_llm_config()
-    base_url = (payload.base_url or "").strip() or current.get("base_url") or "https://api.openai.com/v1"
-    model = (payload.model or "").strip() or current.get("model") or "gpt-4o-mini"
+    base_url = (payload.base_url or "").strip() or current.get("base_url") or "https://api.vultrinference.com/v1"
+    model = (payload.model or "").strip() or current.get("model") or "deepseek-v4.1-flash-1017"
     api_key = payload.api_key if payload.api_key is not None else current.get("api_key", "")
     proxy_val = payload.http_proxy if payload.http_proxy is not None else current.get("http_proxy", "")
     try:
@@ -1380,8 +1380,8 @@ def test_supabase_connection_endpoint():
 
 # --- DEDICATED EMBEDDING CONFIGURATION & ON-DEMAND ENGINE ---
 class EmbeddingConfigRequest(BaseModel):
-    vllm_host: Optional[str] = Field(None, description="API Base URL (e.g. https://api.openai.com/v1)")
-    api_url: Optional[str] = Field(None, description="API Base URL (e.g. https://api.openai.com/v1)")
+    vllm_host: Optional[str] = Field(None, description="API Base URL (e.g. https://api.vultrinference.com/v1)")
+    api_url: Optional[str] = Field(None, description="API Base URL (e.g. https://api.vultrinference.com/v1)")
     api_key: Optional[str] = Field(None, description="Provider API key")
     model: Optional[str] = Field("text-embedding-3-small", description="Embedding model name")
     dimension: Optional[int] = Field(1536, description="Vector embedding dimension (default 1536)")

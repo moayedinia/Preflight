@@ -125,15 +125,18 @@ class TestChecklistVerification(unittest.TestCase):
         self.assertEqual(score_clean["verdict_state"], "ready")
         self.assertEqual(score_clean["verdict_badge"], "🟢 Ready")
 
-    def test_item9_two_services_in_compose(self):
-        """Item 9: docker-compose.yml must define exactly 2 services (api & frontend)."""
+    def test_item9_isolated_runner_in_compose(self):
+        """The Docker-socket runner is isolated from the public API service."""
         import yaml
         compose_path = Path("docker-compose.yml")
         self.assertTrue(compose_path.exists())
         with open(compose_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         services = data.get("services", {})
-        self.assertEqual(set(services.keys()), {"api", "frontend"}, f"Expected 2 services, got {list(services.keys())}")
+        self.assertEqual(set(services.keys()), {"api", "frontend", "sandbox_runner", "repo_permissions"})
+        self.assertNotIn("/var/run/docker.sock", str(services["api"]))
+        self.assertIn("/var/run/docker.sock", str(services["sandbox_runner"]))
+        self.assertTrue(data["networks"]["preflight_sandbox_net"].get("internal"))
 
 
     def test_v2_string_boolean_unconfirmed_scoring(self):
@@ -153,6 +156,28 @@ class TestChecklistVerification(unittest.TestCase):
         score_true = compute_preflight_scoring(findings_str_true)
         self.assertEqual(score_true["areas"]["security"]["score"], 100)
         self.assertEqual(score_true["verdict_state"], "ready")
+
+    def test_v2_unknown_or_llm_severity_never_deducts(self):
+        """An LLM P0 label is not a registry ID and cannot lower readiness."""
+        result = compute_preflight_scoring([{
+            "rule": "[P0] alarming prose from a reviewer",
+            "p_level": "P0",
+            "tier": "red",
+            "unconfirmed": False,
+        }])
+        self.assertEqual(result["readiness_score"], 100)
+        self.assertEqual(result["verdict_state"], "ready")
+
+    def test_v2_runner_outage_never_falls_back_to_host(self):
+        """A configured but unavailable runner must fail closed, not run host code."""
+        from fastapi import HTTPException
+        from app.core.sandbox import start_sandbox_session
+        with patch("app.core.sandbox.SANDBOX_RUNNER_URL", "http://runner:8010"), \
+             patch("app.core.sandbox._runner_request", side_effect=RuntimeError("offline")), \
+             patch.dict(os.environ, {"PREFLIGHT_ALLOW_UNSAFE_LOCAL_RUN": "1", "TESTING": "0"}):
+            with self.assertRaises(HTTPException) as ctx:
+                start_sandbox_session("sample_repo", port=3000)
+            self.assertEqual(ctx.exception.status_code, 503)
 
     def test_v2_clean_report_summary_table_ignored(self):
         """Checklist v2 Item 2: Summary table rows with count 0 must never become findings."""

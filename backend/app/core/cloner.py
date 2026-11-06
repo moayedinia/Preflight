@@ -115,7 +115,11 @@ def clone_git_repo(
     except PermissionError as pe:
         raise HTTPException(
             status_code=500,
-            detail=f"Permission denied on repos directory ({ALLOWED_REPO_DIR}): {pe}. Run 'chmod -R 777 ./repos' on the host server."
+            detail=(
+                f"Permission denied on repository workspace ({ALLOWED_REPO_DIR}): {pe}. "
+                "The repositories bind mount must be owned by the API container user (UID 1000). "
+                "Run the repo_permissions Compose service; do not use world-writable chmod 777."
+            )
         )
 
     cmd = ["git", "-c", "core.quotepath=false", "clone"]
@@ -143,7 +147,10 @@ def clone_git_repo(
         err_msg = err_msg.replace(token, "***") if token else err_msg
         logger.error("Git clone failed for '%s': %s", clean_name, err_msg)
         if "permission denied" in err_msg.lower():
-            err_msg += " -> Suggestion: Run 'chmod -R 777 ./repos' on your host machine to allow Docker write access."
+            err_msg += (
+                " -> The repository bind mount is not writable by the API container user. "
+                "Run the repo_permissions Compose service (it assigns UID 1000 ownership); do not use chmod 777."
+            )
         elif "already exists" in err_msg.lower() or "not an empty directory" in err_msg.lower():
             err_msg += " -> Choose a different project name or reindex the existing workspace."
         elif any(marker in err_msg.lower() for marker in ("could not resolve host", "connection timed out", "failed to connect", "proxy")):
@@ -191,7 +198,10 @@ def extract_safe_zip(zip_path: Path, repo_name: str) -> Path:
     except PermissionError as pe:
         raise HTTPException(
             status_code=500,
-            detail=f"Permission denied on repos directory ({ALLOWED_REPO_DIR}): {pe}. Run 'chmod -R 777 ./repos' on the host server."
+            detail=(
+                f"Permission denied on repository workspace ({ALLOWED_REPO_DIR}): {pe}. "
+                "Run the repo_permissions Compose service; do not use world-writable chmod 777."
+            )
         )
 
     target_resolved = target_dir.resolve()

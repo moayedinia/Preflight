@@ -196,8 +196,8 @@ def get_verifiable_containment_flags() -> Dict[str, Any]:
         "flag_map": CONTAINMENT_FLAGS,
         "containment_summary": [f["cli_flag"] for f in flags_list],
         "host_process_fallback": {
-            "enabled": True,
-            "isolation": "Environment, Port, and Working Directory Confinement with Subprocess Lifecycle Guards",
+            "enabled": False,
+            "isolation": "No host execution for untrusted repositories",
             "kill_switch_active": True
         }
     }
@@ -217,7 +217,7 @@ def get_sandbox_capabilities() -> Dict[str, Any]:
         "containment_flags": [f["cli_flag"] for f in flags_list],
         "five_containment_flags": flags_list,
         "verifiable_flags_endpoint": "/api/v1/sandbox/verifiable-flags",
-        "host_process_fallback_ready": True,
+        "host_process_fallback_ready": os.getenv("PREFLIGHT_ALLOW_UNSAFE_LOCAL_RUN") == "1",
         "e2b_configured": bool(E2B_API_KEY),
         "runner_configured": bool(SANDBOX_RUNNER_URL),
         "network_isolation": os.getenv("SANDBOX_NETWORK_MODE", "isolated_bridge"),
@@ -1095,7 +1095,13 @@ def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optio
             result["proxy_url"] = f"/api/v1/sandbox/proxy/{clean_repo or plan['repo_name']}/"
             return result
         except Exception as exc:
-            logger.warning(f"Remote sandbox runner unavailable ({exc}). Activating host-process fallback.")
+            # A configured runner is a security boundary.  Do not silently run
+            # untrusted repository code on the API host when it is unavailable.
+            logger.warning(f"Remote sandbox runner unavailable: {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail="Isolated sandbox runner is unavailable. Host-process fallback is disabled for security; retry after the runner is healthy."
+            ) from exc
 
     allow_unsafe_local = os.getenv("PREFLIGHT_ALLOW_UNSAFE_LOCAL_RUN") == "1" or os.getenv("TESTING") == "1"
     if not SANDBOX_RUNNER_URL and not allow_unsafe_local:

@@ -281,29 +281,14 @@ def compute_preflight_scoring(all_defects: List[Dict[str, Any]]) -> Dict[str, An
             continue
 
         matched_reg = None
+        # Scores are tied to the published registry, not an LLM's severity label
+        # or a keyword guess.  A finding without a registry ID is useful audit
+        # context, but it is uncertain and must never lower readiness.
         if raw_id in reg_by_id:
             matched_reg = reg_by_id[raw_id]
         else:
-            # Match by canonical name or substring from registry
-            rule_clean = raw_rule.lower()
-            for item in reg_defects:
-                c_name = item["canonical_name"].lower()
-                if c_name in rule_clean or rule_clean in c_name:
-                    matched_reg = item
-                    break
-
-        if not matched_reg:
-            # Fallback matching for Code Review P0-P3 tags
-            p_lev = str(d.get("p_level", "")).upper()
-            if p_lev == "P0" or tier == "red" or "[p0" in raw_rule.lower():
-                matched_reg = {"tier": "red", "area": "security" if any(k in raw_rule.lower() for k in ["secret", "key", "admin", "inject", "auth", "rce"]) else "reliability", "penalty": 40}
-            elif p_lev == "P1" or tier == "orange" or "[p1" in raw_rule.lower():
-                matched_reg = {"tier": "orange", "area": "reliability" if any(k in raw_rule.lower() for k in ["crash", "load", "race", "double"]) else "correctness", "penalty": 25}
-            elif p_lev in ("P2", "P3") or tier == "yellow" or any(k in raw_rule.lower() for k in ["[p2", "[p3", "hygiene", "debug", "complex"]):
-                matched_reg = {"tier": "yellow", "area": "maintainability", "penalty": 4}
-            else:
-                logger.info(f"[Preflight Scoring] Finding '{raw_rule}' has no matching registry ID; treating as unconfirmed (0 points deducted).")
-                continue
+            logger.info(f"[Preflight Scoring] Finding '{raw_rule}' has no matching registry ID; treating as unconfirmed (0 points deducted).")
+            continue
 
         d_tier = matched_reg.get("tier", tier)
         d_area = matched_reg.get("area", "correctness")
@@ -905,6 +890,31 @@ def extract_code_review_defects(report_md: str) -> List[Dict[str, Any]]:
     return defects
 
 
+def assign_registry_ids(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach an exact registry ID to deterministic findings.
+
+    The static scanner emits canonical rule names.  Code-review prose may not
+    map to one of those rules; such findings intentionally remain unconfirmed
+    and cannot affect the readiness score.
+    """
+    registry = get_defects_registry().get("defects", [])
+    by_rule = {
+        str(item.get("canonical_name") or item.get("rule") or "").strip().casefold(): item
+        for item in registry
+    }
+    for finding in findings:
+        existing_id = str(finding.get("id") or finding.get("defect_id") or "").strip().upper()
+        if existing_id:
+            continue
+        registry_item = by_rule.get(str(finding.get("rule") or "").strip().casefold())
+        if registry_item:
+            finding["defect_id"] = registry_item["id"]
+        else:
+            finding["unconfirmed"] = True
+            finding.setdefault("confirmed_by", "unregistered_finding")
+    return findings
+
+
 def get_code_review_findings_for_audit(repo_name: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Retrieves Preflight Code Review findings for a repository and returns
@@ -1404,6 +1414,10 @@ def audit_single_tier(tier: str, repo_name: Optional[str] = None) -> Dict[str, A
         all_defects = unmatched_cr + all_defects
     except Exception as cr_err:
         print(f"[audit_single_tier] Code review merge error ({tier_lower}): {cr_err}")
+
+    # Only exact, published registry IDs may affect the score.  This also keeps
+    # free-form LLM code-review prose visible without inventing a severity.
+    assign_registry_ids(all_defects)
 
     # Deterministically sort static defects so LLM prompt and reports are 100% reproducible
     all_defects.sort(key=lambda d: (str(d.get("file", "")), int(d.get("line") or 0), str(d.get("rule", ""))))

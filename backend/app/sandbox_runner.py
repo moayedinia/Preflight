@@ -60,10 +60,10 @@ def _resolve_repos_dir() -> Path:
 REPOS_DIR = _resolve_repos_dir()
 RUNNER_TOKEN = os.getenv("SANDBOX_RUNNER_TOKEN", "")
 DOCKER_NETWORK = os.getenv("SANDBOX_DOCKER_NETWORK", "preflight_sandbox_net")
-MEMORY_LIMIT = os.getenv("SANDBOX_MEMORY_LIMIT", "512m")
-CPU_LIMIT = int(os.getenv("SANDBOX_NANO_CPUS", "1000000000"))  # 1 CPU
-PIDS_LIMIT = int(os.getenv("SANDBOX_PIDS_LIMIT", "128"))
-MAX_LIFETIME_SECONDS = int(os.getenv("SANDBOX_MAX_LIFETIME", "900"))
+MEMORY_LIMIT = os.getenv("SANDBOX_MEMORY_LIMIT", "256m")
+CPU_LIMIT = int(os.getenv("SANDBOX_NANO_CPUS", "500000000"))  # 0.5 CPU
+PIDS_LIMIT = int(os.getenv("SANDBOX_PIDS_LIMIT", "64"))
+MAX_LIFETIME_SECONDS = int(os.getenv("SANDBOX_MAX_LIFETIME", "120"))
 MAX_LOG_LINES = int(os.getenv("SANDBOX_MAX_LOG_LINES", "500"))
 
 RUNTIME_IMAGES = {
@@ -194,14 +194,28 @@ def runtime_for(project_type: str) -> str:
 
 
 def source_archive(repo_dir: Path) -> bytes:
+    """Archive source with the unprivileged runtime owner.
+
+    Docker volumes are created as root.  Explicit archive ownership, paired
+    with the one-purpose volume initializer below, lets package managers write
+    node_modules without making the long-lived untrusted runtime root.
+    """
     payload = io.BytesIO()
     ignored = {".git", "node_modules", ".venv", "venv", "dist", "build", "__pycache__"}
+
+    def runtime_owner(member: tarfile.TarInfo) -> tarfile.TarInfo:
+        member.uid = 1000
+        member.gid = 1000
+        member.uname = "sandbox"
+        member.gname = "sandbox"
+        return member
+
     with tarfile.open(fileobj=payload, mode="w") as archive:
         for path in repo_dir.rglob("*"):
             relative = path.relative_to(repo_dir)
             if any(part in ignored for part in relative.parts):
                 continue
-            archive.add(path, arcname=relative.as_posix(), recursive=False)
+            archive.add(path, arcname=relative.as_posix(), recursive=False, filter=runtime_owner)
     payload.seek(0)
     return payload.read()
 
@@ -235,6 +249,74 @@ def remove_session(name: str):
             pass
 
 
+def _create_disposable_workspace(cli: Any, image: str, volume: Any) -> None:
+    """Set workspace ownership before untrusted code runs, then remove setup."""
+    setup = None
+    try:
+        setup = cli.containers.create(
+            image=image,
+            command=["sh", "-lc", "mkdir -p /workspace && chown -R 1000:1000 /workspace"],
+            user="0:0",
+            volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
+            network_disabled=True,
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges:true"],
+        )
+        setup.start()
+        wait_result = setup.wait(timeout=30)
+        if int(wait_result.get("StatusCode", 1)) != 0:
+            raise DockerException("Could not initialize sandbox workspace ownership")
+    finally:
+        if setup is not None:
+            try:
+                setup.remove(force=True)
+            except DockerException:
+                pass
+
+
+def _install_dependencies(cli: Any, image: str, volume: Any, command: str) -> None:
+    """Run dependency installation in a short-lived networked build phase.
+
+    The application runtime is attached only to the internal sandbox network.
+    Installation is the explicit, auditable exception that may reach package
+    registries; the installer is removed before user code is started.
+    """
+    installer = None
+    try:
+        installer = cli.containers.create(
+            image=image,
+            command=["sh", "-lc", command],
+            working_dir="/workspace",
+            read_only=True,
+            user="1000:1000",
+            environment={
+                "CI": "true", "PYTHONUNBUFFERED": "1",
+                "NPM_CONFIG_CACHE": "/tmp/npm-cache",
+                "npm_config_cache": "/tmp/npm-cache",
+                **{key: os.environ[key] for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy") if os.environ.get(key)},
+            },
+            volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
+            network="bridge",
+            mem_limit=MEMORY_LIMIT,
+            nano_cpus=CPU_LIMIT,
+            pids_limit=PIDS_LIMIT,
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges:true"],
+            tmpfs={"/tmp": "rw,noexec,nosuid,size=128m"},
+        )
+        installer.start()
+        result = installer.wait(timeout=120)
+        if int(result.get("StatusCode", 1)) != 0:
+            logs = installer.logs(tail=60).decode("utf-8", errors="replace")
+            raise HTTPException(status_code=422, detail=f"Dependency installation failed: {logs[-4000:]}")
+    finally:
+        if installer is not None:
+            try:
+                installer.remove(force=True)
+            except DockerException:
+                pass
+
+
 @app.get("/health", dependencies=[Depends(authorize)])
 def health():
     cli = get_docker_client()
@@ -262,9 +344,7 @@ def start(payload: StartRequest):
     container_name = f"preflight-sandbox-{name.lower()}"
     volume_name = f"preflight-sandbox-{name.lower()}-workspace"
     run_command = prepare_command(payload.project_type, payload.command)
-    shell_command = run_command
-    if payload.install_command:
-        shell_command = f"{payload.install_command} && exec {run_command}"
+    shell_command = f"exec {run_command}"
 
     with lock:
         remove_session(name)
@@ -285,18 +365,16 @@ def start(payload: StartRequest):
                 pass
 
             volume = cli.volumes.create(name=volume_name, labels={"preflight.sandbox": "true"})
+            _create_disposable_workspace(cli, image, volume)
             container = cli.containers.create(
                 image=image,
                 name=container_name,
                 command=["sh", "-lc", shell_command],
                 working_dir="/workspace",
                 read_only=True,
-                # The copied, disposable workspace is owned by root.  Running
-                # package managers as UID 1000 made `npm install` fail with
-                # EACCES before it could create node_modules/package-lock.json.
-                # Root has no Linux capabilities, cannot gain privileges, and
-                # can write only to the disposable workspace volume and tmpfs.
-                user="0:0",
+                # The runtime itself is always unprivileged.  Package setup is
+                # handled separately in _install_dependencies above.
+                user="1000:1000",
                 environment={
                     "PORT": str(payload.port), "HOST": "0.0.0.0",
                     "ASPNETCORE_URLS": f"http://0.0.0.0:{payload.port}",
@@ -324,6 +402,8 @@ def start(payload: StartRequest):
                 detach=True,
             )
             container.put_archive("/workspace", source_archive(repo_dir))
+            if payload.install_command:
+                _install_dependencies(cli, image, volume, payload.install_command)
             container.start()
             session = Session(name, container, volume, payload.port, run_command)
             sessions[name] = session
@@ -361,7 +441,7 @@ def exec_in_session(payload: ExecRequest):
             exec_res = session.container.exec_run(
                 cmd=["sh", "-lc", payload.command],
                 workdir="/workspace",
-                user="0:0",
+                user="1000:1000",
                 environment={
                     "CI": "true", "PYTHONUNBUFFERED": "1", "PORT": str(session.port),
                     "NPM_CONFIG_CACHE": "/tmp/npm-cache",

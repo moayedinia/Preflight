@@ -59,8 +59,9 @@ RUN pip config set global.timeout 120 && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --retries 10 --timeout 120 -r requirements.txt
 
-# Create sandboxed repos directory and set ownership
-RUN mkdir -p /app/repos /app/data && chmod -R 777 /app/repos /app/data && chown -R appuser:appgroup /app
+# Create persistent workspace directories for the non-root API user.  Bind-mount
+# ownership is handled by the one-shot repo_permissions Compose service.
+RUN mkdir -p /app/repos /app/data && chown -R appuser:appgroup /app && chmod -R u+rwX /app/repos /app/data
 
 COPY --chown=appuser:appgroup . .
 

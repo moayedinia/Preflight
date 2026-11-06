@@ -8,6 +8,22 @@ version: "3.8"
 # ==============================================================================
 
 services:
+  # Bind mounts created by Docker/host deployments are often root-owned.  This
+  # one-shot bootstrap gives the non-root API process ownership of only its
+  # persistent workspaces; it never grants world-writable permissions.
+  repo_permissions:
+    build:
+      context: ./backend
+    user: root
+    command: >
+      sh -lc 'mkdir -p /app/repos /app/data &&
+      chown -R 1000:1000 /app/repos /app/data &&
+      chmod -R u+rwX /app/repos /app/data'
+    volumes:
+      - ./backend/data:/app/data
+      - ./repos:/app/repos
+    restart: "no"
+
   api:
     build:
       context: ./backend
@@ -42,10 +58,10 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-v4.1-flash-1017}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
-      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
-      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
-      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-128}
-      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-900}
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-256m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-500000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-64}
+      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-120}
       - SANDBOX_RUNNER_URL=http://sandbox_runner:8010
       - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-change-me-in-production}
       - TRUST_PROXY_HEADERS=true
@@ -54,6 +70,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    depends_on:
+      repo_permissions:
+        condition: service_completed_successfully
     networks:
       preflight_net:
         aliases:
@@ -66,21 +85,23 @@ services:
     build:
       context: ./backend
     container_name: preflight_sandbox_runner
-    user: root
     command: uvicorn app.sandbox_runner:app --host 0.0.0.0 --port 8010
     volumes:
       - ./backend:/app
       - ./repos:/app/repos:ro
       - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      repo_permissions:
+        condition: service_completed_successfully
     environment:
       - PYTHONPATH=/app
       - ALLOWED_REPO_DIR=/app/repos
       - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-change-me-in-production}
       - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
-      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
-      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
-      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-128}
-      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-900}
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-256m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-500000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-64}
+      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-120}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
@@ -116,3 +137,4 @@ networks:
   preflight_sandbox_net:
     name: preflight_sandbox_net
     driver: bridge
+    internal: true

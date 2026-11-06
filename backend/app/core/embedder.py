@@ -15,7 +15,7 @@ def normalize_api_base_url(value: str | None) -> str:
     """Return an OpenAI-compatible API base URL (ensuring /v1 suffix)."""
     base = (value or "").strip().rstrip("/")
     if not base:
-        return "https://api.openai.com/v1"
+        return "https://api.vultrinference.com/v1"
     if not base.endswith("/v1"):
         base = f"{base}/v1"
     parsed = urlparse(base)
@@ -35,12 +35,17 @@ def validate_embedding_model_name(model: str) -> str:
 
 # Configuration from Environment
 EMBEDDING_API_URL = normalize_api_base_url(
-    os.getenv("EMBEDDING_API_URL") or os.getenv("VLLM_BASE_URL") or "https://api.openai.com/v1"
+    os.getenv("EMBEDDING_API_URL") or os.getenv("VLLM_BASE_URL") or "https://api.vultrinference.com/v1"
 )
 EMBEDDING_MODEL = (os.getenv("EMBEDDING_MODEL") or "text-embedding-3-small").strip()
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
 EMBEDDING_API_KEY = (
-    os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or ""
+    os.getenv("EMBEDDING_API_KEY")
+    or os.getenv("VULTR_INFERENCE_API_KEY")
+    or os.getenv("VULTR_API_KEY")
+    or os.getenv("LLM_API_KEY")
+    or os.getenv("OPENAI_API_KEY")
+    or ""
 ).strip()
 ALLOW_FAKE_EMBEDDINGS = _as_bool(os.getenv("ALLOW_FAKE_EMBEDDINGS"), default=True)
 
