@@ -400,6 +400,26 @@ def _extract_reasoning_fallback(reasoning_str: Optional[str]) -> Optional[str]:
     # Never return raw scratchpad monologues
     return None
 
+
+def _visible_content_to_text(value: Any) -> str:
+    """Normalize OpenAI/OpenRouter content strings and content-part arrays."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        parts: List[str] = []
+        for part in value:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                # Providers may return a list of ``{type: text, text: ...}``
+                # parts instead of a single message.content string.
+                text_part = part.get("text") or part.get("content") or part.get("value")
+                if isinstance(text_part, str):
+                    parts.append(text_part)
+        return "".join(parts).strip()
+    return ""
+
+
 def _extract_content_from_response(response: requests.Response) -> str:
     """Robustly extracts message content from standard JSON or SSE event stream (data: ...), stripping any reasoning tags."""
     text = (response.text or "").strip()
@@ -440,16 +460,23 @@ def _extract_content_from_response(response: requests.Response) -> str:
                 return res_sse
 
     # 2. Parse standard JSON response
+    data: Any = None
     try:
-        data = response.json()
+        # Prefer the response parser, but retain a direct JSON decode fallback.
+        # A few proxy/adapter combinations expose valid JSON in ``text`` while
+        # their response.json() implementation fails.
+        try:
+            data = response.json()
+        except (json.JSONDecodeError, ValueError):
+            data = json.loads(text)
         if isinstance(data, dict):
             if "choices" in data and len(data["choices"]) > 0:
                 c0 = data["choices"][0]
                 if "message" in c0 and isinstance(c0["message"], dict):
                     msg = c0["message"]
-                    content = msg.get("content")
-                    if content is not None and str(content).strip():
-                        clean_c = re.sub(r'<think>[\s\S]*?</think>', '', str(content), flags=re.IGNORECASE).strip()
+                    content = _visible_content_to_text(msg.get("content"))
+                    if content:
+                        clean_c = re.sub(r'<think>[\s\S]*?</think>', '', content, flags=re.IGNORECASE).strip()
                         if clean_c:
                             return clean_c
                     # Fallback to reasoning / reasoning_content if content is empty (DeepSeek on Vultr)
@@ -460,9 +487,9 @@ def _extract_content_from_response(response: requests.Response) -> str:
 
                 if "delta" in c0 and isinstance(c0["delta"], dict):
                     delta = c0["delta"]
-                    content = delta.get("content")
-                    if content is not None and str(content).strip():
-                        clean_c = re.sub(r'<think>[\s\S]*?</think>', '', str(content), flags=re.IGNORECASE).strip()
+                    content = _visible_content_to_text(delta.get("content"))
+                    if content:
+                        clean_c = re.sub(r'<think>[\s\S]*?</think>', '', content, flags=re.IGNORECASE).strip()
                         if clean_c:
                             return clean_c
                     reasoning_val = delta.get("reasoning") or delta.get("reasoning_content")
@@ -477,8 +504,16 @@ def _extract_content_from_response(response: requests.Response) -> str:
                 err = data["error"]
                 msg = err.get("message") if isinstance(err, dict) else str(err)
                 raise ValueError(f"LLM API Error: {msg}")
+            if "choices" in data:
+                choice = (data.get("choices") or [{}])[0] or {}
+                finish_reason = choice.get("finish_reason") or "unknown"
+                model = data.get("model") or "configured model"
+                raise ValueError(
+                    f"LLM returned no visible answer (model={model}, finish_reason={finish_reason}). "
+                    "The response was not used as a review result."
+                )
     except (json.JSONDecodeError, ValueError) as err:
-        if "LLM API Error" in str(err):
+        if "LLM API Error" in str(err) or "LLM returned no visible answer" in str(err):
             raise
 
     # 3. Plain text fallback if not JSON or HTML
@@ -567,18 +602,25 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
             "model": model,
             "messages": messages,
         }
-        if not is_reasoning_model:
-            create_kwargs["temperature"] = 0.0
-        else:
-            create_kwargs["temperature"] = 0.6
+        # Reviews and repair instructions require a visible final answer, not
+        # a chain-of-thought.  Vultr exposes reasoning separately; disabling it
+        # prevents a modest completion budget from being consumed before the
+        # report/code reaches message.content.
+        create_kwargs["temperature"] = 0.0
+        if is_reasoning_model:
+            create_kwargs["extra_body"] = {
+                "reasoning": {"enabled": False},
+            }
         if max_tokens:
-            create_kwargs["max_tokens"] = max_tokens
+            # Vultr treats max_tokens as deprecated.  The completion budget
+            # includes reasoning tokens, so use the current field explicitly.
+            create_kwargs["max_completion_tokens"] = max_tokens
 
         reply = client.chat.completions.create(**create_kwargs)
         if reply.choices and len(reply.choices) > 0:
             choice = reply.choices[0]
             msg = choice.message
-            raw_content = getattr(msg, "content", None) or ""
+            raw_content = _visible_content_to_text(getattr(msg, "content", None))
             # Strip reasoning / think tags so the user NEVER sees reasoning tokens
             clean_content = re.sub(r'<think>[\s\S]*?</think>', '', raw_content, flags=re.IGNORECASE).strip()
             if clean_content:
@@ -615,12 +657,11 @@ def call_llm(prompt: str, system_prompt: str = "", timeout: int = 120, max_token
         "messages": messages,
         "stream": False
     }
-    if not is_reasoning_model:
-        payload["temperature"] = 0.0
-    else:
-        payload["temperature"] = 0.6
+    payload["temperature"] = 0.0
+    if is_reasoning_model:
+        payload["reasoning"] = {"enabled": False}
     if max_tokens:
-        payload["max_tokens"] = max_tokens
+        payload["max_completion_tokens"] = max_tokens
 
     url = _clean_slashes(f"{norm_base}/chat/completions")
 

@@ -111,5 +111,45 @@ class LlmConfigurationTests(unittest.TestCase):
         self.assertEqual(extracted, "Actual answer here.")
         self.assertNotIn("Internal reasoning", extracted)
 
+    def test_extract_content_supports_openrouter_content_parts(self):
+        from app.core.llm import _extract_content_from_response
+        import requests
+
+        mock_resp = MagicMock(spec=requests.Response)
+        payload = {
+            "model": "deepseek-v4.1-flash-1017",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "# Preflight Code Review Report\nVisible report."}],
+                    "reasoning": "Internal only",
+                },
+                "finish_reason": "stop",
+            }],
+        }
+        mock_resp.text = __import__("json").dumps(payload)
+        mock_resp.json.return_value = payload
+
+        self.assertEqual(
+            _extract_content_from_response(mock_resp),
+            "# Preflight Code Review Report\nVisible report.",
+        )
+
+    def test_extract_content_reports_missing_visible_answer_without_leaking_json(self):
+        from app.core.llm import _extract_content_from_response
+        import requests
+
+        mock_resp = MagicMock(spec=requests.Response)
+        payload = {
+            "model": "deepseek-v4.1-flash-1017",
+            "choices": [{"message": {"content": None, "reasoning": "scratchpad"}, "finish_reason": "length"}],
+        }
+        mock_resp.text = __import__("json").dumps(payload)
+        mock_resp.json.return_value = payload
+
+        with self.assertRaisesRegex(ValueError, "no visible answer.*finish_reason=length") as error:
+            _extract_content_from_response(mock_resp)
+        self.assertNotIn("chatcmpl", str(error.exception))
+
 if __name__ == "__main__":
     unittest.main()
