@@ -1065,6 +1065,7 @@ def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest, user: CurrentUse
 class SandboxStartRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
     command: Optional[str] = Field(None, max_length=500)
+    install_command: Optional[str] = Field(None, max_length=4096)
     port: Optional[int] = Field(None, ge=1024, le=65535)
 
 class SandboxExecRequest(BaseModel):
@@ -1092,6 +1093,7 @@ def start_sandbox_endpoint(payload: SandboxStartRequest, user: CurrentUser = Dep
     return start_sandbox_session(
         repo_name=clean_repo,
         custom_command=payload.command,
+        custom_install_command=payload.install_command,
         custom_port=payload.port
     )
 

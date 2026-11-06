@@ -373,8 +373,8 @@ def detect_heuristic_launch_plan(repo_dir: Path, file_tree: List[str], readme_co
             elif (repo_dir / "bun.lockb").exists():
                 pm = "bun"
 
-            detected_install = f"{pm} install"
             sub_prefix = f"cd {Path(pkg_json_rel).parent} && " if "/" in pkg_json_rel else ""
+            detected_install = f"{sub_prefix}{pm} install"
 
             if "dev" in scripts:
                 detected_cmd = f"{sub_prefix}{pm} run dev"
@@ -1067,7 +1067,7 @@ class SandboxSession:
         }
 
 
-def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optional[str] = None, custom_port: Optional[int] = None, port: Optional[int] = None) -> Dict[str, Any]:
+def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optional[str] = None, custom_install_command: Optional[str] = None, custom_port: Optional[int] = None, port: Optional[int] = None) -> Dict[str, Any]:
     if custom_port is None and port is not None:
         custom_port = port
     """Starts or restarts a sandbox session for the given repository."""
@@ -1075,6 +1075,7 @@ def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optio
     plan = discover_project_launch_plan(clean_repo)
 
     cmd = (custom_command or "").strip() or plan["command"]
+    install_cmd = (custom_install_command or "").strip() or plan.get("install_command", "")
     port = custom_port or plan["assigned_port"]
     working_dir = Path(plan["working_dir"])
 
@@ -1087,7 +1088,7 @@ def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optio
                     "repo_name": clean_repo or plan["repo_name"],
                     "project_type": plan["project_type"],
                     "command": cmd,
-                    "install_command": plan.get("install_command", ""),
+                    "install_command": install_cmd,
                     "port": port,
                 },
                 timeout=120,
@@ -1227,23 +1228,34 @@ def execute_sandbox_command(repo_name: Optional[str] = None, command: str = "") 
 
     key = clean_repo or repo_dir.name
 
-    # 1. Forward to remote sandbox runner if configured
+    # 1. Run only inside the remote sandbox runner.  When the app is stopped,
+    # prepare a runtime-specific disposable workspace first, so `npm install`
+    # never falls through to the API host (where npm may not exist).
     if SANDBOX_RUNNER_URL:
         try:
-            res = _runner_request(
-                "POST",
-                "/sessions/exec",
-                json={
-                    "repo_name": clean_repo or plan["repo_name"],
-                    "command": cmd
-                },
-                timeout=180
-            )
+            runner_repo = clean_repo or plan["repo_name"]
+            status = _runner_request("GET", f"/sessions/{runner_repo}/status", timeout=10)
+            endpoint = "/sessions/exec"
+            payload = {"repo_name": runner_repo, "command": cmd}
+            if status.get("status") not in ("running", "starting"):
+                endpoint = "/sessions/prepare"
+                payload["project_type"] = plan["project_type"]
+            res = _runner_request("POST", endpoint, json=payload, timeout=180)
             return res
         except Exception as exc:
-            logger.warning(f"Remote runner exec failed ({exc}). Using host-process execution.")
+            logger.warning(f"Remote runner exec failed: {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail="Sandbox runner is unavailable. Commands are never executed on the API host; retry after the runner is healthy."
+            ) from exc
 
-    # 2. Host-process / local execution fallback
+    # 2. Local execution is permitted only for explicit local-development mode.
+    if os.getenv("PREFLIGHT_ALLOW_UNSAFE_LOCAL_RUN") != "1" and os.getenv("TESTING") != "1":
+        raise HTTPException(
+            status_code=503,
+            detail="Isolated sandbox runner required. Host-process command execution is disabled for security."
+        )
+
     with _SANDBOX_LOCK:
         session = _ACTIVE_SANDBOXES.get(key)
         if not session:

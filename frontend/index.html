@@ -1138,7 +1138,7 @@
             <div class="flex flex-wrap items-center gap-2 pt-1">
               <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-[10px] text-cyan-300 font-medium">
                 <i data-lucide="shield-check" class="w-3 h-3 text-cyan-400"></i>
-                Vultr Hardened Sandbox: 1GB RAM • 1.0 CPU • 100 PIDs • Drop-ALL
+                Hardened Sandbox: 256MB • 0.5 CPU • 64 PIDs • Drop-ALL
               </span>
               <span id="sandbox-cloud-badge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300 font-mono">
                 E2B / OpenSandbox Compliant
@@ -1152,7 +1152,13 @@
       </div>
 
       <!-- Discovery & Configuration Card -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+        <div class="space-y-1">
+          <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Setup / Install Command</label>
+          <input type="text" id="sandbox-install-input" placeholder="e.g. npm install or dotnet restore" class="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs text-white font-mono outline-none" />
+          <div class="text-[10px] text-slate-500">Runs in the detected runtime before launch.</div>
+        </div>
+
         <div class="space-y-1">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Project Type</div>
           <div id="sandbox-detected-type" class="text-sm font-bold text-indigo-300">Scanning...</div>
@@ -1184,7 +1190,11 @@
         <div class="flex items-center gap-2">
           <button onclick="triggerStartSandbox()" id="btn-sandbox-start" class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2">
             <i data-lucide="play" class="w-4 h-4 fill-slate-950"></i>
-            Start Sandbox
+            Install & Run
+          </button>
+          <button onclick="triggerPrepareSandbox()" id="btn-sandbox-prepare" class="px-3 py-2 border border-cyan-500/40 hover:border-cyan-400 bg-cyan-500/10 text-cyan-200 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5">
+            <i data-lucide="package-check" class="w-3.5 h-3.5"></i>
+            Install Dependencies
           </button>
           <button onclick="triggerStopSandbox()" id="btn-sandbox-stop" class="hidden px-4 py-2 bg-red-600/80 hover:bg-red-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2">
             <i data-lucide="square" class="w-4 h-4 fill-white"></i>
@@ -4076,6 +4086,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     async function triggerRescanSandbox() {
       const typeEl = document.getElementById('sandbox-detected-type');
       const fromEl = document.getElementById('sandbox-detected-from');
+      const installInput = document.getElementById('sandbox-install-input');
       const cmdInput = document.getElementById('sandbox-cmd-input');
       const portInput = document.getElementById('sandbox-port-input');
 
@@ -4089,6 +4100,9 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         if (fromEl) fromEl.innerText = `${plan.detected_from || 'Heuristics'} (${plan.readme_file || 'No README'})`;
         if (cmdInput) {
           cmdInput.value = plan.command || '';
+        }
+        if (installInput) {
+          installInput.value = plan.install_command || '';
         }
         if (portInput) {
           portInput.value = plan.assigned_port || 9100;
@@ -4128,6 +4142,9 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         } else if (sandboxCurrentStatus === 'starting') {
           badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40';
           badge.innerText = '🟡 Starting';
+        } else if (sandboxCurrentStatus === 'prepared') {
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-500/20 text-cyan-200 border border-cyan-500/40';
+          badge.innerText = '🔵 Dependencies Ready';
         } else if (sandboxCurrentStatus === 'crashed') {
           badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/40';
           badge.innerText = '🔴 Crashed';
@@ -4283,6 +4300,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
     async function triggerStartSandbox() {
       const cmdInput = document.getElementById('sandbox-cmd-input');
+      const installInput = document.getElementById('sandbox-install-input');
       const portInput = document.getElementById('sandbox-port-input');
       const term = document.getElementById('sandbox-terminal');
 
@@ -4297,6 +4315,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           body: JSON.stringify({
             repo_name: currentRepo,
             command: cmd,
+            install_command: (installInput?.value || '').trim(),
             port: port
           })
         });
@@ -4308,6 +4327,18 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         console.error('Failed to start sandbox:', e);
         showToast(`Failed to launch sandbox: ${e.message}`);
       }
+    }
+
+    async function triggerPrepareSandbox() {
+      const installInput = document.getElementById('sandbox-install-input');
+      const term = document.getElementById('sandbox-terminal');
+      const command = (installInput?.value || '').trim();
+      if (!command) {
+        showToast('No install command was detected. Re-scan or enter one first.', true);
+        return;
+      }
+      setTerminalCommand(command);
+      await executeSandboxTerminalCommand();
     }
 
     async function triggerStopSandbox() {

@@ -1,7 +1,7 @@
 # 🚀 Preflight — Launch Readiness & Autonomous Code Quality Auditor for Apps Built with AI
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
-[![Docker Ready](https://img.shields.io/badge/Docker-2--Service%20Stack-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
+[![Docker Ready](https://img.shields.io/badge/Docker-Isolated%20Sandbox%20Stack-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Vultr Inference](https://img.shields.io/badge/Vultr-Serverless%20Inference-007BFC.svg?logo=vultr&logoColor=white)](https://www.vultr.com/)
@@ -14,19 +14,20 @@ Before you ship to production, Preflight analyzes your repository, tests primary
 
 ---
 
-## 🏗️ 2-Service Zero-Bloat Architecture
+## 🏗️ Isolated Sandbox Architecture
 
-Preflight is engineered as a lean, self-contained architecture consisting of **only two core compose services** (API & Dashboard) with in-process background task execution, eliminating heavyweight external brokers while providing airtight security isolation for untrusted user code.
+Preflight keeps its public API separate from the Docker-enabled sandbox runner. The stack has three long-lived services (`api`, `frontend`, and `sandbox_runner`) plus a one-shot `repo_permissions` bootstrap service. Only the runner receives the Docker socket; the API never does.
 
 ```mermaid
 flowchart TD
     User["👨‍💻 Developer / Vibe Coder"] -->|HTTP / Web Dashboard| WebUI["🌐 Preflight Dashboard (Port 8001 / Nginx)"]
     WebUI -->|REST API + Bearer / Cookie| API["⚡ Preflight API Engine (Port 8000 / FastAPI)"]
 
-    subgraph "Preflight System (2 Compose Services)"
+    subgraph "Preflight System"
         API --> SQLite["💾 SQLite & Migrations (/app/data/preflight.db)"]
         API --> TaskMgr["⚙️ In-Process Task Manager (ThreadPoolExecutor)"]
         API --> Cloner["📦 Git Cloner & Zip Slip Safe Extractor"]
+        API --> Runner["🛡️ Private Sandbox Runner (:8010)"]
     end
 
     subgraph "AI Inference Engine"
@@ -34,7 +35,7 @@ flowchart TD
     end
 
     subgraph "Blast Radius Zero Sandbox (preflight_sandbox_net)"
-        API -->|Docker Socket| SandboxContainer["🛡️ Ephemeral Isolated Container\n- read_only: true\n- user: 1000:1000\n- cap_drop: ALL\n- no-new-privileges: true\n- tmpfs /tmp, /run\n- 256MB RAM, 0.5 CPU, 64 PIDs\n- Lifetime: 120s"]
+        Runner -->|Docker Socket| SandboxContainer["🛡️ Ephemeral Isolated Container\n- read_only: true\n- user: 1000:1000\n- cap_drop: ALL\n- no-new-privileges: true\n- tmpfs /tmp\n- 256MB RAM, 0.5 CPU, 64 PIDs\n- Lifetime: 120s"]
         SandboxContainer -->|Browser Probing| Playwright["🎭 Playwright Headless Probe\n(Click, 2s Network Count, DOM Hash)"]
         SandboxContainer -->|Reverse Proxy Tunnel| LiveProxy["🔄 Live App Reverse Proxy (:8000/api/v1/sandbox/proxy/{repo}/)"]
         LiveProxy --> WebUI
@@ -73,16 +74,17 @@ Unlike static regex probes that falsely flag modern React, Vue, or Svelte button
 Preflight complies with strict container isolation standards to safely execute and preview untrusted AI-generated repositories. You can inspect active containment parameters in real-time via `GET /api/v1/sandbox/verifiable-flags`:
 
 - **`read_only: true`** — Root filesystem is strictly read-only; no process can overwrite system binaries or inject persistent malware.
-- **Disposable workspace** — The sandbox process may use root only inside a throwaway Docker volume so package managers can write `node_modules` and lockfiles. It still has no Linux capabilities, cannot gain privileges, and cannot write to the host repository.
+- **Non-root runtime** — Application code runs as UID/GID `1000:1000` in a disposable workspace and cannot write to the host repository.
 - **`cap_drop: ["ALL"]`** — Every Linux kernel capability dropped (`CAP_SYS_ADMIN`, `CAP_NET_RAW`, etc.).
 - **`security_opt: ["no-new-privileges:true"]`** — Disallows privilege escalation via setuid binaries.
-- **`tmpfs mounts`** — Writable temporary scratch space constrained to `/tmp` (`size=64m,noexec,nosuid`) and `/run` (`size=16m,noexec,nosuid`).
+- **Two-phase package setup** — Dependencies are installed only in a short-lived restricted installer; the application runtime starts after that installer is removed.
+- **`tmpfs mounts`** — Writable temporary scratch space is constrained to `/tmp` (`size=128m,noexec,nosuid`).
 - **Strict Resource Quotas:**
-  - Memory: `512MB` (`mem_limit="512m"`)
-  - CPU: `1 CPU` (`nano_cpus=1000000000`)
-  - Processes: `128 PIDs` (`pids_limit=128` to prevent fork bombs)
-  - Auto-Teardown: `900s` maximum lifetime (`SANDBOX_MAX_LIFETIME=900`).
-- **Network Isolation:** Runs on a dedicated bridge without published ports. It has outbound access only so trusted package registries can serve `npm install`, `pip install`, and restore commands.
+  - Memory: `256MB` (`mem_limit="256m"`)
+  - CPU: `0.5 CPU` (`nano_cpus=500000000`)
+  - Processes: `64 PIDs` (`pids_limit=64` to prevent fork bombs)
+  - Auto-Teardown: `120s` maximum lifetime (`SANDBOX_MAX_LIFETIME=120`).
+- **Network Isolation:** The application runtime uses an internal Docker network with no published ports or Internet egress. Only the short-lived installer may reach package registries.
 
 ---
 
@@ -134,10 +136,12 @@ LLM_MODEL=deepseek-v4.1-flash-1017
 LLM_API_KEY=your_vultr_api_key_here
 ```
 
-### 3. Launch the 2-Service Stack
+### 3. Launch the Stack
 ```bash
 docker compose up -d --build
 ```
+
+`repo_permissions` runs once before the API and runner. It gives UID 1000 ownership of the bind-mounted `repos` and `data` directories so Git imports work without making them world-writable. Run the command again after updating an existing deployment.
 
 ### 4. Open the Dashboard
 Navigate to **`http://localhost:8001`** (or `http://localhost:3000`) in your browser.
@@ -165,7 +169,7 @@ Navigate to **`http://localhost:8001`** (or `http://localhost:3000`) in your bro
 ### Repository Management & Export
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/v1/repos` | Lists all indexed repositories with metrics & languages. |
+| `GET` | `/api/v1/repos` | Lists repositories owned by the authenticated user with metrics & languages. |
 | `GET` | `/api/v1/repos/{repo_name}` | Summary statistics for a specific repository. |
 | `GET` | `/api/v1/repos/{repo_name}/download` | **Streams the full project codebase as a `.zip` archive.** |
 | `POST` | `/api/v1/repos/{repo_name}/reindex` | Re-indexes repository with active parser. |
@@ -251,10 +255,10 @@ Registry: defects/registry.json
 | `LLM_API_KEY` | *(empty)* | API key for Vultr Serverless Inference. |
 | `ALLOWED_REPO_DIR` | `/app/repos` | Sandboxed root directory for user repositories. |
 | `PREFLIGHT_DB_PATH` | `/app/data/preflight.db` | SQLite database path with automatic fallback to `/tmp`. |
-| `SANDBOX_MEMORY_LIMIT`| `512m` | Maximum RAM quota for ephemeral sandbox container. |
-| `SANDBOX_NANO_CPUS` | `1000000000` | CPU allocation quota (1 core). |
-| `SANDBOX_PIDS_LIMIT` | `128` | Maximum active process count inside sandbox. |
-| `SANDBOX_MAX_LIFETIME`| `900` | Maximum container lifetime in seconds before automatic termination. |
+| `SANDBOX_MEMORY_LIMIT`| `256m` | Maximum RAM quota for ephemeral sandbox container. |
+| `SANDBOX_NANO_CPUS` | `500000000` | CPU allocation quota (0.5 core). |
+| `SANDBOX_PIDS_LIMIT` | `64` | Maximum active process count inside sandbox. |
+| `SANDBOX_MAX_LIFETIME`| `120` | Maximum container lifetime in seconds before automatic termination. |
 | `SANDBOX_DOCKER_NETWORK`| `preflight_sandbox_net` | Dedicated internal Docker network for sandboxes. |
 | `WEB_PORT` | `8001` | Exposed web dashboard HTTP port. |
 

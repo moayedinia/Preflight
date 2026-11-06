@@ -68,6 +68,7 @@ MAX_LOG_LINES = int(os.getenv("SANDBOX_MAX_LOG_LINES", "500"))
 
 RUNTIME_IMAGES = {
     "node": os.getenv("SANDBOX_NODE_IMAGE", "node:20-bookworm-slim"),
+    "bun": os.getenv("SANDBOX_BUN_IMAGE", "oven/bun:1.1"),
     "python": os.getenv("SANDBOX_PYTHON_IMAGE", "python:3.11-slim"),
     "dotnet": os.getenv("SANDBOX_DOTNET_IMAGE", "mcr.microsoft.com/dotnet/sdk:8.0"),
     "maven": os.getenv("SANDBOX_MAVEN_IMAGE", "maven:3.9-eclipse-temurin-21"),
@@ -93,6 +94,13 @@ class StopRequest(BaseModel):
 
 class ExecRequest(BaseModel):
     repo_name: str
+    command: str = Field(min_length=1, max_length=4096)
+
+
+class PrepareRequest(BaseModel):
+    """Provision a disposable workspace and execute setup before app launch."""
+    repo_name: str = Field(min_length=1, max_length=120)
+    project_type: str = "Generic"
     command: str = Field(min_length=1, max_length=4096)
 
 
@@ -157,6 +165,8 @@ class Session:
 
 
 sessions: Dict[str, Session] = {}
+# A prepared workspace retains installed dependencies until the user clicks Run.
+prepared_workspaces: Dict[str, Dict[str, Any]] = {}
 lock = threading.RLock()
 
 
@@ -172,8 +182,11 @@ def clean_name(value: str) -> str:
     return cleaned
 
 
-def runtime_for(project_type: str) -> str:
+def runtime_for(project_type: str, install_command: str = "", command: str = "") -> str:
     value = project_type.lower()
+    commands = f"{install_command} {command}".lower()
+    if re.search(r"(^|\s)bun(?:\s|$)", commands):
+        return "bun"
     if "node" in value:
         return "node"
     if ".net" in value or "c#" in value:
@@ -249,6 +262,16 @@ def remove_session(name: str):
             pass
 
 
+def remove_prepared_workspace(name: str) -> None:
+    prepared = prepared_workspaces.pop(name, None)
+    if not prepared:
+        return
+    try:
+        prepared["volume"].remove(force=True)
+    except (NotFound, DockerException):
+        pass
+
+
 def _create_disposable_workspace(cli: Any, image: str, volume: Any) -> None:
     """Set workspace ownership before untrusted code runs, then remove setup."""
     setup = None
@@ -274,7 +297,30 @@ def _create_disposable_workspace(cli: Any, image: str, volume: Any) -> None:
                 pass
 
 
-def _install_dependencies(cli: Any, image: str, volume: Any, command: str) -> None:
+def _stage_source(cli: Any, image: str, volume: Any, repo_dir: Path) -> None:
+    """Copy the repository into a disposable volume without starting user code."""
+    stage = None
+    try:
+        stage = cli.containers.create(
+            image=image,
+            command=["sh", "-lc", "sleep 1"],
+            working_dir="/workspace",
+            user="1000:1000",
+            volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
+            network_disabled=True,
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges:true"],
+        )
+        stage.put_archive("/workspace", source_archive(repo_dir))
+    finally:
+        if stage is not None:
+            try:
+                stage.remove(force=True)
+            except DockerException:
+                pass
+
+
+def _install_dependencies(cli: Any, image: str, volume: Any, command: str) -> str:
     """Run dependency installation in a short-lived networked build phase.
 
     The application runtime is attached only to the internal sandbox network.
@@ -282,10 +328,15 @@ def _install_dependencies(cli: Any, image: str, volume: Any, command: str) -> No
     registries; the installer is removed before user code is started.
     """
     installer = None
+    # Node 20 ships Corepack, which activates the package manager requested by
+    # lockfiles (pnpm/yarn) without installing tools on the API host.
+    install_command = command
+    if re.search(r"(^|\s)(pnpm|yarn)(?:\s|$)", command):
+        install_command = f"corepack enable >/dev/null 2>&1 || true; {command}"
     try:
         installer = cli.containers.create(
             image=image,
-            command=["sh", "-lc", command],
+            command=["sh", "-lc", install_command],
             working_dir="/workspace",
             read_only=True,
             user="1000:1000",
@@ -306,9 +357,10 @@ def _install_dependencies(cli: Any, image: str, volume: Any, command: str) -> No
         )
         installer.start()
         result = installer.wait(timeout=120)
+        logs = installer.logs(tail=120).decode("utf-8", errors="replace")
         if int(result.get("StatusCode", 1)) != 0:
-            logs = installer.logs(tail=60).decode("utf-8", errors="replace")
             raise HTTPException(status_code=422, detail=f"Dependency installation failed: {logs[-4000:]}")
+        return logs
     finally:
         if installer is not None:
             try:
@@ -329,6 +381,60 @@ def health():
         raise HTTPException(status_code=503, detail=str(exc))
 
 
+@app.post("/sessions/prepare", dependencies=[Depends(authorize)])
+def prepare(payload: PrepareRequest):
+    """Prepare a runtime-specific workspace and run a user-requested setup command.
+
+    This is intentionally usable while the app is stopped: commands such as
+    ``npm install`` and ``dotnet restore`` must not be executed on the API host
+    or inside the wrong runtime image.
+    """
+    cli = get_docker_client()
+    if cli is None:
+        raise HTTPException(status_code=503, detail="Docker daemon unavailable on this host.")
+    name = clean_name(payload.repo_name)
+    repo_dir = (REPOS_DIR / name).resolve()
+    if REPOS_DIR not in repo_dir.parents or not repo_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Repository directory not found")
+
+    runtime = runtime_for(payload.project_type, payload.command)
+    image = RUNTIME_IMAGES[runtime]
+    volume_name = f"preflight-sandbox-{name.lower()}-workspace"
+    with lock:
+        remove_session(name)
+        remove_prepared_workspace(name)
+        try:
+            try:
+                cli.images.get(image)
+            except ImageNotFound:
+                cli.images.pull(image)
+            try:
+                old_volume = cli.volumes.get(volume_name)
+                old_volume.remove(force=True)
+            except NotFound:
+                pass
+            volume = cli.volumes.create(name=volume_name, labels={"preflight.sandbox": "true"})
+            _create_disposable_workspace(cli, image, volume)
+            _stage_source(cli, image, volume, repo_dir)
+            output = _install_dependencies(cli, image, volume, payload.command)
+            prepared_workspaces[name] = {
+                "volume": volume,
+                "runtime": runtime,
+                "logs": [f"$ {payload.command}", *output.splitlines()][-MAX_LOG_LINES:],
+            }
+            return {
+                "status": "success", "repo_name": name, "command": payload.command,
+                "exit_code": 0, "output": output, "runtime": runtime,
+                "message": "Workspace prepared. Start Sandbox will run the project with these installed dependencies."
+            }
+        except HTTPException:
+            remove_prepared_workspace(name)
+            raise
+        except DockerException as exc:
+            remove_prepared_workspace(name)
+            raise HTTPException(status_code=502, detail=f"Docker runner error: {exc}")
+
+
 @app.post("/sessions/start", dependencies=[Depends(authorize)])
 def start(payload: StartRequest):
     cli = get_docker_client()
@@ -339,7 +445,7 @@ def start(payload: StartRequest):
     if REPOS_DIR not in repo_dir.parents or not repo_dir.is_dir():
         raise HTTPException(status_code=404, detail="Repository directory not found")
 
-    runtime = runtime_for(payload.project_type)
+    runtime = runtime_for(payload.project_type, payload.install_command, payload.command)
     image = RUNTIME_IMAGES[runtime]
     container_name = f"preflight-sandbox-{name.lower()}"
     volume_name = f"preflight-sandbox-{name.lower()}-workspace"
@@ -358,14 +464,26 @@ def start(payload: StartRequest):
                 old.remove(force=True)
             except NotFound:
                 pass
-            try:
-                old_volume = cli.volumes.get(volume_name)
-                old_volume.remove(force=True)
-            except NotFound:
-                pass
+            prepared = prepared_workspaces.pop(name, None)
+            if prepared and prepared.get("runtime") == runtime:
+                volume = prepared["volume"]
+            else:
+                if prepared:
+                    try:
+                        prepared["volume"].remove(force=True)
+                    except (NotFound, DockerException):
+                        pass
+                try:
+                    old_volume = cli.volumes.get(volume_name)
+                    old_volume.remove(force=True)
+                except NotFound:
+                    pass
+                volume = cli.volumes.create(name=volume_name, labels={"preflight.sandbox": "true"})
+                _create_disposable_workspace(cli, image, volume)
+                _stage_source(cli, image, volume, repo_dir)
+                if payload.install_command:
+                    _install_dependencies(cli, image, volume, payload.install_command)
 
-            volume = cli.volumes.create(name=volume_name, labels={"preflight.sandbox": "true"})
-            _create_disposable_workspace(cli, image, volume)
             container = cli.containers.create(
                 image=image,
                 name=container_name,
@@ -401,9 +519,6 @@ def start(payload: StartRequest):
                 labels={"preflight.sandbox": "true", "preflight.repo": name},
                 detach=True,
             )
-            container.put_archive("/workspace", source_archive(repo_dir))
-            if payload.install_command:
-                _install_dependencies(cli, image, volume, payload.install_command)
             container.start()
             session = Session(name, container, volume, payload.port, run_command)
             sessions[name] = session
@@ -413,6 +528,7 @@ def start(payload: StartRequest):
             return result
         except DockerException as exc:
             remove_session(name)
+            remove_prepared_workspace(name)
             raise HTTPException(status_code=502, detail=f"Docker runner error: {exc}")
 
 
@@ -423,6 +539,7 @@ def stop(payload: StopRequest):
         session = sessions.get(name)
         previous = session.status() if session else {"repo_name": name}
         remove_session(name)
+        remove_prepared_workspace(name)
     return {**previous, "status": "stopped", "pid": None}
 
 
@@ -473,6 +590,12 @@ def status(repo_name: str):
     name = clean_name(repo_name)
     session = sessions.get(name)
     if not session:
+        if name in prepared_workspaces:
+            prepared = prepared_workspaces[name]
+            return {
+                "repo_name": name, "status": "prepared", "logs": prepared.get("logs", []), "pid": None,
+                "exit_code": None, "message": "Workspace prepared; dependencies are installed."
+            }
         return {"repo_name": name, "status": "stopped", "logs": [], "pid": None, "exit_code": None}
     return session.status()
 

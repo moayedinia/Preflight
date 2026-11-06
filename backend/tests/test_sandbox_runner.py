@@ -19,6 +19,7 @@ from app.sandbox_runner import clean_name, prepare_command, runtime_for
     ("project_type", "runtime"),
     [
         ("Node.js (Vite)", "node"),
+        ("Node.js", "bun"),
         ("Python (FastAPI)", "python"),
         ("C# (.NET Blazor / Web)", "dotnet"),
         ("Java (Maven)", "maven"),
@@ -30,7 +31,8 @@ from app.sandbox_runner import clean_name, prepare_command, runtime_for
     ],
 )
 def test_runtime_selection(project_type, runtime):
-    assert runtime_for(project_type) == runtime
+    command = "bun install" if runtime == "bun" else ""
+    assert runtime_for(project_type, command) == runtime
 
 
 def test_vite_is_bound_to_container_interface_and_selected_port():

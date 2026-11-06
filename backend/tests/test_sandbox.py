@@ -52,6 +52,7 @@ class TestSandboxEngine(unittest.TestCase):
                 plan = discover_project_launch_plan(tmp_path.name)
                 self.assertIn("Node.js", plan["project_type"])
                 self.assertIn("npm run dev", plan["command"])
+                self.assertEqual(plan["install_command"], "npm install")
                 self.assertEqual(plan["default_port"], 5173)
 
     def test_discover_project_launch_plan_python_fastapi(self):

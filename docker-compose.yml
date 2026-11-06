@@ -85,6 +85,9 @@ services:
     build:
       context: ./backend
     container_name: preflight_sandbox_runner
+    # This is the only service with the Docker socket.  It must be able to
+    # create the unprivileged runtime containers; the API never receives it.
+    user: root
     command: uvicorn app.sandbox_runner:app --host 0.0.0.0 --port 8010
     volumes:
       - ./backend:/app
