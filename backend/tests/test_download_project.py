@@ -20,6 +20,13 @@ def test_download_repository_zip_success(tmp_path):
         # Create sample files inside the repo
         (repo_dir / "index.js").write_text("console.log('hello world');", encoding="utf-8")
         (repo_dir / "README.md").write_text("# Sample Project", encoding="utf-8")
+        # Simulate a saved automated fix. The downloaded archive must contain
+        # this current source, not an original backup copy.
+        (repo_dir / "index.js").write_text("console.log('fixed project');", encoding="utf-8")
+
+        backup_dir = repo_dir / ".preflight-backups"
+        backup_dir.mkdir(exist_ok=True)
+        (backup_dir / "index.js.original.bak").write_text("console.log('original project');", encoding="utf-8")
         
         # Create ignored items that should not be in zip
         git_dir = repo_dir / ".git"
@@ -43,7 +50,8 @@ def test_download_repository_zip_success(tmp_path):
         assert "README.md" in namelist
         assert not any(".git" in name for name in namelist)
         assert not any("__pycache__" in name for name in namelist)
-        assert zf.read("index.js").decode("utf-8") == "console.log('hello world');"
+        assert zf.read("index.js").decode("utf-8") == "console.log('fixed project');"
+        assert not any(".preflight-backups" in name for name in namelist)
 
         # Also test via query parameter
         res_query = client.get(f"/api/v1/repos/download?repo_name={repo_name}")

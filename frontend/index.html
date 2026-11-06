@@ -2355,6 +2355,13 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
             const defects = data.defects || [];
             if (defects.length > 0) {
               defects.forEach(d => {
+                // Preserve the backend's evidence state.  A string value of
+                // "false" must remain false; otherwise the client can turn an
+                // uncertain finding into a readiness penalty on the next audit.
+                const rawUnconfirmed = d.unconfirmed;
+                const isUnconfirmed = typeof rawUnconfirmed === 'string'
+                  ? ['true', '1', 'yes'].includes(rawUnconfirmed.trim().toLowerCase())
+                  : Boolean(rawUnconfirmed);
                 const fPath = d.file || d.file_path || (currentRepo ? `${currentRepo}/codebase` : 'codebase');
                 const lNum = d.line || d.line_number || 1;
                 const rName = d.rule || (tier === 'red' ? 'Critical Blocker Defect' : tier === 'orange' ? 'UX & Reliability Hazard' : 'Code Hygiene Issue');
@@ -2375,7 +2382,11 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
                   plain_english_explanation: det,
                   business_consequence: cons,
                   repair_prompt: rep,
-                  tier: tier
+                  tier: tier,
+                  id: d.id || d.defect_id || '',
+                  defect_id: d.defect_id || d.id || '',
+                  unconfirmed: isUnconfirmed,
+                  confirmed_by: d.confirmed_by || ''
                 });
               });
             } else if (data.is_defect) {
@@ -3142,8 +3153,15 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           reportEl.innerHTML = generateFixReportHtml(idx, d.fixReport);
         }
 
-        // Live update score meters and readiness
-        renderAuditResults();
+        // Do not award an optimistic score based only on a successful file
+        // write.  Re-run the audit against disk so the displayed readiness is
+        // the same result the user will get after a manual Run Full Audit.
+        if (!quiet) {
+          showToast('Fix saved. Re-auditing the updated project…', false);
+          await runPreflightAudit();
+        } else {
+          renderAuditResults();
+        }
         if (window.lucide) lucide.createIcons();
         return true;
 
@@ -3238,7 +3256,6 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       }
 
       isFixingAll = false;
-      renderAuditResults();
       if (failedItems.length > 0) {
         if (progress) {
           progress.className = 'mt-1.5 text-[10px] text-amber-300 font-semibold';
@@ -3253,10 +3270,13 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       } else {
         if (progress) {
           progress.className = 'mt-1.5 text-[10px] text-emerald-400 font-semibold';
-          progress.innerText = `${completed} issue(s) fixed. Run Full Audit again to verify the changes.`;
+          progress.innerText = `${completed} issue(s) fixed. Re-auditing the saved project…`;
         }
-        showToast(`✅ Fixed ${completed} issue(s) sequentially. Re-run the audit to verify.`, false);
+        showToast(`✅ Fixed ${completed} issue(s). Re-auditing saved files…`, false);
       }
+      // One authoritative disk audit after the batch prevents the local
+      // optimistic "fixed" flags from becoming the source of truth.
+      await runPreflightAudit();
       if (window.lucide) lucide.createIcons();
     }
 

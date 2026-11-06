@@ -2643,6 +2643,7 @@ Return the corrected replacement inside one ```{file_ext} code block."""
         )
 
     clear_preflight_audit_cache(clean_repo)
+    persisted_state_hash = get_repo_state_hash(clean_repo)
 
     return {
         "status": "success",
@@ -2656,6 +2657,8 @@ Return the corrected replacement inside one ```{file_ext} code block."""
         "fixed_size": len(fixed_code),
         "original_sha256": hashlib.sha256(original_code.encode("utf-8")).hexdigest(),
         "fixed_sha256": hashlib.sha256(fixed_code.encode("utf-8")).hexdigest(),
+        "repository_state_hash": persisted_state_hash,
+        "audit_cache_invalidated": True,
         "changed": True,
     }
 

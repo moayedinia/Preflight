@@ -753,7 +753,9 @@ def download_repository_zip(repo_name: Optional[str] = None, include_git: bool =
 
     # Pack files into an in-memory zip archive
     zip_buffer = io.BytesIO()
-    excluded_dirs = {".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"} if not include_git else {"__pycache__", ".pytest_cache"}
+    # Backups exist only for server-side rollback and must never be confused
+    # with the user's final project when they download their repaired source.
+    excluded_dirs = {".git", ".preflight-backups", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"} if not include_git else {".preflight-backups", "__pycache__", ".pytest_cache"}
     excluded_files = {".ds_store", "thumbs.db"}
 
     total_files = 0
