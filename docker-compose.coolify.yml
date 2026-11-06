@@ -31,12 +31,12 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       # Hardened Sandboxing on Vultr Cloud Compute
       - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
-      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
-      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
-      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-128}
-      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-900}
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-256m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-500000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-64}
+      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-120}
       - SANDBOX_RUNNER_URL=http://sandbox_runner:8010
-      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-vultr-sandbox-coolify-token}
+      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:?SANDBOX_RUNNER_TOKEN_must_be_set}
       - TRUST_PROXY_HEADERS=true
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\" || exit 1"]
@@ -61,12 +61,12 @@ services:
     environment:
       - PYTHONPATH=/app
       - ALLOWED_REPO_DIR=/app/repos
-      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-vultr-sandbox-coolify-token}
+      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:?SANDBOX_RUNNER_TOKEN_must_be_set}
       - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
-      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
-      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-1000000000}
-      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-128}
-      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-900}
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-256m}
+      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-500000000}
+      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-64}
+      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-120}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
@@ -98,6 +98,7 @@ networks:
   preflight_sandbox_net:
     name: preflight_sandbox_net
     driver: bridge
+    internal: true
 
 volumes:
   repo_coolify_data:
