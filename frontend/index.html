@@ -1149,6 +1149,7 @@
                 </span>
               </h4>
               <p class="text-[10px] text-slate-400">Deep Full-Codebase Inspection with P0-P3 Severity Rubric & Merge Gate</p>
+              <p id="preflight-selected-skills" class="hidden mt-1 text-[10px] text-cyan-300/90"></p>
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -3874,6 +3875,12 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           throw new Error(errorMsg);
         }
         const data = await res.json();
+
+        const selectedSkills = document.getElementById('preflight-selected-skills');
+        if (selectedSkills && Array.isArray(data.selected_skills) && data.selected_skills.length) {
+          selectedSkills.innerText = `Mandatory review skills: ${data.selected_skills.join(' · ')}`;
+          selectedSkills.classList.remove('hidden');
+        }
 
         lastPreflightReportMarkdown = data.markdown_report || data.report_md || '';
         lastPreflightPrompt = data.prompt || data.user_prompt || '';

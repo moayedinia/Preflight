@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import HTTPException
 
 from app.core.llm import call_llm, verify_llm_connection
+from app.core.review_skill_selector import build_review_skill_bundle
 from app.core.security import ALLOWED_REPO_DIR, sanitize_name
 
 logger = logging.getLogger("codegraph.preflight_review")
@@ -131,14 +132,23 @@ def run_preflight_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]
     context = collect_repo_code_context(repo_dir)
     if not context:
         raise HTTPException(status_code=422, detail="No reviewable source files were found in this repository.")
-    user_prompt = f"""Review repository `{key}`. The following is read-only source context:\n\n{context}"""
+    selected_skills, skill_bundle = build_review_skill_bundle(repo_dir)
+    system_prompt = f"""{PREFLIGHT_REVIEW_SYSTEM_PROMPT}
+
+{skill_bundle}"""
+    user_prompt = f"""Review repository `{key}` using every selected skill below.
+Selected skills: {", ".join(selected_skills)}.
+
+The following is read-only source context:
+
+{context}"""
     engine = "heuristic-fallback"
     report, counts, gate = _static_report(key, repo_dir)
     if os.getenv("TESTING") != "1":
         connected, detail = verify_llm_connection(timeout=3.0)
         if connected:
             try:
-                candidate = call_llm(user_prompt, PREFLIGHT_REVIEW_SYSTEM_PROMPT, timeout=int(os.getenv("LLM_REVIEW_TIMEOUT", "45")), max_tokens=3500)
+                candidate = call_llm(user_prompt, system_prompt, timeout=int(os.getenv("LLM_REVIEW_TIMEOUT", "45")), max_tokens=3500)
                 if candidate and candidate.strip():
                     report = candidate.strip()
                     counts = _counts_from_report(report)
@@ -150,7 +160,7 @@ def run_preflight_code_review(repo_name: Optional[str] = None) -> Dict[str, Any]
             report, counts, gate = _static_report(key, repo_dir, detail)
     _LAST_REPORTS[key] = report
     _LAST_REPORTS["default"] = report
-    return {"status": "success", "repo_name": key, "merge_gate": gate, "counts": counts, "markdown_report": report, "report_md": report, "engine": engine, "prompt": user_prompt, "system_prompt": PREFLIGHT_REVIEW_SYSTEM_PROMPT, "user_prompt": user_prompt}
+    return {"status": "success", "repo_name": key, "merge_gate": gate, "counts": counts, "markdown_report": report, "report_md": report, "engine": engine, "selected_skills": selected_skills, "skill_source": "awesome-skills/code-review-skill (MIT)", "prompt": user_prompt, "system_prompt": system_prompt, "user_prompt": user_prompt}
 
 
 def get_last_preflight_report(repo_name: Optional[str] = None) -> str:
