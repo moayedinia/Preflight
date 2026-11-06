@@ -64,6 +64,7 @@ MEMORY_LIMIT = os.getenv("SANDBOX_MEMORY_LIMIT", "256m")
 CPU_LIMIT = int(os.getenv("SANDBOX_NANO_CPUS", "500000000"))  # 0.5 CPU
 PIDS_LIMIT = int(os.getenv("SANDBOX_PIDS_LIMIT", "64"))
 MAX_LIFETIME_SECONDS = int(os.getenv("SANDBOX_MAX_LIFETIME", "120"))
+PREPARED_WORKSPACE_TTL_SECONDS = int(os.getenv("SANDBOX_PREPARED_TTL", "600"))
 MAX_LOG_LINES = int(os.getenv("SANDBOX_MAX_LOG_LINES", "500"))
 
 RUNTIME_IMAGES = {
@@ -278,7 +279,11 @@ def _create_disposable_workspace(cli: Any, image: str, volume: Any) -> None:
     try:
         setup = cli.containers.create(
             image=image,
-            command=["sh", "-lc", "mkdir -p /workspace && chown -R 1000:1000 /workspace"],
+            # SDK images such as mcr.microsoft.com/dotnet/sdk declare an
+            # ENTRYPOINT ("dotnet"). Override it for infrastructure commands;
+            # otherwise Docker attempts `dotnet sh -lc ...` and setup fails.
+            entrypoint=["/bin/sh", "-lc"],
+            command="mkdir -p /workspace && chown -R 1000:1000 /workspace",
             user="0:0",
             volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
             network_disabled=True,
@@ -288,7 +293,11 @@ def _create_disposable_workspace(cli: Any, image: str, volume: Any) -> None:
         setup.start()
         wait_result = setup.wait(timeout=30)
         if int(wait_result.get("StatusCode", 1)) != 0:
-            raise DockerException("Could not initialize sandbox workspace ownership")
+            setup_logs = setup.logs(tail=40).decode("utf-8", errors="replace").strip()
+            raise DockerException(
+                "Could not initialize sandbox workspace ownership"
+                + (f": {setup_logs[-2000:]}" if setup_logs else "")
+            )
     finally:
         if setup is not None:
             try:
@@ -303,7 +312,8 @@ def _stage_source(cli: Any, image: str, volume: Any, repo_dir: Path) -> None:
     try:
         stage = cli.containers.create(
             image=image,
-            command=["sh", "-lc", "sleep 1"],
+            entrypoint=["/bin/sh", "-lc"],
+            command="sleep 1",
             working_dir="/workspace",
             user="1000:1000",
             volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
@@ -336,12 +346,17 @@ def _install_dependencies(cli: Any, image: str, volume: Any, command: str) -> st
     try:
         installer = cli.containers.create(
             image=image,
-            command=["sh", "-lc", install_command],
+            entrypoint=["/bin/sh", "-lc"],
+            command=install_command,
             working_dir="/workspace",
             read_only=True,
             user="1000:1000",
             environment={
                 "CI": "true", "PYTHONUNBUFFERED": "1",
+                # SDKs such as .NET need a writable home/cache even though the
+                # container root filesystem is read-only.
+                "HOME": "/tmp/home", "DOTNET_CLI_HOME": "/tmp/dotnet",
+                "NUGET_PACKAGES": "/tmp/nuget-packages",
                 "NPM_CONFIG_CACHE": "/tmp/npm-cache",
                 "npm_config_cache": "/tmp/npm-cache",
                 **{key: os.environ[key] for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy") if os.environ.get(key)},
@@ -356,7 +371,13 @@ def _install_dependencies(cli: Any, image: str, volume: Any, command: str) -> st
             tmpfs={"/tmp": "rw,noexec,nosuid,size=128m"},
         )
         installer.start()
-        result = installer.wait(timeout=120)
+        try:
+            result = installer.wait(timeout=120)
+        except requests.exceptions.ReadTimeout as exc:
+            raise HTTPException(
+                status_code=504,
+                detail="Dependency installation exceeded the 120-second sandbox limit. Check registry/network access or install fewer dependencies."
+            ) from exc
         logs = installer.logs(tail=120).decode("utf-8", errors="replace")
         if int(result.get("StatusCode", 1)) != 0:
             raise HTTPException(status_code=422, detail=f"Dependency installation failed: {logs[-4000:]}")
@@ -403,6 +424,7 @@ def prepare(payload: PrepareRequest):
     with lock:
         remove_session(name)
         remove_prepared_workspace(name)
+        volume = None
         try:
             try:
                 cli.images.get(image)
@@ -420,6 +442,7 @@ def prepare(payload: PrepareRequest):
             prepared_workspaces[name] = {
                 "volume": volume,
                 "runtime": runtime,
+                "prepared_at": datetime.now(timezone.utc),
                 "logs": [f"$ {payload.command}", *output.splitlines()][-MAX_LOG_LINES:],
             }
             return {
@@ -429,9 +452,19 @@ def prepare(payload: PrepareRequest):
             }
         except HTTPException:
             remove_prepared_workspace(name)
+            if volume is not None:
+                try:
+                    volume.remove(force=True)
+                except (NotFound, DockerException):
+                    pass
             raise
         except DockerException as exc:
             remove_prepared_workspace(name)
+            if volume is not None:
+                try:
+                    volume.remove(force=True)
+                except (NotFound, DockerException):
+                    pass
             raise HTTPException(status_code=502, detail=f"Docker runner error: {exc}")
 
 
@@ -454,6 +487,7 @@ def start(payload: StartRequest):
 
     with lock:
         remove_session(name)
+        volume = None
         try:
             try:
                 cli.images.get(image)
@@ -487,7 +521,8 @@ def start(payload: StartRequest):
             container = cli.containers.create(
                 image=image,
                 name=container_name,
-                command=["sh", "-lc", shell_command],
+                entrypoint=["/bin/sh", "-lc"],
+                command=shell_command,
                 working_dir="/workspace",
                 read_only=True,
                 # The runtime itself is always unprivileged.  Package setup is
@@ -499,6 +534,8 @@ def start(payload: StartRequest):
                     "SERVER_PORT": str(payload.port),
                     "FLASK_RUN_HOST": "0.0.0.0", "FLASK_RUN_PORT": str(payload.port),
                     "CI": "true", "PYTHONUNBUFFERED": "1",
+                    "HOME": "/tmp/home", "DOTNET_CLI_HOME": "/tmp/dotnet",
+                    "NUGET_PACKAGES": "/tmp/nuget-packages",
                     "NPM_CONFIG_CACHE": "/tmp/npm-cache",
                     "npm_config_cache": "/tmp/npm-cache",
                     **{key: os.environ[key] for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy") if os.environ.get(key)},
@@ -526,9 +563,23 @@ def start(payload: StartRequest):
             result["runtime"] = runtime
             result["image"] = image
             return result
+        except HTTPException:
+            remove_session(name)
+            remove_prepared_workspace(name)
+            if volume is not None:
+                try:
+                    volume.remove(force=True)
+                except (NotFound, DockerException):
+                    pass
+            raise
         except DockerException as exc:
             remove_session(name)
             remove_prepared_workspace(name)
+            if volume is not None:
+                try:
+                    volume.remove(force=True)
+                except (NotFound, DockerException):
+                    pass
             raise HTTPException(status_code=502, detail=f"Docker runner error: {exc}")
 
 
@@ -631,16 +682,23 @@ def _watchdog_loop():
             time.sleep(3)
             now = datetime.now(timezone.utc)
             to_reap = []
+            stale_prepared = []
             with lock:
                 for name, sess in list(sessions.items()):
                     age = (now - sess.started_at).total_seconds()
                     if age > MAX_LIFETIME_SECONDS:
                         to_reap.append(name)
+                for name, prepared in list(prepared_workspaces.items()):
+                    prepared_at = prepared.get("prepared_at")
+                    if isinstance(prepared_at, datetime) and (now - prepared_at).total_seconds() > PREPARED_WORKSPACE_TTL_SECONDS:
+                        stale_prepared.append(name)
                 for name in to_reap:
                     sess = sessions.get(name)
                     if sess:
                         sess.stopped_reason = "watchdog"
                         remove_session(name)
+                for name in stale_prepared:
+                    remove_prepared_workspace(name)
         except Exception:
             pass
 
