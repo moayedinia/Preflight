@@ -367,10 +367,7 @@ def ensure_same_origin(request: Request) -> None:
 
 
 def _is_csrf_exempt(path: str) -> bool:
-    # The sandbox preview proxy forwards the previewed app's own form posts/XHRs,
-    # which cannot carry our header. It is still authenticated and ownership-checked,
-    # and the SameSite=Lax session cookie is not sent on cross-site POSTs.
-    return path.startswith("/api/v1/sandbox/proxy/")
+    return False
 
 
 def require_user(request: Request) -> CurrentUser:

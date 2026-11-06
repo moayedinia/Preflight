@@ -267,7 +267,7 @@ catch (error) {
             self.assertIsNotNone(verified)
             self.assertEqual(verified["file"], "app.py")
 
-    @patch("app.core.sandbox.run_preflight_code_review")
+    @patch("app.core.preflight_review.run_preflight_code_review")
     def test_code_review_findings_are_discarded_when_the_snippet_is_no_longer_on_disk(self, mock_review):
         """A stale reviewer response must not resurrect an issue after its fix was saved."""
         from app.core.security import ALLOWED_REPO_DIR

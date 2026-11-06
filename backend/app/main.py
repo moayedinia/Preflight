@@ -262,20 +262,12 @@ from app.core.task_manager import (
     _EXECUTOR as _LOCAL_TASK_EXECUTOR,
 )
 
-# Mount runner sub-app if available
-try:
-    from app.sandbox_runner import app as runner_subapp
-    app.mount("/runner", runner_subapp)
-except Exception as _e:
-    pass
-
-
 @app.get("/healthz")
 @app.get("/api/v1/health")
 def healthcheck():
     """
     Production Healthcheck for Preflight:
-    Verifies SQLite database integrity, sandbox runner availability, and Vultr Inference readiness.
+    Verifies SQLite database integrity and Vultr Inference readiness.
     """
     from app.core import database
     db_status = "healthy"
@@ -290,9 +282,7 @@ def healthcheck():
         "service": "Preflight Launch Readiness API",
         "version": "4.0.0",
         "database": db_status,
-        "engine": "vultr-inference",
-        "sandbox": "ready",
-        "containment": "Blast Radius Zero (5 flags)"
+        "engine": "vultr-inference"
     }
 
 @app.get("/api/v1/vllm/status")
@@ -1063,99 +1053,21 @@ def preflight_fix_bug_endpoint(payload: PreflightFixBugRequest, user: CurrentUse
     )
 
 
-# --- ISOLATED SANDBOX EXECUTION ENGINE ---
-class SandboxStartRequest(BaseModel):
-    repo_name: Optional[str] = Field(None, max_length=100)
-    command: Optional[str] = Field(None, max_length=500)
-    install_command: Optional[str] = Field(None, max_length=4096)
-    port: Optional[int] = Field(None, ge=1024, le=65535)
-
-class SandboxExecRequest(BaseModel):
-    repo_name: Optional[str] = Field(None, max_length=100)
-    command: str = Field(..., min_length=1, max_length=4096)
-
-
-class SandboxStopRequest(BaseModel):
+class PreflightCodeReviewRequest(BaseModel):
     repo_name: Optional[str] = Field(None, max_length=100)
 
 
-@app.get("/api/v1/sandbox/plan", dependencies=[Depends(verify_api_key)])
-def get_sandbox_launch_plan_endpoint(repo_name: Optional[str] = None, user: CurrentUser = Depends(require_user)):
-    """Deeply inspects the repository and README to discover how to launch the project."""
-    from app.core.sandbox import discover_project_launch_plan
-    clean_repo = authorize_repo(user, repo_name)
-    return discover_project_launch_plan(clean_repo)
-
-
-@app.post("/api/v1/sandbox/start", dependencies=[Depends(verify_api_key)])
-def start_sandbox_endpoint(payload: SandboxStartRequest, user: CurrentUser = Depends(require_user)):
-    """Launches the project in an isolated execution sandbox."""
-    from app.core.sandbox import start_sandbox_session
-    clean_repo = authorize_repo(user, payload.repo_name)
-    return start_sandbox_session(
-        repo_name=clean_repo,
-        custom_command=payload.command,
-        custom_install_command=payload.install_command,
-        custom_port=payload.port
-    )
-
-
-@app.post("/api/v1/sandbox/stop", dependencies=[Depends(verify_api_key)])
-def stop_sandbox_endpoint(payload: SandboxStopRequest, user: CurrentUser = Depends(require_user)):
-    """Terminates the running isolated sandbox session."""
-    from app.core.sandbox import stop_sandbox_session
-    clean_repo = authorize_repo(user, payload.repo_name)
-    return stop_sandbox_session(repo_name=clean_repo)
-
-
-@app.get("/api/v1/sandbox/status", dependencies=[Depends(verify_api_key)])
-def get_sandbox_status_endpoint(repo_name: Optional[str] = None, user: CurrentUser = Depends(require_user)):
-    """Retrieves live status, port, uptime, and terminal output of the sandbox."""
-    from app.core.sandbox import get_sandbox_session_status
-    clean_repo = authorize_repo(user, repo_name)
-    return get_sandbox_session_status(repo_name=clean_repo)
-
-
-@app.post("/api/v1/sandbox/exec", dependencies=[Depends(verify_api_key)])
-def exec_sandbox_command_endpoint(payload: SandboxExecRequest, user: CurrentUser = Depends(require_user)):
-    """Executes a terminal command (e.g. package installation, script run) inside the sandbox workspace."""
-    from app.core.sandbox import execute_sandbox_command
-    clean_repo = authorize_repo(user, payload.repo_name)
-    return execute_sandbox_command(
-        repo_name=clean_repo,
-        command=payload.command
-    )
-
-
-@app.get("/api/v1/sandbox/capabilities")
-@app.get("/api/v1/sandbox/verifiable-flags")
-def sandbox_capabilities_endpoint():
-    """Returns sandbox security profile, quota boundaries, and Vultr isolation compliance."""
-    from app.core.sandbox import get_sandbox_capabilities
-    return get_sandbox_capabilities()
-
-
-class SandboxPreflightReviewRequest(BaseModel):
-    repo_name: Optional[str] = Field(None, max_length=100)
-
-SandboxOrcaReviewRequest = SandboxPreflightReviewRequest
-
-class SandboxDiagnoseErrorRequest(BaseModel):
-    repo_name: Optional[str] = Field(None, max_length=100)
-
-
-@app.post("/api/v1/sandbox/preflight-review", dependencies=[Depends(verify_api_key)])
-@app.post("/api/v1/sandbox/orca-review", dependencies=[Depends(verify_api_key)])
-def run_sandbox_preflight_review_endpoint(payload: Optional[SandboxPreflightReviewRequest] = None, request: Request = None):
+@app.post("/api/v1/review/preflight-code", dependencies=[Depends(verify_api_key)])
+def run_preflight_code_review_endpoint(payload: Optional[PreflightCodeReviewRequest] = None, request: Request = None, user: CurrentUser = Depends(require_user)):
     """
     Executes a comprehensive Preflight Code Review on the repository according to the
     P0-P3 severity rubric and merge gate arbitration standard.
     """
     client_ip = get_request_ip(request)
     with acquire_scan_slot(client_ip):
-        from app.core.sandbox import run_preflight_code_review
+        from app.core.preflight_review import run_preflight_code_review
         repo = payload.repo_name if payload else None
-        clean_repo = sanitize_name(repo) if repo else None
+        clean_repo = authorize_repo(user, repo)
         res = run_preflight_code_review(clean_repo)
         report_content = res.get("markdown_report") or res.get("report_md")
         if report_content:
@@ -1168,12 +1080,11 @@ def run_sandbox_preflight_review_endpoint(payload: Optional[SandboxPreflightRevi
 
 
 
-@app.get("/api/v1/sandbox/preflight-review/download", dependencies=[Depends(verify_api_key)])
-@app.get("/api/v1/sandbox/orca-review/download", dependencies=[Depends(verify_api_key)])
-def download_sandbox_preflight_review_endpoint(repo_name: Optional[str] = None):
+@app.get("/api/v1/review/preflight-code/download", dependencies=[Depends(verify_api_key)])
+def download_preflight_code_review_endpoint(repo_name: Optional[str] = None, user: CurrentUser = Depends(require_user)):
     """Downloads the Preflight Code Review Markdown report as an attachment."""
-    from app.core.sandbox import get_last_preflight_report
-    clean_repo = sanitize_name(repo_name) if repo_name else None
+    from app.core.preflight_review import get_last_preflight_report
+    clean_repo = authorize_repo(user, repo_name)
     report_md = get_last_preflight_report(clean_repo)
     filename = f"preflight-code-review-{clean_repo or 'project'}.md"
     return Response(
@@ -1181,48 +1092,6 @@ def download_sandbox_preflight_review_endpoint(repo_name: Optional[str] = None):
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
-
-
-@app.post("/api/v1/sandbox/diagnose-error", dependencies=[Depends(verify_api_key)])
-def diagnose_sandbox_error_endpoint(payload: Optional[SandboxDiagnoseErrorRequest] = None):
-    """
-    Analyzes sandbox terminal output, identifies code-related compilation/runtime errors,
-    and returns a structured Markdown diagnostic report detailing how to fix the code.
-    """
-    from app.core.sandbox import diagnose_sandbox_error
-    repo = payload.repo_name if payload else None
-    clean_repo = sanitize_name(repo) if repo else None
-    res = diagnose_sandbox_error(clean_repo)
-    try:
-        from app.core.supabase_client import sync_report_to_supabase
-        if res.get("report_md"):
-            res["supabase_sync"] = sync_report_to_supabase(clean_repo or "project", f"sandbox-error-report-{clean_repo or 'project'}.md", res["report_md"])
-    except Exception:
-        pass
-    return res
-
-
-@app.get("/api/v1/sandbox/error-report/download", dependencies=[Depends(verify_api_key)])
-def download_sandbox_error_report_endpoint(repo_name: Optional[str] = None):
-    """Downloads the Sandbox Error Diagnostic Markdown report as an attachment."""
-    from app.core.sandbox import get_last_error_report
-    clean_repo = sanitize_name(repo_name) if repo_name else None
-    report_md = get_last_error_report(clean_repo)
-    filename = f"sandbox-error-report-{clean_repo or 'project'}.md"
-    return Response(
-        content=report_md,
-        media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
-
-
-@app.api_route("/api/v1/sandbox/proxy/{repo_name}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
-@app.api_route("/api/v1/sandbox/proxy/{repo_name}/{subpath:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
-async def sandbox_proxy_endpoint(repo_name: str, subpath: str = "", request: Request = None):
-    """Reverse proxies browser HTTP traffic to the isolated sandbox process inside the container."""
-    from app.core.sandbox import proxy_sandbox_http_request
-    return await proxy_sandbox_http_request(repo_name, subpath, request)
-
 
 # 11. GitHub CI/CD Webhook Trigger
 @app.post("/api/v1/webhooks/github")

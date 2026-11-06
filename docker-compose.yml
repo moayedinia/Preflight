@@ -2,8 +2,7 @@ version: "3.8"
 
 # ==============================================================================
 # Preflight - Launch Readiness for Apps Built with AI
-# Architecture: API, Dashboard, and a private Docker-backed sandbox runner
-# Blast Radius Zero: Hardened Sandboxes on preflight_sandbox_net
+# Architecture: API and dashboard for read-only Preflight code review
 # Engine: Native Vultr Serverless Inference
 # ==============================================================================
 
@@ -57,13 +56,6 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-https://api.vultrinference.com/v1}
       - LLM_MODEL=${LLM_MODEL:-deepseek-v4.1-flash-1017}
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
-      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-256m}
-      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-500000000}
-      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-64}
-      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-120}
-      - SANDBOX_RUNNER_URL=http://sandbox_runner:8010
-      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-change-me-in-production}
       - TRUST_PROXY_HEADERS=true
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\" || exit 1"]
@@ -78,40 +70,6 @@ services:
         aliases:
           - api
           - preflight_api
-      preflight_sandbox_net: {}
-    restart: unless-stopped
-
-  sandbox_runner:
-    build:
-      context: ./backend
-    container_name: preflight_sandbox_runner
-    # This is the only service with the Docker socket.  It must be able to
-    # create the unprivileged runtime containers; the API never receives it.
-    user: root
-    command: uvicorn app.sandbox_runner:app --host 0.0.0.0 --port 8010
-    volumes:
-      - ./backend:/app
-      - ./repos:/app/repos:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      repo_permissions:
-        condition: service_completed_successfully
-    environment:
-      - PYTHONPATH=/app
-      - ALLOWED_REPO_DIR=/app/repos
-      - SANDBOX_RUNNER_TOKEN=${SANDBOX_RUNNER_TOKEN:-change-me-in-production}
-      - SANDBOX_DOCKER_NETWORK=preflight_sandbox_net
-      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-256m}
-      - SANDBOX_NANO_CPUS=${SANDBOX_NANO_CPUS:-500000000}
-      - SANDBOX_PIDS_LIMIT=${SANDBOX_PIDS_LIMIT:-64}
-      - SANDBOX_MAX_LIFETIME=${SANDBOX_MAX_LIFETIME:-120}
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
-    networks:
-      preflight_sandbox_net:
-        aliases:
-          - sandbox_runner
     restart: unless-stopped
 
   frontend:
@@ -137,7 +95,3 @@ networks:
   preflight_net:
     name: preflight_net
     driver: bridge
-  preflight_sandbox_net:
-    name: preflight_sandbox_net
-    driver: bridge
-    internal: true

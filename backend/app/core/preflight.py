@@ -646,7 +646,7 @@ def get_candidate_directories(repo_name: Optional[str] = None) -> List[Path]:
     clean_repo = sanitize_name(repo_name) if repo_name else None
 
     if clean_repo:
-        # A named repository resolves only inside the repos sandbox. Falling back to the
+        # A named repository resolves only inside managed repository storage. Falling back to the
         # server's working directory would let a repository named e.g. "app" read the
         # backend's own source, configuration and accounts database.
         d = ALLOWED_REPO_DIR / clean_repo
@@ -932,7 +932,7 @@ def get_code_review_findings_for_audit(repo_name: Optional[str] = None) -> List[
             return copy.deepcopy(cached_defects)
 
     try:
-        from app.core.sandbox import run_preflight_code_review
+        from app.core.preflight_review import run_preflight_code_review
         res = run_preflight_code_review(repo_name=clean_repo)
         report_md = res.get("markdown_report", "")
         # A prose code-review response is never enough evidence by itself.  The
@@ -1701,248 +1701,7 @@ Respond STRICTLY in valid JSON matching your system prompt schema."""
     return res_data
 
 
-def _probe_dead_primary_action_with_playwright(url: str, primary_labels: List[str]) -> Optional[bool]:
-    """
-    Executes actual Playwright browser interaction (Checklist v2 Item 1.1):
-    1. Launches headless browser.
-    2. Navigates to running sandbox page.
-    3. Finds element by visible label (Pay, Checkout, Buy, Subscribe, Submit, Confirm).
-    4. Computes DOM hash before click.
-    5. Clicks the button.
-    6. Waits 2 seconds while counting network requests.
-    7. Computes DOM hash after click.
-    8. Confirmed (True) ONLY if requests == 0 AND dom_before == dom_after AND element is enabled.
-    9. In every other case (requests > 0, DOM changed, or element not found), returns False (Uncertain).
-    Returns None if Playwright is not available or browser cannot launch.
-    """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return None
-
-    try:
-        with sync_playwright() as p:
-            browser = None
-            for launch_kwargs in [
-                {"headless": True, "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]},
-                {"headless": True, "channel": "chrome", "args": ["--no-sandbox", "--disable-setuid-sandbox"]},
-                {"headless": True, "channel": "msedge", "args": ["--no-sandbox", "--disable-setuid-sandbox"]},
-                {"headless": True, "channel": "chromium", "args": ["--no-sandbox", "--disable-setuid-sandbox"]}
-            ]:
-                try:
-                    browser = p.chromium.launch(**launch_kwargs)
-                    break
-                except Exception:
-                    continue
-
-            if not browser:
-                return None
-
-            try:
-                context = browser.new_context(ignore_https_errors=True)
-                page = context.new_page()
-
-                network_requests = 0
-                def on_request(req):
-                    nonlocal network_requests
-                    network_requests += 1
-
-                page.on("request", on_request)
-
-                try:
-                    page.goto(url, timeout=5000, wait_until="domcontentloaded")
-                    page.wait_for_timeout(800)  # Brief wait for client-side React/Vue hydration
-                except Exception:
-                    return False
-
-                # Find element by visible label
-                target_el = None
-                for lbl in primary_labels:
-                    # 1. Look for button by visible name
-                    try:
-                        loc = page.get_by_role("button", name=re.compile(r"\b" + re.escape(lbl) + r"\b", re.IGNORECASE))
-                        if loc.count() > 0 and loc.first.is_visible():
-                            target_el = loc.first
-                            break
-                    except Exception:
-                        pass
-
-                    # 2. Look for button, link or submit input containing label text
-                    try:
-                        loc = page.locator(f"button:has-text('{lbl}'), a:has-text('{lbl}'), input[type='submit'][value*='{lbl}' i]")
-                        if loc.count() > 0 and loc.first.is_visible():
-                            target_el = loc.first
-                            break
-                    except Exception:
-                        pass
-
-                if not target_el or not target_el.is_visible():
-                    # Item 1.1: "Uncertain in every other case, including when the element cannot be found"
-                    return False
-
-                if not target_el.is_enabled():
-                    return False
-
-                # Capture DOM hash before click
-                dom_before = hashlib.sha256(page.content().encode("utf-8")).hexdigest()
-
-                # Reset request counter before click
-                network_requests = 0
-
-                try:
-                    target_el.click(timeout=2000)
-                except Exception:
-                    return False
-
-                # Count network requests in next 2 seconds
-                page.wait_for_timeout(2000)
-
-                # Capture DOM hash after click
-                dom_after = hashlib.sha256(page.content().encode("utf-8")).hexdigest()
-
-                # Confirmed when requests == 0 AND DOM hash unchanged AND element enabled
-                return bool(network_requests == 0 and dom_before == dom_after)
-            finally:
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-    except Exception as exc:
-        logger.debug(f"Playwright dead primary action probe error: {exc}")
-        return None
-
-
-def _probe_dead_primary_action(candidate: Dict[str, Any], repo_name: Optional[str]) -> bool:
-    """
-    Checklist v2 Item 1.1: Dead primary action
-    Find element by visible label (Pay, Checkout, Buy, Subscribe, Submit, Confirm).
-    Click it. Count network requests in next 2 seconds. Capture DOM hash before and after.
-    Confirmed when requests == 0 AND DOM hash unchanged AND element enabled.
-    Uncertain in every other case, including when element cannot be found.
-
-    NOTE: React/v0/Lovable buttons never have an HTML 'onclick' attribute.
-    Therefore, static regex checks on raw HTML are strictly prohibited to avoid false-positive
-    confirmations. If Playwright is not available or the sandbox is stopped, the candidate
-    remains UNCERTAIN (unconfirmed: True) and is dropped from score deduction.
-    """
-    rule = str(candidate.get("rule", "")).lower()
-    id_str = str(candidate.get("id") or candidate.get("defect_id") or "").upper()
-    snippet = str(candidate.get("snippet", "")).lower()
-    detail = str(candidate.get("detail", "")).lower()
-    
-    is_target_rule = (
-        id_str == "RED-06"
-        or any(k in rule for k in ["dead button", "dead_btn", "pay button", "button does nothing"])
-        or any(k in detail for k in ["dead button", "button does nothing", "pay button"])
-        or ("button" in snippet and any(lbl in snippet for lbl in ["pay", "checkout", "buy", "subscribe", "submit", "confirm"]))
-    )
-    if not is_target_rule:
-        return False
-
-    primary_labels = ["Pay", "Checkout", "Buy", "Subscribe", "Submit", "Confirm"]
-
-    # 1. Attempt live Playwright browser click in running sandbox
-    try:
-        from app.core.sandbox import get_sandbox_session_status
-        session_status = get_sandbox_session_status(repo_name)
-        port = session_status.get("port")
-        if port and session_status.get("status") in ("running", "starting"):
-            pw_result = _probe_dead_primary_action_with_playwright(f"http://localhost:{port}/", primary_labels)
-            if pw_result is not None:
-                return pw_result
-    except Exception as exc:
-        logger.debug(f"Could not probe dead button with running sandbox: {exc}")
-
-    # 2. When sandbox or Playwright is not running or cannot perform real browser click:
-    # Per Checklist v2 Item 1.1 & Auditor directive:
-    # "React buttons never have onclick, so it will mark every button in a Lovable or v0 app as dead.
-    # Can you make it actually click with Playwright, count requests for two seconds, and hash the DOM before and after?
-    # If that is not doable by Friday, tell me and we drop the dead button from the scored set."
-    # Never mark as confirmed via static HTML regex. Return False so it is marked unconfirmed: True
-    # (Uncertain, 0 points deducted, dropped from the scored set).
-    return False
-
-
-def _probe_incomplete_input_crash(candidate: Dict[str, Any], repo_name: Optional[str]) -> bool:
-    """
-    Checklist v2 Item 1.2: Handler crashes on incomplete input
-    POST the route named in candidate's runtime_hint with payload missing a required field (empty dict).
-    Confirmed on a 5xx, or a 200 carrying an unhandled traceback.
-    Uncertain on a 4xx (handler validated input correctly).
-    """
-    rule = str(candidate.get("rule", "")).lower()
-    id_str = str(candidate.get("id") or candidate.get("defect_id") or "").upper()
-    detail = str(candidate.get("detail", "")).lower()
-    
-    is_target_rule = (
-        id_str == "RED-04"
-        or any(k in rule for k in ["crash", "unexpected input", "unhandled exception"])
-        or any(k in detail for k in ["crash", "unexpected input", "error page"])
-    )
-    if not is_target_rule:
-        return False
-
-    route = candidate.get("runtime_hint") or candidate.get("route")
-    if not route:
-        snip = candidate.get("snippet", "") + " " + candidate.get("detail", "")
-        m = re.search(r"(/api/[a-zA-Z0-9_\-/]+)", snip)
-        if m:
-            route = m.group(1)
-
-    try:
-        from app.core.sandbox import get_sandbox_session_status
-        session_status = get_sandbox_session_status(repo_name)
-        port = session_status.get("port")
-        if port and session_status.get("status") == "running" and route:
-            resp = requests.post(f"http://localhost:{port}{route}", json={}, timeout=3)
-            if resp.status_code >= 500:
-                return True
-            if resp.status_code == 200:
-                text_resp = resp.text
-                if any(tb in text_resp for tb in ["Traceback (most recent call last)", "Internal Server Error", "Unhandled exception", "TypeError:", "KeyError:"]):
-                    return True
-            # 4xx means input was validated properly -> uncertain
-            return False
-    except Exception:
-        pass
-
-    return False
-
-
-def _probe_page_never_settles(candidate: Dict[str, Any], repo_name: Optional[str]) -> bool:
-    """
-    Checklist v2 Item 1.3: Page never settles
-    Load the page, sample container CPU for 10 seconds.
-    Confirmed when CPU stays above 80% for the whole window, or watchdog kills it.
-    Uncertain otherwise.
-    """
-    rule = str(candidate.get("rule", "")).lower()
-    id_str = str(candidate.get("id") or candidate.get("defect_id") or "").upper()
-    detail = str(candidate.get("detail", "")).lower()
-    
-    is_target_rule = (
-        id_str == "RED-05"
-        or any(k in rule for k in ["infinite loop", "never stop", "freeze", "cpu saturation"])
-        or any(k in detail for k in ["freeze", "infinite loop", "never stops loading"])
-    )
-    if not is_target_rule:
-        return False
-
-    try:
-        from app.core.sandbox import get_sandbox_session_status
-        session_status = get_sandbox_session_status(repo_name)
-        stopped_reason = str(session_status.get("stopped_reason") or "").lower()
-        if "watchdog" in stopped_reason or "lifetime_exceeded" in stopped_reason:
-            return True
-        if session_status.get("status") == "crashed":
-            return True
-    except Exception:
-        pass
-
-    return False
-
-
-def confirm_candidates_in_sandbox(
+def confirm_candidates_without_runtime(
     candidates: List[Dict[str, Any]],
     repo_name: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -1967,24 +1726,11 @@ def confirm_candidates_in_sandbox(
                 confirmed.append(c)
                 continue
 
-        # Check candidate against the 3 mechanical defect confirmation probes
-        if _probe_dead_primary_action(c, repo_name):
-            c["unconfirmed"] = False
-            c["confirmed_by"] = "sandbox_primary_action_probe"
-            confirmed.append(c)
-        elif _probe_incomplete_input_crash(c, repo_name):
-            c["unconfirmed"] = False
-            c["confirmed_by"] = "sandbox_incomplete_input_crash"
-            confirmed.append(c)
-        elif _probe_page_never_settles(c, repo_name):
-            c["unconfirmed"] = False
-            c["confirmed_by"] = "sandbox_watchdog_cpu_saturation"
-            confirmed.append(c)
-        else:
-            # 1.4 Everything else: unconfirmed = True, deducts nothing
-            c["unconfirmed"] = True
-            c["confirmed_by"] = "unconfirmed_candidate"
-            uncertain.append(c)
+        # This phase never executes imported code. Candidates that do not
+        # already carry trusted static evidence remain informational.
+        c["unconfirmed"] = True
+        c["confirmed_by"] = "read_only_review"
+        uncertain.append(c)
 
     return confirmed, uncertain
 
@@ -2032,7 +1778,7 @@ def run_3tier_preflight_evaluation(
         all_defects.extend(orange_result.get("defects", []))
         all_defects.extend(yellow_result.get("defects", []))
 
-    confirmed_defects, uncertain_findings = confirm_candidates_in_sandbox(all_defects, repo_name=clean_repo if not custom_code else None)
+    confirmed_defects, uncertain_findings = confirm_candidates_without_runtime(all_defects, repo_name=clean_repo if not custom_code else None)
     scoring = compute_preflight_scoring(all_defects)
 
     cr_summary = {
@@ -2616,7 +2362,7 @@ Return the corrected replacement inside one ```{file_ext} code block."""
             backup_path.write_text(original_code, encoding="utf-8")
         except PermissionError:
             # Imported repositories can contain a backup folder written by a
-            # prior root-run sandbox.  Do not fail a valid patch merely because
+            # prior root-owned process. Do not fail a valid patch merely because
             # that stale folder is not writable by the API service account.
             # /tmp is private to the API container and is still used for the
             # rollback verification below.

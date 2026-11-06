@@ -195,11 +195,10 @@ class ProtectedApiTests(AuthTestCase):
             ("get", "/api/v1/tasks/abc"), ("get", "/api/v1/graph/stats"), ("get", "/api/v1/graph/elements"),
             ("get", "/api/v1/graph/node/x"), ("get", "/api/v1/vector-db/records"),
             ("get", "/api/v1/review/tier/red?repo_name=x"), ("post", "/api/v1/review/fix-bug"),
-            ("get", "/api/v1/sandbox/status"), ("post", "/api/v1/sandbox/start"),
-            ("get", "/api/v1/sandbox/proxy/x/"), ("get", "/api/v1/config/llm"), ("post", "/api/v1/config/llm"),
+            ("post", "/api/v1/review/preflight-code"), ("get", "/api/v1/review/preflight-code/download?repo_name=x"),
+            ("get", "/api/v1/config/llm"), ("post", "/api/v1/config/llm"),
             ("get", "/api/v1/mcp/tools"), ("post", "/api/v1/mcp/execute"), ("get", "/api/v1/skills"),
             ("get", "/api/v1/analytics/dead-code"), ("get", "/api/v1/auth/me"),
-            ("get", "/api/v1/sandbox/preflight-review/download?repo_name=x"),
         ]
         for method, path in routes:
             res = getattr(client, method)(path)
@@ -314,8 +313,7 @@ class RepositoryOwnershipTests(AuthTestCase):
         with patch("app.core.llm.verify_llm_connection", return_value=(True, "ok")), \
              patch("app.main.audit_single_tier") as audit, \
              patch("app.main.delete_repository") as delete, \
-             patch("app.main.async_index_repository") as reindex, \
-             patch("app.core.sandbox.proxy_sandbox_http_request") as proxy:
+             patch("app.main.async_index_repository") as reindex:
             attempts = [
                 ("get", "/api/v1/repos/alice-private", None),
                 ("get", "/api/v1/repos/ALICE-PRIVATE", None),
@@ -330,12 +328,8 @@ class RepositoryOwnershipTests(AuthTestCase):
                 ("get", "/api/v1/graph/elements?repo_name=alice-private", None),
                 ("get", "/api/v1/vector-db/records?repo_name=alice-private", None),
                 ("get", "/api/v1/analytics/dead-code?repo_name=alice-private", None),
-                ("get", "/api/v1/sandbox/status?repo_name=alice-private", None),
-                ("post", "/api/v1/sandbox/start", {"repo_name": "alice-private"}),
-                ("post", "/api/v1/sandbox/stop", {"repo_name": "alice-private"}),
-                ("get", "/api/v1/sandbox/preflight-review/download?repo_name=alice-private", None),
-                ("get", "/api/v1/sandbox/proxy/alice-private/", None),
-                ("post", "/api/v1/sandbox/proxy/alice-private/api/data", {}),
+                ("post", "/api/v1/review/preflight-code", {"repo_name": "alice-private"}),
+                ("get", "/api/v1/review/preflight-code/download?repo_name=alice-private", None),
                 ("post", "/api/v1/assets/generate", {"repo_name": "alice-private", "asset_type": "readme"}),
                 ("post", "/api/v1/analyze/code", {"repo_name": "alice-private", "file_path": "x.py", "code_content": "x=1"}),
                 ("post", "/api/v1/analyze/repo", {"repo_path": str(self.repos_root / "alice-private"), "repo_name": "mine"}),
@@ -349,14 +343,13 @@ class RepositoryOwnershipTests(AuthTestCase):
             audit.assert_not_called()
             delete.assert_not_called()
             reindex.delay.assert_not_called()
-            proxy.assert_not_called()
 
         self.assertTrue((self.repos_root / "alice-private").exists())
         self.assertEqual(self.owner_of("alice-private")[0], self.alice_id)
 
     def test_repo_scope_is_required(self):
         with patch("app.core.llm.verify_llm_connection", return_value=(True, "ok")):
-            for path in ("/api/v1/review/tier/red", "/api/v1/sandbox/plan", "/api/v1/graph/elements",
+            for path in ("/api/v1/review/tier/red", "/api/v1/graph/elements",
                          "/api/v1/analytics/hotspots", "/api/v1/review/preflight-status"):
                 res = self.alice.get(path)
                 self.assertEqual(res.status_code, 400, path)

@@ -24,7 +24,7 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PYTHONIOENCODING=utf-8
 
-# Install necessary build tools, system dependencies, and sandbox runtime prerequisites
+# Install build tools and system dependencies for repository ingestion and review
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \

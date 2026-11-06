@@ -1,22 +1,21 @@
 # 🚀 Preflight — Launch Readiness & Autonomous Code Quality Auditor for Apps Built with AI
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
-[![Docker Ready](https://img.shields.io/badge/Docker-Isolated%20Sandbox%20Stack-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
+[![Docker Ready](https://img.shields.io/badge/Docker-Review%20Stack-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Vultr Inference](https://img.shields.io/badge/Vultr-Serverless%20Inference-007BFC.svg?logo=vultr&logoColor=white)](https://www.vultr.com/)
-[![Playwright](https://img.shields.io/badge/Playwright-Headless%20Browser-45ba4b.svg?logo=playwright&logoColor=white)](https://playwright.dev/)
 [![Eval Benchmarks](https://img.shields.io/badge/Eval%20Benchmarks-100%25%20Passed-brightgreen.svg)](eval/run.mjs)
 
-**Preflight** is an autonomous code quality gate, security auditor, and zero-blast-radius sandbox execution platform engineered specifically for apps created with AI coding assistants (**Cursor**, **Claude**, **Lovable**, **Bolt.new**, **v0**, **Windsurf**).
+**Preflight** is an autonomous code quality gate and security auditor engineered specifically for apps created with AI coding assistants (**Cursor**, **Claude**, **Lovable**, **Bolt.new**, **v0**, **Windsurf**).
 
-Before you ship to production, Preflight analyzes your repository, tests primary actions with real headless browser automation, spins up an isolated sandbox preview, scores code quality against an authoritative **3-Tier Defect Rubric**, applies **1-click automated on-disk fixes**, and lets you **download your fixed, production-ready codebase as a ZIP archive**.
+Before you ship to production, Preflight analyzes the imported repository, performs a read-only Preflight Code Review, scores code quality against an authoritative severity rubric, applies **1-click automated on-disk fixes**, and lets you **download your fixed, production-ready codebase as a ZIP archive**.
 
 ---
 
-## 🏗️ Isolated Sandbox Architecture
+## 🏗️ Read-Only Review Architecture
 
-Preflight keeps its public API separate from the Docker-enabled sandbox runner. The stack has three long-lived services (`api`, `frontend`, and `sandbox_runner`) plus a one-shot `repo_permissions` bootstrap service. Only the runner receives the Docker socket; the API never does.
+The stack has two long-lived services (`api` and `frontend`) plus a one-shot `repo_permissions` bootstrap service. Imported repository files are reviewed; they are never installed, built, or executed by Preflight in this phase.
 
 ```mermaid
 flowchart TD
@@ -27,19 +26,12 @@ flowchart TD
         API --> SQLite["💾 SQLite & Migrations (/app/data/preflight.db)"]
         API --> TaskMgr["⚙️ In-Process Task Manager (ThreadPoolExecutor)"]
         API --> Cloner["📦 Git Cloner & Zip Slip Safe Extractor"]
-        API --> Runner["🛡️ Private Sandbox Runner (:8010)"]
     end
 
     subgraph "AI Inference Engine"
         API --> VultrInference["🧠 Vultr Serverless Inference (api.vultrinference.com)\nDefault: deepseek-v4.1-flash-1017"]
     end
 
-    subgraph "Blast Radius Zero Sandbox (preflight_sandbox_net)"
-        Runner -->|Docker Socket| SandboxContainer["🛡️ Ephemeral Isolated Container\n- read_only: true\n- user: 1000:1000\n- cap_drop: ALL\n- no-new-privileges: true\n- tmpfs /tmp\n- 256MB RAM, 0.5 CPU, 64 PIDs\n- Lifetime: 120s"]
-        SandboxContainer -->|Browser Probing| Playwright["🎭 Playwright Headless Probe\n(Click, 2s Network Count, DOM Hash)"]
-        SandboxContainer -->|Reverse Proxy Tunnel| LiveProxy["🔄 Live App Reverse Proxy (:8000/api/v1/sandbox/proxy/{repo}/)"]
-        LiveProxy --> WebUI
-    end
 ```
 
 ---
@@ -60,35 +52,14 @@ The auditor scans repositories against an authoritative catalog of 13 canonical 
 
 ---
 
-### 2. 🎭 Real Playwright Headless Browser Verification
-Unlike static regex probes that falsely flag modern React, Vue, or Svelte buttons (which use internal event listeners rather than inline `onclick=""`), Preflight incorporates **real Playwright browser probing**:
-1. Navigates to the live rendered app in headless Chromium.
-2. Identifies and **actually clicks** the primary action button.
-3. Observes and counts outbound network requests for **2 full seconds**.
-4. Computes SHA-256 hashes of the DOM tree **before and after** the user action.
-5. Flags a button as dead *only* if network requests remain zero AND the DOM state is completely unchanged.
+### 2. 🔎 Read-Only Preflight Code Review
+Preflight's Code Review reads the imported repository and reports P0–P3 findings with actionable remediation guidance. It does not install dependencies, build the project, execute commands, launch browser automation, or create Docker containers.
+
+- **AI-assisted review:** Uses Vultr Serverless Inference when configured.
+- **Deterministic fallback:** Uses bounded static analysis when inference is unavailable.
+- **No code execution:** Review operates only on the files already imported for the authenticated user.
 
 ---
-
-### 3. 🔒 Blast Radius Zero Sandbox Containment
-Preflight complies with strict container isolation standards to safely execute and preview untrusted AI-generated repositories. You can inspect active containment parameters in real-time via `GET /api/v1/sandbox/verifiable-flags`:
-
-- **`read_only: true`** — Root filesystem is strictly read-only; no process can overwrite system binaries or inject persistent malware.
-- **Non-root runtime** — Application code runs as UID/GID `1000:1000` in a disposable workspace and cannot write to the host repository.
-- **`cap_drop: ["ALL"]`** — Every Linux kernel capability dropped (`CAP_SYS_ADMIN`, `CAP_NET_RAW`, etc.).
-- **`security_opt: ["no-new-privileges:true"]`** — Disallows privilege escalation via setuid binaries.
-- **Two-phase package setup** — Dependencies are installed only in a short-lived restricted installer; the application runtime starts after that installer is removed.
-- **`tmpfs mounts`** — Writable temporary scratch space is constrained to `/tmp` (`size=128m,noexec,nosuid`).
-- **Strict Resource Quotas:**
-  - Memory: `256MB` (`mem_limit="256m"`)
-  - CPU: `0.5 CPU` (`nano_cpus=500000000`)
-  - Processes: `64 PIDs` (`pids_limit=64` to prevent fork bombs)
-  - Auto-Teardown: `120s` maximum lifetime (`SANDBOX_MAX_LIFETIME=120`).
-- **Network Isolation:** The application runtime uses an internal Docker network with no published ports or Internet egress. Only the short-lived installer may reach package registries.
-
----
-
-### 4. 📦 1-Click Codebase Export (Download ZIP)
 Once you audit and apply automated AI fixes to your project, you can download the entire updated, production-ready codebase:
 - **Download Project Button:** Positioned directly beside the *Import Project* button in the top navigation bar.
 - **In-Memory Streaming:** Handled via `GET /api/v1/repos/{repo_name}/download` with zero disk overhead.
@@ -148,10 +119,9 @@ Navigate to **`http://localhost:8001`** (or `http://localhost:3000`) in your bro
 
 | Service | Port / Address | Description |
 | :--- | :--- | :--- |
-| **Preflight Dashboard** | `http://localhost:8001` | Full Web UI with Live Sandbox Preview & Code Fixer |
+| **Preflight Dashboard** | `http://localhost:8001` | Full Web UI with Code Review & Code Fixer |
 | **Preflight API** | `http://localhost:8000` | REST API Engine |
 | **Interactive Docs** | `http://localhost:8000/docs` | Swagger / OpenAPI Explorer |
-| **Containment Flags** | `http://localhost:8000/api/v1/sandbox/verifiable-flags` | Live Blast Radius Zero Security Verification |
 | **Health Check** | `http://localhost:8000/api/v1/health` | Service & Database Health |
 
 ---
@@ -182,16 +152,11 @@ Navigate to **`http://localhost:8001`** (or `http://localhost:3000`) in your bro
 | `POST` | `/api/v1/ingest/upload` | Safely extracts and indexes an uploaded ZIP archive. |
 | `GET` | `/api/v1/tasks/{task_id}` | Polls progress (percentage, file count, status) of background jobs. |
 
-### Sandbox & Containment Verification
+### Read-Only Preflight Code Review
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/v1/sandbox/verifiable-flags` | **Verifies all 5 Blast Radius Zero containment flags.** |
-| `GET` | `/api/v1/sandbox/plan` | Auto-detects runtime (Node, Python, Go, .NET, Static) and port. |
-| `POST` | `/api/v1/sandbox/start` | Launches isolated ephemeral sandbox container. |
-| `GET` | `/api/v1/sandbox/status` | Checks sandbox uptime, PID, and live streaming output. |
-| `POST` | `/api/v1/sandbox/stop` | Terminates active sandbox session and destroys container. |
-| `GET` | `/api/v1/sandbox/proxy/{repo}/` | Reverse proxy tunnel to preview live running sandbox application. |
-| `POST` | `/api/v1/sandbox/diagnose-error` | Diagnoses runtime failure and provides root-cause resolution. |
+| `POST` | `/api/v1/review/preflight-code` | Runs a read-only P0–P3 code review for an owned repository. |
+| `GET` | `/api/v1/review/preflight-code/download` | Downloads the latest code-review report. |
 
 ### Authentication & Accounts
 | Method | Endpoint | Description |
@@ -209,17 +174,13 @@ Navigate to **`http://localhost:8001`** (or `http://localhost:3000`) in your bro
 
 Preflight is validated through both an automated unit test suite and an autonomous defect evaluation benchmark:
 
-### 1. Pytest Test Suite (59 Tests)
+### 1. Pytest Test Suite
 ```bash
 # Set environment and run complete test suite
-pytest backend/tests/test_checklist_verification.py \
-       backend/tests/test_vultr_standards.py \
-       backend/tests/test_sandbox.py \
-       backend/tests/test_preflight.py \
+pytest backend/tests/test_preflight.py \
        backend/tests/test_skills.py \
        backend/tests/test_download_project.py -v
 ```
-**Result:** `59 passed, 0 failures` (100% pass rate).
 
 ### 2. Autonomous Defect Evaluation Benchmark
 ```bash
@@ -253,13 +214,8 @@ Registry: defects/registry.json
 | `LLM_BASE_URL` | `https://api.vultrinference.com/v1` | Vultr Serverless Inference or OpenAI-compatible endpoint. |
 | `LLM_MODEL` | `deepseek-v4.1-flash-1017` | Primary AI model ID for audits and repair prompt generation. |
 | `LLM_API_KEY` | *(empty)* | API key for Vultr Serverless Inference. |
-| `ALLOWED_REPO_DIR` | `/app/repos` | Sandboxed root directory for user repositories. |
+| `ALLOWED_REPO_DIR` | `/app/repos` | Isolated storage root for imported user repositories. |
 | `PREFLIGHT_DB_PATH` | `/app/data/preflight.db` | SQLite database path with automatic fallback to `/tmp`. |
-| `SANDBOX_MEMORY_LIMIT`| `256m` | Maximum RAM quota for ephemeral sandbox container. |
-| `SANDBOX_NANO_CPUS` | `500000000` | CPU allocation quota (0.5 core). |
-| `SANDBOX_PIDS_LIMIT` | `64` | Maximum active process count inside sandbox. |
-| `SANDBOX_MAX_LIFETIME`| `120` | Maximum container lifetime in seconds before automatic termination. |
-| `SANDBOX_DOCKER_NETWORK`| `preflight_sandbox_net` | Dedicated internal Docker network for sandboxes. |
 | `WEB_PORT` | `8001` | Exposed web dashboard HTTP port. |
 
 ---

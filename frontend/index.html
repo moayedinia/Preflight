@@ -398,10 +398,6 @@
                 <i data-lucide="zap" class="w-3 h-3"></i>
                 <span id="engine-badge-text">⚡ Vultr Serverless Inference</span>
               </span>
-              <a href="/api/v1/sandbox/verifiable-flags" target="_blank" id="containment-flags-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors" title="Verified Container Containment: 256MB RAM, 0.5 CPU, 64 PIDs, cap-drop=ALL, no-new-privileges">
-                <i data-lucide="shield-check" class="w-3 h-3"></i>
-                <span>Blast Radius Zero (5 Flags)</span>
-              </a>
             </div>
             <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
               Is your code ready to ship?
@@ -431,9 +427,9 @@
                 <i data-lucide="play" class="w-4 h-4 fill-slate-950"></i>
                 <span>Run Full Audit</span>
               </button>
-              <button onclick="openSandboxModal()" id="btn-launch-sandbox" class="h-9 px-3.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all inline-flex items-center justify-center gap-1.5" title="Scan and launch project inside an isolated sandbox">
-                <i data-lucide="rocket" class="w-4 h-4"></i>
-                <span>Proceed to a test run</span>
+              <button onclick="openCodeReviewModal()" id="btn-open-code-review" class="h-9 px-3.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all inline-flex items-center justify-center gap-1.5" title="Review the current repository with the Preflight code-review engine">
+                <i data-lucide="shield-check" class="w-4 h-4"></i>
+                <span>Preflight Code Review</span>
               </button>
               <button onclick="downloadCurrentProjectZip()" id="btn-audit-download-zip" class="h-9 px-3 border border-slate-800 hover:border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all inline-flex items-center justify-center gap-1.5 shadow-sm" title="Download the full codebase as a ZIP archive">
                 <i data-lucide="download" class="w-3.5 h-3.5 text-cyan-400"></i>
@@ -1117,199 +1113,29 @@
     <span id="toast-msg">Success</span>
   </div>
 
-  <!-- ================= MODAL: ISOLATED PROJECT SANDBOX ================= -->
-  <div id="modal-sandbox" onclick="if(event.target === this) closeSandboxModal()" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+  <!-- ================= MODAL: PREFLIGHT CODE REVIEW ================= -->
+  <div id="modal-code-review" onclick="if(event.target === this) closeCodeReviewModal()" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-5 flex flex-col max-h-[92vh] modal-enter">
       
       <!-- Modal Header -->
       <div class="flex items-center justify-between border-b border-slate-800 pb-3">
         <div class="flex items-center gap-3">
           <div class="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-            <i data-lucide="rocket" class="w-5 h-5"></i>
+            <i data-lucide="shield-check" class="w-5 h-5"></i>
           </div>
           <div>
             <h3 class="text-base font-bold text-white flex items-center gap-2">
-              Isolated Execution Sandbox
-              <span id="sandbox-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700">
-                ⚪ Stopped
-              </span>
+              Preflight Code Review
             </h3>
-            <p class="text-xs text-slate-400">Runs your audited codebase in a sandboxed, isolated environment separated from everything.</p>
-            <div class="flex flex-wrap items-center gap-2 pt-1">
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-[10px] text-cyan-300 font-medium">
-                <i data-lucide="shield-check" class="w-3 h-3 text-cyan-400"></i>
-                Hardened Sandbox: 256MB • 0.5 CPU • 64 PIDs • Drop-ALL
-              </span>
-              <span id="sandbox-cloud-badge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300 font-mono">
-                E2B / OpenSandbox Compliant
-              </span>
-            </div>
+            <p class="text-xs text-slate-400">Static and AI-assisted review of the selected repository. No project code is executed.</p>
           </div>
         </div>
-        <button onclick="closeSandboxModal()" class="text-slate-400 hover:text-white transition-colors">
+        <button onclick="closeCodeReviewModal()" class="text-slate-400 hover:text-white transition-colors">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
-      <!-- Discovery & Configuration Card -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-        <div class="space-y-1">
-          <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Setup / Install Command</label>
-          <input type="text" id="sandbox-install-input" placeholder="e.g. npm install or dotnet restore" class="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs text-white font-mono outline-none" />
-          <div class="text-[10px] text-slate-500">Runs in the detected runtime before launch.</div>
-        </div>
-
-        <div class="space-y-1">
-          <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Project Type</div>
-          <div id="sandbox-detected-type" class="text-sm font-bold text-indigo-300">Scanning...</div>
-          <div id="sandbox-detected-from" class="text-[10px] text-slate-500">Heuristics & README</div>
-        </div>
-
-        <div class="space-y-1">
-          <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Execution Command</label>
-          <input type="text" id="sandbox-cmd-input" placeholder="e.g. npm run dev or python main.py" class="w-full bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs text-white font-mono outline-none" />
-        </div>
-
-        <div class="space-y-1">
-          <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Assigned Isolated Port</label>
-          <div class="flex items-center gap-2">
-            <input type="number" id="sandbox-port-input" value="9100" class="w-20 bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs text-white font-mono outline-none" />
-            <a id="sandbox-open-app-btn" href="#" target="_blank" title="Open application in new browser tab via container reverse-proxy" class="hidden flex-1 px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-md">
-              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-              Open App
-            </a>
-            <a id="sandbox-direct-port-btn" href="#" target="_blank" title="Direct host port (http://localhost:PORT)" class="hidden px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono rounded-lg transition-all border border-slate-700">
-              :9100
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="flex items-center justify-between gap-3 pt-1">
-        <div class="flex items-center gap-2">
-          <button onclick="triggerStartSandbox()" id="btn-sandbox-start" class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2">
-            <i data-lucide="play" class="w-4 h-4 fill-slate-950"></i>
-            Install & Run
-          </button>
-          <button onclick="triggerPrepareSandbox()" id="btn-sandbox-prepare" class="px-3 py-2 border border-cyan-500/40 hover:border-cyan-400 bg-cyan-500/10 text-cyan-200 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5">
-            <i data-lucide="package-check" class="w-3.5 h-3.5"></i>
-            Install Dependencies
-          </button>
-          <button onclick="triggerStopSandbox()" id="btn-sandbox-stop" class="hidden px-4 py-2 bg-red-600/80 hover:bg-red-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2">
-            <i data-lucide="square" class="w-4 h-4 fill-white"></i>
-            Stop Sandbox
-          </button>
-          <button onclick="triggerRescanSandbox()" class="px-3 py-2 border border-slate-800 hover:border-slate-700 bg-slate-900 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5">
-            <i data-lucide="scan" class="w-3.5 h-3.5"></i>
-            Re-scan Instructions
-          </button>
-        </div>
-
-        <div class="flex items-center gap-3">
-          <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
-            <input type="checkbox" id="sandbox-autoscroll" checked class="rounded bg-slate-800 border-slate-700 text-indigo-500 focus:ring-0" />
-            Auto-scroll
-          </label>
-          <button onclick="clearSandboxTerminal()" class="px-2.5 py-1 text-slate-400 hover:text-slate-200 text-xs rounded border border-slate-800 hover:bg-slate-800 transition-colors">
-            Clear Logs
-          </button>
-        </div>
-      </div>
-
-      <!-- Sandbox View Tabs (Console vs Live App Preview vs Preflight Code Review) -->
-      <div class="flex items-center justify-between border-b border-slate-800 pb-2">
-        <div class="flex items-center gap-2">
-          <button id="tab-sandbox-logs" onclick="switchSandboxTab('logs')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all">
-            <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
-            Sandbox Console
-          </button>
-          <button id="tab-sandbox-preview" onclick="switchSandboxTab('preview')" class="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-slate-700 flex items-center gap-1.5 transition-all">
-            <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
-            Live App Preview
-          </button>
-          <button id="tab-sandbox-preflight" onclick="switchSandboxTab('preflight')" class="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-slate-700 flex items-center gap-1.5 transition-all">
-            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-cyan-400"></i>
-            Preflight Code Review
-          </button>
-        </div>
-        <div id="sandbox-preview-controls" class="hidden flex items-center gap-2">
-          <button onclick="refreshSandboxPreview()" title="Reload Preview" class="px-2 py-0.5 text-xs text-slate-400 hover:text-white rounded border border-slate-800 hover:bg-slate-800 flex items-center gap-1">
-            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh
-          </button>
-          <span id="sandbox-preview-url" class="text-[10px] text-slate-500 font-mono"></span>
-        </div>
-      </div>
-
-      <!-- Terminal Output -->
-      <div id="sandbox-logs-container" class="flex-1 bg-black/90 border border-slate-800 rounded-xl p-3 flex flex-col min-h-[280px] overflow-hidden shadow-inner font-mono">
-        <div class="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2 text-[11px] text-slate-500">
-          <div class="flex items-center gap-2">
-            <div class="flex gap-1.5">
-              <div class="w-2.5 h-2.5 rounded-full bg-red-500/60"></div>
-              <div class="w-2.5 h-2.5 rounded-full bg-amber-500/60"></div>
-              <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/60"></div>
-            </div>
-            <span>Sandbox Console (stdout / stderr)</span>
-          </div>
-          <span id="sandbox-uptime-text" class="text-[10px]">Uptime: 0s</span>
-        </div>
-
-        <!-- Code Execution Error Alert Banner -->
-        <div id="sandbox-error-banner" class="hidden mb-2.5 p-3 bg-red-950/80 border border-red-500/50 rounded-xl flex items-center justify-between shadow-lg">
-          <div class="flex items-center gap-2.5">
-            <span class="text-base">⚠️</span>
-            <div>
-              <div class="text-xs font-bold text-red-200" id="sandbox-error-title">Code Execution Error Detected</div>
-              <div class="text-[11px] text-red-300/80 line-clamp-1" id="sandbox-error-desc">A runtime error or build crash occurred in the sandbox process.</div>
-            </div>
-          </div>
-          <button onclick="triggerDiagnoseSandboxError()" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg transition-all shadow-md flex items-center gap-1.5 flex-shrink-0 active:scale-95">
-            <i data-lucide="bug" class="w-3.5 h-3.5"></i>
-            <span>Diagnose & Fix Code</span>
-          </button>
-        </div>
-
-        <pre id="sandbox-terminal" class="flex-1 overflow-y-auto text-[11px] leading-relaxed text-emerald-400 whitespace-pre-wrap select-text font-mono space-y-0.5">Initializing sandbox...</pre>
-
-        <!-- Interactive Terminal Command Input (Run / Install packages) -->
-        <div class="pt-2.5 border-t border-slate-800/90 mt-2 flex flex-col gap-1.5 font-sans">
-          <div class="flex items-center gap-2">
-            <div class="relative flex-1 flex items-center">
-              <span class="absolute left-3 text-emerald-400 font-mono text-xs select-none pointer-events-none">$</span>
-              <input type="text" id="sandbox-terminal-input" onkeydown="if(event.key==='Enter') executeSandboxTerminalCommand()" placeholder="Enter command to run inside sandbox (e.g. npm install, pip install requests, dotnet restore)..." class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl pl-7 pr-3 py-1.5 text-xs text-slate-100 font-mono outline-none shadow-inner" />
-            </div>
-            <button type="button" onclick="executeSandboxTerminalCommand()" id="btn-terminal-exec" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 shrink-0" title="Run command in sandbox workspace">
-              <i data-lucide="play" class="w-3.5 h-3.5 fill-white"></i>
-              <span id="btn-terminal-exec-text">Run</span>
-            </button>
-          </div>
-          <div class="flex items-center gap-1.5 text-[10px] text-slate-500 flex-wrap">
-            <span class="font-sans text-slate-400">Quick Commands:</span>
-            <button type="button" onclick="setTerminalCommand('npm install')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono border border-slate-800 transition-colors">npm install</button>
-            <button type="button" onclick="setTerminalCommand('pip install -r requirements.txt')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono border border-slate-800 transition-colors">pip install -r requirements.txt</button>
-            <button type="button" onclick="setTerminalCommand('dotnet restore')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono border border-slate-800 transition-colors">dotnet restore</button>
-            <button type="button" onclick="setTerminalCommand('ls -la')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono border border-slate-800 transition-colors">ls -la</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Embedded Live App Preview -->
-      <div id="sandbox-preview-container" class="hidden flex-1 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden min-h-[380px] flex flex-col relative shadow-inner">
-        <div class="bg-slate-900 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between text-xs text-slate-400">
-          <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span class="text-[11px] text-slate-300 font-mono" id="preview-address-bar">/api/v1/sandbox/proxy/...</span>
-          </div>
-          <a id="preview-open-ext-btn" href="#" target="_blank" class="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
-            Open Tab <i data-lucide="external-link" class="w-3 h-3"></i>
-          </a>
-        </div>
-        <iframe id="sandbox-preview-frame" src="about:blank" class="w-full flex-1 border-0 bg-white min-h-[340px]"></iframe>
-      </div>
-
-      <!-- Preflight Code Review Tab Container -->
-      <div id="sandbox-preflight-container" class="hidden flex-1 bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col min-h-[380px] overflow-hidden">
+      <div id="code-review-container" class="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col min-h-[380px] overflow-hidden">
         <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
           <div class="flex items-center gap-2.5">
             <div class="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-sm">
@@ -1396,40 +1222,6 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
     </div>
   </div>
 
-  <!-- Modal: Sandbox Code Error Diagnostic Report -->
-  <div id="modal-sandbox-error" class="hidden fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-red-500/40 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-red-950/30">
-        <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400">
-            <i data-lucide="alert-triangle" class="w-5 h-5"></i>
-          </div>
-          <div>
-            <h3 class="text-sm font-bold text-white">Sandbox Code Error & Crash Report</h3>
-            <p class="text-[11px] text-red-300">Automated Runtime Root Cause Analysis & Required Corrections</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <button onclick="downloadSandboxErrorReport()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm">
-            <i data-lucide="download" class="w-3.5 h-3.5"></i>
-            <span>Download Report (.md)</span>
-          </button>
-          <button onclick="closeSandboxErrorModal()" class="text-slate-400 hover:text-white p-1">
-            <i data-lucide="x" class="w-5 h-5"></i>
-          </button>
-        </div>
-      </div>
-      <div class="p-5 flex-1 overflow-y-auto">
-        <div id="sandbox-error-engine-badge" class="hidden mb-3 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-between"></div>
-        <div id="sandbox-error-report-body" class="bg-black/60 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-text">
-          Analyzing sandbox logs...
-        </div>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ================= JAVASCRIPT LOGIC ================= -->
   <script>
     // --- API Configuration ---
     const API_BASE = (window.location.protocol === 'file:' || (window.location.port !== '8001' && window.location.port !== '3000' && window.location.port !== '8000'))
@@ -1966,7 +1758,7 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
       if (e.key === 'Escape') {
         closeModal('modal-import');
         closeModal('modal-settings');
-        if (typeof closeSandboxModal === 'function') closeSandboxModal();
+        closeCodeReviewModal();
       }
     });
 
@@ -2071,7 +1863,7 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
                 <div class="space-y-1.5">
                   <h3 class="text-sm font-bold text-white">No repositories indexed yet</h3>
                   <p class="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                    Import a Git repository or upload a ZIP archive to analyze AST code graphs, detect publish blockers, and preview in an isolated sandbox.
+                    Import a Git repository or upload a ZIP archive to analyze code graphs and detect publish blockers.
                   </p>
                 </div>
                 <button onclick="openModal('modal-import')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-900/30 inline-flex items-center gap-2">
@@ -2129,7 +1921,7 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
             <div class="space-y-1.5">
               <h3 class="text-sm font-bold text-white">No repositories indexed yet</h3>
               <p class="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                Import a Git repository or upload a ZIP archive to analyze AST code graphs, detect publish blockers, and preview in an isolated sandbox.
+                Import a Git repository or upload a ZIP archive to analyze code graphs and detect publish blockers.
               </p>
             </div>
             <button onclick="openModal('modal-import')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-900/30 inline-flex items-center gap-2">
@@ -4021,437 +3813,17 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     // ============================================================
     // ISOLATED EXECUTION SANDBOX CONTROLLER
     // ============================================================
-    let sandboxPollTimer = null;
-    let sandboxCurrentStatus = 'stopped';
-    let sandboxActiveTab = 'logs';
-    let sandboxLaunchProgressTimer = null;
-    let sandboxLaunchInProgress = false;
-    let sandboxLastServerLogs = '';
-
-    function switchSandboxTab(tab) {
-      sandboxActiveTab = tab;
-      const tabLogs = document.getElementById('tab-sandbox-logs');
-      const tabPreview = document.getElementById('tab-sandbox-preview');
-      const tabPreflight = document.getElementById('tab-sandbox-preflight') || document.getElementById('tab-sandbox-orca');
-      const logsCont = document.getElementById('sandbox-logs-container');
-      const prevCont = document.getElementById('sandbox-preview-container');
-      const prevControls = document.getElementById('sandbox-preview-controls');
-      const preflightCont = document.getElementById('sandbox-preflight-container') || document.getElementById('sandbox-orca-container');
-      const previewFrame = document.getElementById('sandbox-preview-frame');
-      const proxyUrl = `${API_BASE}/api/v1/sandbox/proxy/${encodeURIComponent(currentRepo)}/`;
-
-      // Reset all tab styling
-      [tabLogs, tabPreview, tabPreflight].forEach(t => {
-        if (t) t.className = 'px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white border border-transparent hover:border-slate-700 flex items-center gap-1.5 transition-all';
-      });
-
-      if (logsCont) logsCont.classList.add('hidden');
-      if (prevCont) prevCont.classList.add('hidden');
-      if (prevControls) prevControls.classList.add('hidden');
-      if (preflightCont) preflightCont.classList.add('hidden');
-
-      if (tab === 'preview') {
-        if (tabPreview) tabPreview.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all';
-        if (prevCont) prevCont.classList.remove('hidden');
-        if (prevControls) prevControls.classList.remove('hidden');
-        if (previewFrame && (previewFrame.src === 'about:blank' || !previewFrame.src.includes('/sandbox/proxy/'))) {
-          previewFrame.src = proxyUrl;
-        }
-      } else if (tab === 'preflight' || tab === 'orca') {
-        if (tabPreflight) tabPreflight.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all';
-        if (preflightCont) preflightCont.classList.remove('hidden');
-      } else {
-        if (tabLogs) tabLogs.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5 transition-all';
-        if (logsCont) logsCont.classList.remove('hidden');
-      }
+    function openCodeReviewModal() {
+      const modal = document.getElementById('modal-code-review');
+      if (modal) modal.classList.remove('hidden');
       if (window.lucide) lucide.createIcons();
     }
 
-    function refreshSandboxPreview() {
-      const previewFrame = document.getElementById('sandbox-preview-frame');
-      const proxyUrl = `${API_BASE}/api/v1/sandbox/proxy/${encodeURIComponent(currentRepo)}/?_t=${Date.now()}`;
-      if (previewFrame) previewFrame.src = proxyUrl;
+    function closeCodeReviewModal() {
+      const modal = document.getElementById('modal-code-review');
+      if (modal) modal.classList.add('hidden');
     }
 
-    async function openSandboxModal() {
-      openModal('modal-sandbox');
-      sandboxLastServerLogs = '';
-      if (window.lucide) lucide.createIcons();
-      const cmdInput = document.getElementById('sandbox-cmd-input');
-      if (cmdInput) cmdInput.value = '';
-      await triggerRescanSandbox(true);
-      pollSandboxStatus();
-      if (!sandboxPollTimer) {
-        sandboxPollTimer = setInterval(pollSandboxStatus, 2000);
-      }
-      // Query capabilities to display active isolation profile
-      try {
-        const capRes = await fetch(`${API_BASE}/api/v1/sandbox/capabilities`);
-        if (capRes.ok) {
-          const cap = await capRes.json();
-          const cloudBadge = document.getElementById('sandbox-cloud-badge');
-          if (cloudBadge) {
-            cloudBadge.innerText = cap.e2b_configured ? '⚡ E2B MicroVM Active' : 'OpenSandbox / Docker Isolated';
-          }
-        }
-      } catch (e) {
-        console.debug('Failed to fetch sandbox capabilities:', e);
-      }
-    }
-
-    function closeSandboxModal() {
-      closeModal('modal-sandbox');
-      if (sandboxPollTimer) {
-        clearInterval(sandboxPollTimer);
-        sandboxPollTimer = null;
-      }
-      if (sandboxLaunchProgressTimer) {
-        clearInterval(sandboxLaunchProgressTimer);
-        sandboxLaunchProgressTimer = null;
-      }
-      sandboxLaunchInProgress = false;
-    }
-
-    async function triggerRescanSandbox() {
-      const typeEl = document.getElementById('sandbox-detected-type');
-      const fromEl = document.getElementById('sandbox-detected-from');
-      const installInput = document.getElementById('sandbox-install-input');
-      const cmdInput = document.getElementById('sandbox-cmd-input');
-      const portInput = document.getElementById('sandbox-port-input');
-
-      if (typeEl) typeEl.innerText = 'Scanning project...';
-      try {
-        const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
-        const res = await fetch(`${API_BASE}/api/v1/sandbox/plan${repoParam}`);
-        if (!res.ok) {
-          throw new Error(await readApiError(res, `Sandbox start failed (HTTP ${res.status}).`));
-        }
-        const plan = await res.json();
-        if (typeEl) typeEl.innerText = plan.project_type || 'Generic';
-        if (fromEl) fromEl.innerText = `${plan.detected_from || 'Heuristics'} (${plan.readme_file || 'No README'})`;
-        if (cmdInput) {
-          cmdInput.value = plan.command || '';
-        }
-        if (installInput) {
-          installInput.value = plan.install_command || '';
-        }
-        if (portInput) {
-          portInput.value = plan.assigned_port || 9100;
-        }
-      } catch (e) {
-        console.error('Failed to scan project for sandbox:', e);
-        if (typeEl) typeEl.innerText = 'Detection Error';
-      }
-    }
-
-    async function pollSandboxStatus() {
-      try {
-        const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
-        const res = await fetch(`${API_BASE}/api/v1/sandbox/status${repoParam}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        updateSandboxUI(data);
-      } catch (e) {
-        console.warn('Sandbox status poll error:', e);
-      }
-    }
-
-    function updateSandboxUI(data) {
-      sandboxCurrentStatus = data.status || 'stopped';
-      const badge = document.getElementById('sandbox-status-badge');
-      const startBtn = document.getElementById('btn-sandbox-start');
-      const stopBtn = document.getElementById('btn-sandbox-stop');
-      const openAppBtn = document.getElementById('sandbox-open-app-btn');
-      const uptimeText = document.getElementById('sandbox-uptime-text');
-      const term = document.getElementById('sandbox-terminal');
-      const autoscroll = document.getElementById('sandbox-autoscroll')?.checked;
-
-      if (badge) {
-        if (sandboxCurrentStatus === 'running') {
-          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse';
-          badge.innerText = '🟢 Running';
-        } else if (sandboxCurrentStatus === 'starting') {
-          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40';
-          badge.innerText = '🟡 Starting';
-        } else if (sandboxCurrentStatus === 'prepared') {
-          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-500/20 text-cyan-200 border border-cyan-500/40';
-          badge.innerText = '🔵 Dependencies Ready';
-        } else if (sandboxCurrentStatus === 'crashed') {
-          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/40';
-          badge.innerText = '🔴 Crashed';
-        } else {
-          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700';
-          badge.innerText = '⚪ Stopped';
-        }
-      }
-
-      if (startBtn && stopBtn) {
-        if (sandboxCurrentStatus === 'running' || sandboxCurrentStatus === 'starting') {
-          startBtn.classList.add('hidden');
-          stopBtn.classList.remove('hidden');
-        } else {
-          startBtn.classList.remove('hidden');
-          stopBtn.classList.add('hidden');
-        }
-      }
-
-      const directPortBtn = document.getElementById('sandbox-direct-port-btn');
-      const proxyUrl = data.proxy_url ? `${API_BASE}${data.proxy_url}` : `${API_BASE}/api/v1/sandbox/proxy/${encodeURIComponent(currentRepo)}/`;
-
-      if (openAppBtn) {
-        if (sandboxCurrentStatus === 'running' && data.port) {
-          openAppBtn.classList.remove('hidden');
-          openAppBtn.href = proxyUrl;
-        } else {
-          openAppBtn.classList.add('hidden');
-        }
-      }
-
-      if (directPortBtn) {
-        if (sandboxCurrentStatus === 'running' && data.port) {
-          directPortBtn.classList.remove('hidden');
-          directPortBtn.innerText = `:${data.port}`;
-          directPortBtn.href = `http://localhost:${data.port}`;
-        } else {
-          directPortBtn.classList.add('hidden');
-        }
-      }
-
-      const previewFrame = document.getElementById('sandbox-preview-frame');
-      const previewAddr = document.getElementById('preview-address-bar');
-      const previewExtBtn = document.getElementById('preview-open-ext-btn');
-      if (previewAddr) previewAddr.innerText = proxyUrl;
-      if (previewExtBtn) previewExtBtn.href = proxyUrl;
-      if (sandboxActiveTab === 'preview' && previewFrame && sandboxCurrentStatus === 'running') {
-        if (previewFrame.src === 'about:blank' || !previewFrame.src.includes('/sandbox/proxy/')) {
-          previewFrame.src = proxyUrl;
-        }
-      }
-
-      if (uptimeText) {
-        uptimeText.innerText = `Uptime: ${data.uptime_seconds || 0}s (PID: ${data.pid || 'N/A'})`;
-      }
-
-      const errBanner = document.getElementById('sandbox-error-banner');
-      const errDesc = document.getElementById('sandbox-error-desc');
-      if (errBanner) {
-        if (data.has_code_error || sandboxCurrentStatus === 'crashed') {
-          errBanner.classList.remove('hidden');
-          if (errDesc && data.code_error_summary) {
-            errDesc.innerText = data.code_error_summary;
-          }
-        } else {
-          errBanner.classList.add('hidden');
-        }
-      }
-
-      if (term && Array.isArray(data.logs) && !sandboxLaunchInProgress) {
-        const serverLogs = data.logs.join('\n');
-        // Polling is a log stream, not a terminal redraw. Replacing innerText
-        // here erased install output and made a healthy sandbox look frozen.
-        if (!sandboxLastServerLogs) {
-          if (serverLogs) term.innerText += (term.innerText.trim() ? '\n' : '') + serverLogs;
-        } else if (serverLogs.startsWith(sandboxLastServerLogs)) {
-          const newLogOutput = serverLogs.slice(sandboxLastServerLogs.length);
-          if (newLogOutput) term.innerText += (term.innerText.endsWith('\n') ? '' : '\n') + newLogOutput.replace(/^\n/, '');
-        } else if (serverLogs && !sandboxLastServerLogs.startsWith(serverLogs)) {
-          // A new session (or a bounded runner log buffer) replaced the
-          // server-side history. Preserve the terminal and label the boundary.
-          term.innerText += (term.innerText.endsWith('\n') ? '' : '\n') + '\n[Sandbox log session refreshed]\n' + serverLogs;
-        }
-        sandboxLastServerLogs = serverLogs;
-        if (!term.innerText.trim()) term.innerText = 'Sandbox ready. Choose Install & Run to prepare and launch the project.';
-        if (autoscroll) term.scrollTop = term.scrollHeight;
-      }
-      if (window.lucide) lucide.createIcons();
-    }
-
-    function setTerminalCommand(cmd) {
-      const input = document.getElementById('sandbox-terminal-input');
-      if (input) {
-        input.value = cmd;
-        input.focus();
-      }
-    }
-
-    async function executeSandboxTerminalCommand() {
-      const input = document.getElementById('sandbox-terminal-input');
-      const btn = document.getElementById('btn-terminal-exec');
-      const btnText = document.getElementById('btn-terminal-exec-text');
-      const term = document.getElementById('sandbox-terminal');
-      const autoscroll = document.getElementById('sandbox-autoscroll')?.checked ?? true;
-
-      const cmd = (input?.value || '').trim();
-      if (!cmd) return;
-
-      if (btn) btn.disabled = true;
-      if (btnText) btnText.innerText = 'Running...';
-      if (term) {
-        term.innerText += `\n\n$ ${cmd}\n[Executing in workspace...]`;
-        if (autoscroll) term.scrollTop = term.scrollHeight;
-      }
-
-      try {
-        if (!currentRepo) {
-          const sel = document.getElementById('repo-select');
-          if (sel && sel.value) currentRepo = sel.value;
-        }
-
-        const res = await fetch(`${API_BASE}/api/v1/sandbox/exec`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            repo_name: currentRepo,
-            command: cmd
-          })
-        });
-
-        if (!res.ok) {
-          const errorMsg = await readApiError(res, `HTTP ${res.status} error occurred`);
-          throw new Error(errorMsg);
-        }
-
-        const data = await res.json();
-        if (term && data.output) {
-          term.innerText += `\n${data.output}`;
-        }
-        if (term) {
-          if (data.status === 'success') {
-            term.innerText += `\n✅ Command completed successfully (exit code ${data.exit_code ?? 0})`;
-          } else {
-            term.innerText += `\n❌ Command exited with code ${data.exit_code ?? 1}`;
-          }
-        }
-
-        if (data.status === 'success') {
-          showToast(`Executed: ${cmd.split(' ')[0]}`);
-          if (input) input.value = '';
-        } else {
-          showToast(`Command finished with exit code ${data.exit_code}`, true);
-        }
-      } catch (err) {
-        console.error('Terminal command failed:', err);
-        if (term) term.innerText += `\n❌ Execution error: ${err.message}`;
-        showToast(`Failed: ${err.message}`, true);
-      } finally {
-        if (btn) btn.disabled = false;
-        if (btnText) btnText.innerText = 'Run';
-        if (autoscroll && term) term.scrollTop = term.scrollHeight;
-        if (window.lucide) lucide.createIcons();
-      }
-    }
-
-    async function triggerStartSandbox() {
-      const cmdInput = document.getElementById('sandbox-cmd-input');
-      const installInput = document.getElementById('sandbox-install-input');
-      const portInput = document.getElementById('sandbox-port-input');
-      const term = document.getElementById('sandbox-terminal');
-
-      const cmd = (cmdInput?.value || '').trim();
-      const installCommand = (installInput?.value || '').trim();
-      const port = parseInt(portInput?.value, 10) || 9100;
-      const startBtn = document.getElementById('btn-sandbox-start');
-
-      sandboxLaunchInProgress = true;
-      if (startBtn) startBtn.disabled = true;
-      if (term) {
-        term.innerText += `\n\n▶ Install & Run requested\n[1/4] Creating isolated ${document.getElementById('sandbox-detected-type')?.innerText || 'project'} workspace…\n[2/4] Copying the current repository source…`;
-        if (installCommand) term.innerText += `\n[3/4] Installing dependencies: ${installCommand}`;
-        else term.innerText += '\n[3/4] No dependency installation command was detected.';
-        term.innerText += '\n[4/4] Starting application process…';
-        term.scrollTop = term.scrollHeight;
-      }
-      let elapsed = 0;
-      sandboxLaunchProgressTimer = setInterval(() => {
-        elapsed += 2;
-        if (term) {
-          const phase = installCommand
-            ? `[Working] Dependency installation is still running (${elapsed}s)…`
-            : `[Working] Waiting for the application process (${elapsed}s)…`;
-          term.innerText += `\n${phase}`;
-          term.scrollTop = term.scrollHeight;
-        }
-      }, 2000);
-      try {
-        const res = await fetch(`${API_BASE}/api/v1/sandbox/start`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            repo_name: currentRepo,
-            command: cmd,
-            install_command: installCommand,
-            port: port
-          })
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        sandboxLaunchInProgress = false;
-        if (sandboxLaunchProgressTimer) {
-          clearInterval(sandboxLaunchProgressTimer);
-          sandboxLaunchProgressTimer = null;
-        }
-        updateSandboxUI(data);
-        showToast('Sandbox launched successfully! 🚀');
-      } catch (e) {
-        console.error('Failed to start sandbox:', e);
-        showToast(`Failed to launch sandbox: ${e.message}`);
-      } finally {
-        sandboxLaunchInProgress = false;
-        if (sandboxLaunchProgressTimer) {
-          clearInterval(sandboxLaunchProgressTimer);
-          sandboxLaunchProgressTimer = null;
-        }
-        if (startBtn) startBtn.disabled = false;
-      }
-    }
-
-    async function triggerPrepareSandbox() {
-      const installInput = document.getElementById('sandbox-install-input');
-      const term = document.getElementById('sandbox-terminal');
-      const command = (installInput?.value || '').trim();
-      if (!command) {
-        showToast('No install command was detected. Re-scan or enter one first.', true);
-        return;
-      }
-      setTerminalCommand(command);
-      await executeSandboxTerminalCommand();
-    }
-
-    async function triggerStopSandbox() {
-      try {
-        const res = await fetch(`${API_BASE}/api/v1/sandbox/stop`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repo_name: currentRepo })
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        updateSandboxUI(data);
-        showToast('Sandbox stopped.');
-      } catch (e) {
-        console.error('Failed to stop sandbox:', e);
-        showToast(`Failed to stop sandbox: ${e.message}`);
-      }
-    }
-
-    function clearSandboxTerminal() {
-      const term = document.getElementById('sandbox-terminal');
-      if (term) term.innerText = '';
-      // Keep the current server cursor: the next polling pass must not restore
-      // already displayed output after the user intentionally clears it.
-    }
-
-    // --- Preflight Code Review & Sandbox Error Diagnostics ---
-    let lastPreflightReportMarkdown = '';
-    let lastPreflightPrompt = '';
-    let lastErrorReportMarkdown = '';
-
-    async function triggerRunPreflightReview() {
-      const btn = document.getElementById('btn-run-preflight') || document.getElementById('btn-run-orca');
-      const runText = document.getElementById('preflight-run-text') || document.getElementById('orca-run-text');
-      const copyPromptBtn = document.getElementById('btn-copy-preflight-prompt');
-      const togglePromptBtn = document.getElementById('btn-toggle-preflight-prompt');
-      const downloadBtn = document.getElementById('btn-download-preflight') || document.getElementById('btn-download-orca');
       const summaryCards = document.getElementById('preflight-summary-cards') || document.getElementById('orca-summary-cards');
       const reportContent = document.getElementById('preflight-report-content') || document.getElementById('orca-report-content');
       const promptContent = document.getElementById('preflight-prompt-content');
@@ -4471,7 +3843,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           if (sel && sel.value) currentRepo = sel.value;
         }
 
-        const res = await fetch(`${API_BASE}/api/v1/sandbox/preflight-review`, {
+        const res = await fetch(`${API_BASE}/api/v1/review/preflight-code`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -4594,7 +3966,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       }
       const repoParam = currentRepo ? `repo_name=${encodeURIComponent(currentRepo)}` : '';
       const qs = repoParam ? '?' + repoParam : '';
-      const url = `${API_BASE}/api/v1/sandbox/preflight-review/download${qs}`;
+      const url = `${API_BASE}/api/v1/review/preflight-code/download${qs}`;
       fetch(url)
         .then(async res => {
           if (!res.ok) {
@@ -4625,96 +3997,6 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
     const downloadOrcaReviewReport = downloadPreflightReviewReport;
 
-    async function triggerDiagnoseSandboxError() {
-      const modal = document.getElementById('modal-sandbox-error');
-      const body = document.getElementById('sandbox-error-report-body');
-      if (modal) modal.classList.remove('hidden');
-      if (body) body.innerText = 'Analyzing sandbox failure logs and diagnosing root cause...';
-      if (window.lucide) lucide.createIcons();
-
-      try {
-        if (!currentRepo) {
-          const sel = document.getElementById('repo-select');
-          if (sel && sel.value) currentRepo = sel.value;
-        }
-
-        const res = await fetch(`${API_BASE}/api/v1/sandbox/diagnose-error`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ repo_name: currentRepo })
-        });
-        if (!res.ok) {
-          const errorMsg = await readApiError(res, `HTTP ${res.status} error occurred`);
-          throw new Error(errorMsg);
-        }
-        const data = await res.json();
-        lastErrorReportMarkdown = data.markdown_report || '';
-
-        const errEngineBadge = document.getElementById('sandbox-error-engine-badge');
-        if (errEngineBadge) {
-          errEngineBadge.classList.remove('hidden');
-          if (data.engine === 'heuristic-fallback') {
-            errEngineBadge.className = 'mb-3 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between bg-amber-950/70 border border-amber-500/40 text-amber-200';
-            errEngineBadge.innerHTML = '<span>⚠️ <strong>Heuristic Diagnostic:</strong> Local static pattern recognition (No AI model invoked).</span><span class="text-[10px] text-amber-400/80 bg-amber-900/50 px-2 py-0.5 rounded border border-amber-500/30">Local Fallback</span>';
-          } else {
-            errEngineBadge.className = 'mb-3 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between bg-cyan-950/70 border border-cyan-500/40 text-cyan-200';
-            errEngineBadge.innerHTML = '<span>⚡ <strong>Diagnosis Engine:</strong> Vultr Serverless Inference</span><span class="text-[10px] text-cyan-400/80 bg-cyan-900/50 px-2 py-0.5 rounded border border-cyan-500/30">Vultr Serverless</span>';
-          }
-        }
-        if (body) body.innerText = lastErrorReportMarkdown;
-      } catch (e) {
-        console.error('Failed to diagnose error:', e);
-        if (body) body.innerText = `Failed to generate diagnostic report: ${e.message}`;
-      }
-    }
-
-    function closeSandboxErrorModal() {
-      const modal = document.getElementById('modal-sandbox-error');
-      if (modal) modal.classList.add('hidden');
-    }
-
-    function downloadSandboxErrorReport() {
-      if (lastErrorReportMarkdown && lastErrorReportMarkdown.trim()) {
-        const blob = new Blob([lastErrorReportMarkdown], { type: 'text/markdown;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `sandbox-error-diagnostic-${currentRepo || 'project'}.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Downloaded Diagnostic Error Report (.md)');
-        return;
-      }
-      const repoParam = currentRepo ? `repo_name=${encodeURIComponent(currentRepo)}` : '';
-      const keyParam = currentApiKey ? `api_key=${encodeURIComponent(currentApiKey)}` : '';
-      const qs = [repoParam, keyParam].filter(Boolean).join('&');
-      const url = `${API_BASE}/api/v1/sandbox/error-report/download${qs ? '?' + qs : ''}`;
-      fetch(url, { headers: currentApiKey ? { 'X-API-Key': currentApiKey } : {} })
-        .then(res => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.blob();
-        })
-        .then(blob => {
-          const dlUrl = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = dlUrl;
-          a.download = `sandbox-error-diagnostic-${currentRepo || 'project'}.md`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(dlUrl);
-          showToast('Downloaded Diagnostic Error Report (.md)');
-        })
-        .catch(err => {
-          showToast('Failed to download diagnostic report: ' + err.message, true);
-        });
-    }
-
-    async function downloadRepoZip(repoName) {
       const target = repoName || currentRepo || (document.getElementById('repo-select') ? document.getElementById('repo-select').value : '');
       if (!target) {
         showToast('Please select or import a project first.', true);

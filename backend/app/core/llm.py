@@ -154,7 +154,7 @@ def _sanitize_docker_proxy_env():
                 os.environ[var] = val.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
         
         # Ensure NO_PROXY always bypasses host.docker.internal, loopback, and docker network aliases
-        required_no_proxy = ["localhost", "127.0.0.1", "host.docker.internal", "neo4j", "redis", "api", "celery_worker", "mcp_server", "sandbox_runner", "frontend", "graphrag_api", "graphrag_worker", "graphrag_mcp", "graphrag_dashboard", "graphrag_sandbox_runner"]
+        required_no_proxy = ["localhost", "127.0.0.1", "host.docker.internal", "neo4j", "redis", "api", "celery_worker", "mcp_server", "frontend", "graphrag_api", "graphrag_worker", "graphrag_mcp", "graphrag_dashboard"]
         for no_var in ["NO_PROXY", "no_proxy"]:
             current = os.getenv(no_var, "")
             parts = [p.strip() for p in current.split(",") if p.strip()]
