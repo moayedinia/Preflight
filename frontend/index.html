@@ -1566,11 +1566,21 @@ Click "Run Preflight Review" to read the entire codebase and generate comprehens
     window.addEventListener('hashchange', routeAuthHash);
 
     async function checkSession() {
+      // A gateway, database, or stale reverse-proxy connection must never keep
+      // the whole UI on the splash screen indefinitely.  Authentication can
+      // be retried from the normal login panel after a bounded request.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
       try {
-        const res = await fetch(`${API_BASE}/api/v1/auth/me`, { cache: 'no-store' });
+        const res = await fetch(`${API_BASE}/api/v1/auth/me`, {
+          cache: 'no-store',
+          signal: controller.signal
+        });
         if (res.ok) return await res.json();
       } catch (e) {
         console.error('Session check failed:', e);
+      } finally {
+        clearTimeout(timeout);
       }
       return null;
     }
