@@ -312,6 +312,7 @@ def detect_heuristic_launch_plan(repo_dir: Path, file_tree: List[str], readme_co
     detected_install = ""
     detected_port = 5000
     detected_from = "heuristics"
+    runtime_version = ""
 
     file_names_lower = [f.lower() for f in file_tree]
 
@@ -340,6 +341,14 @@ def detect_heuristic_launch_plan(repo_dir: Path, file_tree: List[str], readme_co
             # Repositories commonly keep the web project under src/. Running
             # bare `dotnet restore` at the repository root then returns
             # MSB1003, while the launch command already knows the project.
+            project_text = _read_snippet_safe(repo_dir / target_proj, 8000)
+            framework_match = re.search(
+                r"<TargetFramework>\s*(net\d+(?:\.\d+)?)\s*</TargetFramework>",
+                project_text,
+                re.IGNORECASE,
+            )
+            if framework_match:
+                runtime_version = framework_match.group(1).removeprefix("net")
             detected_install = f"dotnet restore {target_proj}"
             detected_cmd = f"dotnet run --project {target_proj} --urls http://0.0.0.0:{{PORT}} --no-launch-profile"
         elif sln_files:
@@ -520,7 +529,8 @@ def detect_heuristic_launch_plan(repo_dir: Path, file_tree: List[str], readme_co
         "command": detected_cmd,
         "install_command": detected_install,
         "default_port": detected_port,
-        "detected_from": detected_from
+        "detected_from": detected_from,
+        "runtime_version": runtime_version,
     }
 
 
@@ -640,6 +650,7 @@ def discover_project_launch_plan(repo_name: Optional[str] = None) -> Dict[str, A
             "working_dir": str(repo_dir),
             "confidence": "low",
             "detected_from": "default",
+            "runtime_version": "",
             "readme_file": "None",
             "readme_summary": "Repository directory not found on disk."
         }
@@ -701,6 +712,7 @@ def discover_project_launch_plan(repo_name: Optional[str] = None) -> Dict[str, A
         "project_type": plan["project_type"],
         "command": plan["command"],
         "install_command": plan.get("install_command", ""),
+        "runtime_version": plan.get("runtime_version", ""),
         "default_port": plan["default_port"],
         "assigned_port": assigned_port,
         "working_dir": str(repo_dir),
@@ -1111,6 +1123,7 @@ def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optio
                     "project_type": plan["project_type"],
                     "command": cmd,
                     "install_command": install_cmd,
+                    "runtime_version": plan.get("runtime_version", ""),
                     "port": port,
                 },
                 timeout=120,
@@ -1266,6 +1279,7 @@ def execute_sandbox_command(repo_name: Optional[str] = None, command: str = "") 
             if status.get("status") not in ("running", "starting"):
                 endpoint = "/sessions/prepare"
                 payload["project_type"] = plan["project_type"]
+                payload["runtime_version"] = plan.get("runtime_version", "")
             res = _runner_request("POST", endpoint, json=payload, timeout=180)
             return res
         except HTTPException:

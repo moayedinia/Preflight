@@ -81,11 +81,30 @@ RUNTIME_IMAGES = {
 }
 
 
+def image_for(runtime: str, runtime_version: str = "") -> str:
+    """Select an image compatible with the framework version discovered in source.
+
+    A generic .NET SDK 8 image cannot restore or build a net9.0 project.  The
+    version is derived from the checked-in project manifest, rather than from
+    an LLM response or user command, and is constrained to a numeric major.
+    """
+    if runtime == "dotnet" and runtime_version:
+        match = re.fullmatch(r"(\d+)(?:\.\d+)?", runtime_version.strip())
+        if match:
+            major = match.group(1)
+            return os.getenv(
+                f"SANDBOX_DOTNET_{major}_IMAGE",
+                f"mcr.microsoft.com/dotnet/sdk:{major}.0",
+            )
+    return RUNTIME_IMAGES[runtime]
+
+
 class StartRequest(BaseModel):
     repo_name: str = Field(min_length=1, max_length=120)
     project_type: str = "Generic"
     command: str = Field(min_length=1, max_length=4096)
     install_command: str = Field(default="", max_length=4096)
+    runtime_version: str = Field(default="", max_length=32)
     port: int = Field(default=8000, ge=1024, le=65535)
 
 
@@ -103,6 +122,7 @@ class PrepareRequest(BaseModel):
     repo_name: str = Field(min_length=1, max_length=120)
     project_type: str = "Generic"
     command: str = Field(min_length=1, max_length=4096)
+    runtime_version: str = Field(default="", max_length=32)
 
 
 class Session:
@@ -425,7 +445,7 @@ def prepare(payload: PrepareRequest):
         raise HTTPException(status_code=404, detail="Repository directory not found")
 
     runtime = runtime_for(payload.project_type, payload.command)
-    image = RUNTIME_IMAGES[runtime]
+    image = image_for(runtime, payload.runtime_version)
     volume_name = f"preflight-sandbox-{name.lower()}-workspace"
     with lock:
         remove_session(name)
@@ -485,7 +505,7 @@ def start(payload: StartRequest):
         raise HTTPException(status_code=404, detail="Repository directory not found")
 
     runtime = runtime_for(payload.project_type, payload.install_command, payload.command)
-    image = RUNTIME_IMAGES[runtime]
+    image = image_for(runtime, payload.runtime_version)
     container_name = f"preflight-sandbox-{name.lower()}"
     volume_name = f"preflight-sandbox-{name.lower()}-workspace"
     run_command = prepare_command(payload.project_type, payload.command)

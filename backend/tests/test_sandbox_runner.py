@@ -12,7 +12,7 @@ fake_docker.errors = fake_errors
 sys.modules.setdefault("docker", fake_docker)
 sys.modules.setdefault("docker.errors", fake_errors)
 
-from app.sandbox_runner import clean_name, prepare_command, runtime_for
+from app.sandbox_runner import RUNTIME_IMAGES, clean_name, image_for, prepare_command, runtime_for
 
 
 @pytest.mark.parametrize(
@@ -44,3 +44,10 @@ def test_vite_is_bound_to_container_interface_and_selected_port():
 def test_repository_name_rejects_traversal():
     with pytest.raises(Exception):
         clean_name("../outside")
+
+
+def test_dotnet_runtime_image_matches_detected_target_framework():
+    """A net9.0 project must not be launched with the SDK 8 default image."""
+    assert image_for("dotnet", "9.0").endswith(":9.0")
+    assert image_for("dotnet", "8.0").endswith(":8.0")
+    assert image_for("node", "20.0") == RUNTIME_IMAGES["node"]
