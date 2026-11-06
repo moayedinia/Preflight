@@ -4123,7 +4123,9 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       try {
         const repoParam = currentRepo ? `?repo_name=${encodeURIComponent(currentRepo)}` : '';
         const res = await fetch(`${API_BASE}/api/v1/sandbox/plan${repoParam}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          throw new Error(await readApiError(res, `Sandbox start failed (HTTP ${res.status}).`));
+        }
         const plan = await res.json();
         if (typeEl) typeEl.innerText = plan.project_type || 'Generic';
         if (fromEl) fromEl.innerText = `${plan.detected_from || 'Heuristics'} (${plan.readme_file || 'No README'})`;

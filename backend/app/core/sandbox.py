@@ -47,8 +47,16 @@ def _runner_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
             proxies=proxies,
             **kwargs,
         )
+        if response.status_code >= 400:
+            try:
+                runner_detail = response.json().get("detail", response.text)
+            except (ValueError, AttributeError):
+                runner_detail = response.text
+            raise HTTPException(status_code=response.status_code, detail=runner_detail)
         response.raise_for_status()
         return response.json()
+    except HTTPException:
+        raise
     except requests.RequestException as exc:
         detail = ""
         if getattr(exc, "response", None) is not None:
@@ -314,7 +322,6 @@ def detect_heuristic_launch_plan(repo_dir: Path, file_tree: List[str], readme_co
 
     if sln_files or csproj_files or fsproj_files or any(f.endswith(".cs") for f in file_tree):
         detected_type = "C# (.NET)"
-        detected_install = "dotnet restore"
         detected_port = 5000
         detected_from = ".NET Solution / Project"
 
@@ -330,10 +337,16 @@ def detect_heuristic_launch_plan(repo_dir: Path, file_tree: List[str], readme_co
         
         target_proj = web_project or (csproj_files[0] if csproj_files else None)
         if target_proj:
+            # Repositories commonly keep the web project under src/. Running
+            # bare `dotnet restore` at the repository root then returns
+            # MSB1003, while the launch command already knows the project.
+            detected_install = f"dotnet restore {target_proj}"
             detected_cmd = f"dotnet run --project {target_proj} --urls http://0.0.0.0:{{PORT}} --no-launch-profile"
         elif sln_files:
+            detected_install = f"dotnet restore {sln_files[0]}"
             detected_cmd = "dotnet run --urls http://0.0.0.0:{PORT} --no-launch-profile"
         else:
+            detected_install = "dotnet restore"
             detected_cmd = "dotnet run --urls http://0.0.0.0:{PORT} --no-launch-profile"
 
     # 2. Node.js / JavaScript / TypeScript Detection
@@ -663,7 +676,16 @@ def discover_project_launch_plan(repo_name: Optional[str] = None) -> Dict[str, A
     )
 
     if ai_plan:
-        plan.update(ai_plan)
+        # Manifests are authoritative.  An LLM can describe the project well,
+        # but must not replace a verified .csproj/package.json/pyproject command
+        # with a plausible-looking directory such as `dotnet run --project src`.
+        # Only unknown/generic projects may use LLM commands as a fallback.
+        deterministic_project = plan.get("detected_from") not in {"heuristics", "default"}
+        if deterministic_project:
+            plan["readme_summary"] = ai_plan.get("readme_summary") or plan.get("readme_summary")
+            plan["ai_project_type"] = ai_plan.get("project_type")
+        else:
+            plan.update(ai_plan)
 
     assigned_port = find_available_port(start_port=9100)
 
@@ -1095,6 +1117,10 @@ def start_sandbox_session(repo_name: Optional[str] = None, custom_command: Optio
             )
             result["proxy_url"] = f"/api/v1/sandbox/proxy/{clean_repo or plan['repo_name']}/"
             return result
+        except HTTPException:
+            # An install/build failure is actionable user feedback, not a
+            # runner outage. Preserve the runner's status and terminal output.
+            raise
         except Exception as exc:
             # A configured runner is a security boundary.  Do not silently run
             # untrusted repository code on the API host when it is unavailable.
@@ -1242,6 +1268,8 @@ def execute_sandbox_command(repo_name: Optional[str] = None, command: str = "") 
                 payload["project_type"] = plan["project_type"]
             res = _runner_request("POST", endpoint, json=payload, timeout=180)
             return res
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.warning(f"Remote runner exec failed: {exc}")
             raise HTTPException(
