@@ -290,6 +290,10 @@ def _create_disposable_workspace(cli: Any, image: str, volume: Any) -> None:
             volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
             network_disabled=True,
             cap_drop=["ALL"],
+            # This one-purpose, non-networked initializer must change the
+            # ownership of an empty Docker volume before untrusted code exists.
+            # The application/install containers still receive no capabilities.
+            cap_add=["CHOWN"],
             security_opt=["no-new-privileges:true"],
         )
         setup.start()
