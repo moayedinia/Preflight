@@ -425,7 +425,7 @@ def prepare(payload: PrepareRequest):
             return {
                 "status": "success", "repo_name": name, "command": payload.command,
                 "exit_code": 0, "output": output, "runtime": runtime,
-                "message": "Workspace prepared. Start Sandbox will run the project with these installed dependencies."
+                "message": "Workspace prepared. Install & Run will launch the project with these installed dependencies."
             }
         except HTTPException:
             remove_prepared_workspace(name)

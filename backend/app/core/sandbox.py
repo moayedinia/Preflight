@@ -1391,7 +1391,7 @@ h2{{color:#f87171;margin-top:0}}p{{color:#94a3b8;font-size:14px;line-height:1.6}
 </head><body><div class="card">
 <h2>⚠️ Sandbox is Stopped</h2>
 <p>The sandbox process for <b>{clean_repo or 'the project'}</b> is not currently running.<br>
-Please open the dashboard and click <b>Start Sandbox</b> first.</p>
+Please open the dashboard and click <b>Install &amp; Run</b> first.</p>
 </div></body></html>"""
         return Response(content=html, status_code=503, media_type="text/html")
 

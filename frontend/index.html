@@ -4024,6 +4024,8 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     let sandboxPollTimer = null;
     let sandboxCurrentStatus = 'stopped';
     let sandboxActiveTab = 'logs';
+    let sandboxLaunchProgressTimer = null;
+    let sandboxLaunchInProgress = false;
 
     function switchSandboxTab(tab) {
       sandboxActiveTab = tab;
@@ -4101,6 +4103,11 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         clearInterval(sandboxPollTimer);
         sandboxPollTimer = null;
       }
+      if (sandboxLaunchProgressTimer) {
+        clearInterval(sandboxLaunchProgressTimer);
+        sandboxLaunchProgressTimer = null;
+      }
+      sandboxLaunchInProgress = false;
     }
 
     async function triggerRescanSandbox() {
@@ -4234,8 +4241,8 @@ Please update the code accordingly. Then come back and run Preflight again to ch
         }
       }
 
-      if (term && Array.isArray(data.logs)) {
-        term.innerText = data.logs.join('\n') || 'Sandbox ready. Click "Start Sandbox" to run.';
+      if (term && Array.isArray(data.logs) && !sandboxLaunchInProgress) {
+        term.innerText = data.logs.join('\n') || 'Sandbox ready. Choose Install & Run to prepare and launch the project.';
         if (autoscroll) {
           term.scrollTop = term.scrollHeight;
         }
@@ -4325,9 +4332,30 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       const term = document.getElementById('sandbox-terminal');
 
       const cmd = (cmdInput?.value || '').trim();
+      const installCommand = (installInput?.value || '').trim();
       const port = parseInt(portInput?.value, 10) || 9100;
+      const startBtn = document.getElementById('btn-sandbox-start');
 
-      if (term) term.innerText += '\n[Starting] Dispatching launch command...';
+      sandboxLaunchInProgress = true;
+      if (startBtn) startBtn.disabled = true;
+      if (term) {
+        term.innerText += `\n\n▶ Install & Run requested\n[1/4] Creating isolated ${document.getElementById('sandbox-detected-type')?.innerText || 'project'} workspace…\n[2/4] Copying the current repository source…`;
+        if (installCommand) term.innerText += `\n[3/4] Installing dependencies: ${installCommand}`;
+        else term.innerText += '\n[3/4] No dependency installation command was detected.';
+        term.innerText += '\n[4/4] Starting application process…';
+        term.scrollTop = term.scrollHeight;
+      }
+      let elapsed = 0;
+      sandboxLaunchProgressTimer = setInterval(() => {
+        elapsed += 2;
+        if (term) {
+          const phase = installCommand
+            ? `[Working] Dependency installation is still running (${elapsed}s)…`
+            : `[Working] Waiting for the application process (${elapsed}s)…`;
+          term.innerText += `\n${phase}`;
+          term.scrollTop = term.scrollHeight;
+        }
+      }, 2000);
       try {
         const res = await fetch(`${API_BASE}/api/v1/sandbox/start`, {
           method: 'POST',
@@ -4335,17 +4363,29 @@ Please update the code accordingly. Then come back and run Preflight again to ch
           body: JSON.stringify({
             repo_name: currentRepo,
             command: cmd,
-            install_command: (installInput?.value || '').trim(),
+            install_command: installCommand,
             port: port
           })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        sandboxLaunchInProgress = false;
+        if (sandboxLaunchProgressTimer) {
+          clearInterval(sandboxLaunchProgressTimer);
+          sandboxLaunchProgressTimer = null;
+        }
         updateSandboxUI(data);
         showToast('Sandbox launched successfully! 🚀');
       } catch (e) {
         console.error('Failed to start sandbox:', e);
         showToast(`Failed to launch sandbox: ${e.message}`);
+      } finally {
+        sandboxLaunchInProgress = false;
+        if (sandboxLaunchProgressTimer) {
+          clearInterval(sandboxLaunchProgressTimer);
+          sandboxLaunchProgressTimer = null;
+        }
+        if (startBtn) startBtn.disabled = false;
       }
     }
 
