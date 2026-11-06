@@ -283,7 +283,9 @@ def _create_disposable_workspace(cli: Any, image: str, volume: Any) -> None:
             # ENTRYPOINT ("dotnet"). Override it for infrastructure commands;
             # otherwise Docker attempts `dotnet sh -lc ...` and setup fails.
             entrypoint=["/bin/sh", "-lc"],
-            command="mkdir -p /workspace && chown -R 1000:1000 /workspace",
+            # Docker splits a string command into argv entries. Keep the whole
+            # shell program as one argument after `sh -lc`.
+            command=["mkdir -p /workspace && chown -R 1000:1000 /workspace"],
             user="0:0",
             volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
             network_disabled=True,
@@ -313,7 +315,7 @@ def _stage_source(cli: Any, image: str, volume: Any, repo_dir: Path) -> None:
         stage = cli.containers.create(
             image=image,
             entrypoint=["/bin/sh", "-lc"],
-            command="sleep 1",
+            command=["sleep 1"],
             working_dir="/workspace",
             user="1000:1000",
             volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
@@ -347,7 +349,7 @@ def _install_dependencies(cli: Any, image: str, volume: Any, command: str) -> st
         installer = cli.containers.create(
             image=image,
             entrypoint=["/bin/sh", "-lc"],
-            command=install_command,
+            command=[install_command],
             working_dir="/workspace",
             read_only=True,
             user="1000:1000",
@@ -522,7 +524,7 @@ def start(payload: StartRequest):
                 image=image,
                 name=container_name,
                 entrypoint=["/bin/sh", "-lc"],
-                command=shell_command,
+                command=[shell_command],
                 working_dir="/workspace",
                 read_only=True,
                 # The runtime itself is always unprivileged.  Package setup is
