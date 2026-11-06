@@ -4026,6 +4026,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     let sandboxActiveTab = 'logs';
     let sandboxLaunchProgressTimer = null;
     let sandboxLaunchInProgress = false;
+    let sandboxLastServerLogs = '';
 
     function switchSandboxTab(tab) {
       sandboxActiveTab = tab;
@@ -4074,6 +4075,7 @@ Please update the code accordingly. Then come back and run Preflight again to ch
 
     async function openSandboxModal() {
       openModal('modal-sandbox');
+      sandboxLastServerLogs = '';
       if (window.lucide) lucide.createIcons();
       const cmdInput = document.getElementById('sandbox-cmd-input');
       if (cmdInput) cmdInput.value = '';
@@ -4242,10 +4244,22 @@ Please update the code accordingly. Then come back and run Preflight again to ch
       }
 
       if (term && Array.isArray(data.logs) && !sandboxLaunchInProgress) {
-        term.innerText = data.logs.join('\n') || 'Sandbox ready. Choose Install & Run to prepare and launch the project.';
-        if (autoscroll) {
-          term.scrollTop = term.scrollHeight;
+        const serverLogs = data.logs.join('\n');
+        // Polling is a log stream, not a terminal redraw. Replacing innerText
+        // here erased install output and made a healthy sandbox look frozen.
+        if (!sandboxLastServerLogs) {
+          if (serverLogs) term.innerText += (term.innerText.trim() ? '\n' : '') + serverLogs;
+        } else if (serverLogs.startsWith(sandboxLastServerLogs)) {
+          const newLogOutput = serverLogs.slice(sandboxLastServerLogs.length);
+          if (newLogOutput) term.innerText += (term.innerText.endsWith('\n') ? '' : '\n') + newLogOutput.replace(/^\n/, '');
+        } else if (serverLogs && !sandboxLastServerLogs.startsWith(serverLogs)) {
+          // A new session (or a bounded runner log buffer) replaced the
+          // server-side history. Preserve the terminal and label the boundary.
+          term.innerText += (term.innerText.endsWith('\n') ? '' : '\n') + '\n[Sandbox log session refreshed]\n' + serverLogs;
         }
+        sandboxLastServerLogs = serverLogs;
+        if (!term.innerText.trim()) term.innerText = 'Sandbox ready. Choose Install & Run to prepare and launch the project.';
+        if (autoscroll) term.scrollTop = term.scrollHeight;
       }
       if (window.lucide) lucide.createIcons();
     }
@@ -4421,6 +4435,8 @@ Please update the code accordingly. Then come back and run Preflight again to ch
     function clearSandboxTerminal() {
       const term = document.getElementById('sandbox-terminal');
       if (term) term.innerText = '';
+      // Keep the current server cursor: the next polling pass must not restore
+      // already displayed output after the user intentionally clears it.
     }
 
     // --- Preflight Code Review & Sandbox Error Diagnostics ---
